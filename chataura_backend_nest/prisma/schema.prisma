@@ -1,0 +1,946 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountStatus {
+  active
+  suspended
+  deleted
+}
+
+enum FollowStatus {
+  accepted
+  pending
+}
+
+enum FriendRequestStatus {
+  pending
+  accepted
+  rejected
+  cancelled
+}
+
+enum UserRole {
+  user
+  seller
+  admin
+  agency
+}
+
+model User {
+  id               BigInt         @id @default(autoincrement())
+  email            String?        @unique @db.VarChar(255)
+  phone            String?        @unique @db.VarChar(32)
+  password         String         @db.VarChar(255)
+  name             String?        @db.VarChar(255)
+  displayName      String?        @map("display_name") @db.VarChar(255)
+  avatarUrl        String?        @map("avatar_url") @db.Text
+  bio              String?        @db.Text
+  gender           String?        @db.VarChar(16)
+  dob              DateTime?      @db.Date
+  language         String?        @db.VarChar(16)
+  country          String?        @db.VarChar(8)
+  role             UserRole       @default(user)
+  inviteCode       String?        @unique @map("invite_code") @db.VarChar(16)
+  invitedBy        BigInt?        @map("invited_by")
+  emailVerifiedAt  DateTime?      @map("email_verified_at") @db.Timestamptz(6)
+  fcmToken         String?        @map("fcm_token") @db.Text
+  level            Int            @default(1)
+  exp              Int            @default(0)
+  xp               Int            @default(0)
+  coinBalance      BigInt         @default(0) @map("coin_balance")
+  walletBalance    BigInt         @default(0) @map("wallet_balance")
+  totalEarnedCoins BigInt         @default(0) @map("total_earned_coins")
+  referralBalance  BigInt         @default(0) @map("referral_balance")
+  gems             BigInt         @default(0)
+  inrEarningsBalance BigInt       @default(0) @map("inr_earnings_balance")
+  usdEarningsBalance BigInt       @default(0) @map("usd_earnings_balance")
+  privateAccount   Boolean        @default(false) @map("private_account")
+  isPrivate        Boolean        @default(false) @map("is_private")
+  showOnlineStatus Boolean        @default(true) @map("show_online_status")
+  isOnline         Boolean        @default(false) @map("is_online")
+  lastSeenAt       DateTime?      @map("last_seen_at") @db.Timestamptz(6)
+  isSuspended      Boolean        @default(false) @map("is_suspended")
+  suspendedReason  String?        @map("suspended_reason") @db.Text
+  suspendedUntil   DateTime?      @map("suspended_until") @db.Timestamptz(6)
+  accountStatus    AccountStatus  @default(active) @map("account_status")
+  deletedAt        DateTime?      @map("deleted_at") @db.Timestamptz(6)
+  isStarAccount    Boolean        @default(false) @map("is_star_account")
+  starRank         Int?           @map("star_rank")
+  starBioTag       String?        @map("star_bio_tag") @db.VarChar(255)
+  audioCallRate    Int?           @map("audio_call_rate")
+  videoCallRate    Int?           @map("video_call_rate")
+  selectedFrameId  BigInt?        @map("selected_frame_id")
+  selectedEntryBarId BigInt?      @map("selected_entry_bar_id")
+  lastClientCountry String?       @map("last_client_country") @db.VarChar(8)
+  streakCount      Int            @default(0) @map("streak_count")
+  lastStreakAt     DateTime?      @map("last_streak_at") @db.Timestamptz(6)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  refreshTokens       RefreshToken[]
+  devices             UserDevice[]
+  followers           UserFollower[]  @relation("Following")
+  following           UserFollower[]  @relation("Follower")
+  friendshipsAsUser   Friendship[]    @relation("FriendshipUser")
+  friendshipsAsFriend Friendship[]    @relation("FriendshipFriend")
+  friendRequestsSent  FriendRequest[] @relation("FriendRequestSender")
+  friendRequestsRecv  FriendRequest[] @relation("FriendRequestReceiver")
+  blocksInitiated     BlockedUser[]   @relation("Blocker")
+  blocksReceived      BlockedUser[]   @relation("Blocked")
+  reportsFiled        UserReport[]    @relation("Reporter")
+  reportsAgainst      UserReport[]    @relation("Reported")
+  coinPurchases       CoinPurchaseTransaction[]
+  coinTransactions    CoinTransaction[]
+  gemConversions      GemConversion[]
+  withdrawals         WithdrawalRequest[]
+  unlockedFrames      UserUnlockedFrame[]
+  selectedFrame       Frame?          @relation("SelectedFrame", fields: [selectedFrameId], references: [id])
+  selectedEntryBar    EntryBar?       @relation("SelectedEntryBar", fields: [selectedEntryBarId], references: [id])
+  roomsOwned          Room[]          @relation("RoomOwner")
+  roomsHosted         Room[]          @relation("RoomHost")
+  roomsCohosted       Room[]          @relation("RoomCoHost")
+  roomMemberships     RoomMember[]
+  seatsOccupied       Seat[]
+  roomBlocks          RoomBlock[]
+  greedyBets          GreedyBet[]
+  lucky77Bets         Lucky77Bet[]
+  conversationParts   ConversationParticipant[]
+  messagesSent        Message[]
+  starChatAsPayer     StarChatSession[] @relation("StarChatPayer")
+  starChatAsStar      StarChatSession[] @relation("StarChatStar")
+  unlockedStickers    UserUnlockedSticker[]
+  mediaItems          MediaItem[]
+  mediaComments       MediaComment[]
+  mediaLikes          MediaLike[]
+  mediaSaves          MediaSave[]
+  agencyAsOwner       AgencyAffiliation[] @relation("AgencyOwner")
+  agencyAsMember      AgencyAffiliation[] @relation("AgencyMember")
+  agencyWeeklyAsOwner AgencyWeeklyDistribution[]
+  feedback            Feedback[]
+  bonusClaims         BonusClaim[]
+
+  @@index([accountStatus])
+  @@index([isStarAccount, starRank])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    BigInt   @map("user_id")
+  token     String   @db.VarChar(64)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model UserDevice {
+  id         BigInt   @id @default(autoincrement())
+  userId     BigInt   @map("user_id")
+  deviceId   String?  @map("device_id") @db.VarChar(255)
+  platform   String?  @db.VarChar(32)
+  fcmToken   String?  @map("fcm_token") @db.Text
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_devices")
+}
+
+model UserFollower {
+  id          BigInt       @id @default(autoincrement())
+  followerId  BigInt       @map("follower_id")
+  followingId BigInt       @map("following_id")
+  status      FollowStatus @default(accepted)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  follower  User @relation("Follower", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("Following", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followingId, status])
+  @@map("user_followers")
+}
+
+model Friendship {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  friendId  BigInt   @map("friend_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user   User @relation("FriendshipUser", fields: [userId], references: [id], onDelete: Cascade)
+  friend User @relation("FriendshipFriend", fields: [friendId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, friendId])
+  @@index([friendId])
+  @@map("friendships")
+}
+
+model FriendRequest {
+  id         BigInt              @id @default(autoincrement())
+  senderId   BigInt              @map("sender_id")
+  receiverId BigInt              @map("receiver_id")
+  status     FriendRequestStatus @default(pending)
+  createdAt  DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  sender   User @relation("FriendRequestSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("FriendRequestReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@unique([senderId, receiverId])
+  @@index([receiverId, status])
+  @@map("friend_requests")
+}
+
+model BlockedUser {
+  id        BigInt   @id @default(autoincrement())
+  blockerId BigInt   @map("blocker_id")
+  blockedId BigInt   @map("blocked_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  blocker User @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+  @@map("blocked_users")
+}
+
+model UserReport {
+  id          BigInt   @id @default(autoincrement())
+  reporterId  BigInt   @map("reporter_id")
+  reportedId  BigInt   @map("reported_id")
+  reason      String   @db.VarChar(64)
+  description String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  reporter User @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reported User @relation("Reported", fields: [reportedId], references: [id], onDelete: Cascade)
+
+  @@index([reportedId])
+  @@map("user_reports")
+}
+
+enum PurchaseStatus {
+  pending
+  success
+  failed
+}
+
+enum PaymentSource {
+  RAZORPAY
+  EARNINGS_WALLET
+  MOCK
+}
+
+enum WithdrawalStatus {
+  pending
+  approved
+  rejected
+  completed
+  cancelled
+}
+
+model CoinPackage {
+  id            BigInt   @id @default(autoincrement())
+  audience      String   @default("user") @db.VarChar(32)
+  coins         Int
+  currency      String   @default("INR") @db.VarChar(8)
+  price         Decimal  @db.Decimal(12, 2)
+  originalPrice Decimal? @map("original_price") @db.Decimal(12, 2)
+  basePriceInr  Decimal? @map("base_price_inr") @db.Decimal(12, 2)
+  isActive      Boolean  @default(true) @map("is_active")
+  sortOrder     Int      @default(0) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  purchases CoinPurchaseTransaction[]
+
+  @@index([isActive, audience])
+  @@map("coin_packages")
+}
+
+model CoinPurchaseTransaction {
+  id                 BigInt         @id @default(autoincrement())
+  userId             BigInt         @map("user_id")
+  packageId          BigInt?        @map("package_id")
+  razorpayOrderId    String?        @unique @map("razorpay_order_id") @db.VarChar(64)
+  razorpayPaymentId  String?        @unique @map("razorpay_payment_id") @db.VarChar(64)
+  razorpaySignature  String?        @map("razorpay_signature") @db.VarChar(255)
+  amountMinor        Int            @map("amount_minor")
+  currency           String         @db.VarChar(8)
+  coinsCredited      Int            @map("coins_credited")
+  status             PurchaseStatus @default(pending)
+  paymentSource      PaymentSource  @default(RAZORPAY) @map("payment_source")
+  country            String?        @db.VarChar(8)
+  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  package CoinPackage? @relation(fields: [packageId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@map("coin_purchase_transactions")
+}
+
+model CoinTransaction {
+  id               BigInt   @id @default(autoincrement())
+  userId           BigInt   @map("user_id")
+  type             String   @db.VarChar(64)
+  title            String?  @db.VarChar(255)
+  coinAmount       BigInt   @map("coin_amount")
+  netAmount        BigInt?  @map("net_amount")
+  commissionAmount BigInt?  @map("commission_amount")
+  balanceAfter     BigInt?  @map("balance_after")
+  referenceId      String?  @map("reference_id") @db.VarChar(128)
+  status           String   @default("success") @db.VarChar(32)
+  meta             Json?
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([referenceId])
+  @@map("coin_transactions")
+}
+
+model GemConversion {
+  id               BigInt   @id @default(autoincrement())
+  userId           BigInt   @map("user_id")
+  gemsDebited      BigInt   @map("gems_debited")
+  currency         String   @db.VarChar(16)
+  coinsCredited    BigInt   @default(0) @map("coins_credited")
+  gemsBalanceAfter BigInt   @map("gems_balance_after")
+  walletBalanceAfter BigInt? @map("wallet_balance_after")
+  gemsPerCoin      Decimal  @map("gems_per_coin") @db.Decimal(12, 4)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("gem_conversions")
+}
+
+model WithdrawalRequest {
+  id         BigInt           @id @default(autoincrement())
+  userId     BigInt           @map("user_id")
+  amount     Decimal          @db.Decimal(12, 2)
+  currency   String           @db.VarChar(8)
+  source     String           @map("withdrawal_source") @db.VarChar(32)
+  status     WithdrawalStatus @default(pending)
+  note       String?          @db.Text
+  createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("withdrawal_requests")
+}
+
+model AdminSetting {
+  id                    Int      @id @default(1)
+  gemsPerCoin           Decimal  @default(10) @map("gems_per_coin") @db.Decimal(12, 4)
+  minGemsConvertToCoins Int      @default(10) @map("min_gems_convert_to_coins")
+  coinToXpRatio         Decimal  @default(0.1) @map("coin_to_xp_ratio") @db.Decimal(12, 4)
+  giftCommissionPct     Decimal  @default(20) @map("gift_commission_pct") @db.Decimal(8, 2)
+  earningsPurchaseEnabled Boolean @default(true) @map("earnings_purchase_enabled")
+  cashoutEnabled        Boolean  @default(false) @map("cashout_enabled")
+  audioCallPricePerMin  Int      @default(20) @map("audio_call_price_per_min")
+  videoCallPricePerMin  Int      @default(40) @map("video_call_price_per_min")
+  starChatPricePerMin   Int      @default(5) @map("star_chat_price_per_min")
+  starChatCommissionPct Decimal  @default(30) @map("star_chat_commission_pct") @db.Decimal(8, 2)
+  starChatHeartbeatSec  Int      @default(25) @map("star_chat_heartbeat_seconds")
+  spinCost              Int      @default(50) @map("spin_cost")
+  bonusConfig           Json?    @map("bonus_config")
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("admin_settings")
+}
+
+model Level {
+  id        Int      @id @default(autoincrement())
+  level     Int      @unique
+  minXp     Int      @map("min_xp")
+  maxXp     Int      @map("max_xp")
+  label     String?  @db.VarChar(64)
+  badgeUrl  String?  @map("badge_url") @db.Text
+  iconUrl   String?  @map("icon_url") @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("levels")
+}
+
+model Frame {
+  id            BigInt   @id @default(autoincrement())
+  name          String   @db.VarChar(128)
+  slug          String?  @unique @db.VarChar(128)
+  category      String?  @db.VarChar(64)
+  levelRequired Int      @default(1) @map("level_required")
+  coinCost      Int?     @map("coin_cost")
+  isPremium     Boolean  @default(false) @map("is_premium")
+  isActive      Boolean  @default(true) @map("is_active")
+  imageUrl      String?  @map("image_url") @db.Text
+  animationKey  String?  @map("animation_key") @db.VarChar(128)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  unlocks         UserUnlockedFrame[]
+  selectedByUsers User[]              @relation("SelectedFrame")
+
+  @@index([isActive, levelRequired])
+  @@map("frames")
+}
+
+model UserUnlockedFrame {
+  id         BigInt    @id @default(autoincrement())
+  userId     BigInt    @map("user_id")
+  frameId    BigInt    @map("frame_id")
+  coinsPaid  Int       @default(0) @map("coins_paid")
+  unlockedAt DateTime  @default(now()) @map("unlocked_at") @db.Timestamptz(6)
+  expiresAt  DateTime? @map("expires_at") @db.Timestamptz(6)
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  frame Frame @relation(fields: [frameId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, frameId])
+  @@map("user_unlocked_frames")
+}
+
+model EntryBar {
+  id            BigInt   @id @default(autoincrement())
+  name          String   @db.VarChar(128)
+  levelRequired Int      @default(1) @map("level_required")
+  imageUrl      String?  @map("image_url") @db.Text
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  selectedByUsers User[] @relation("SelectedEntryBar")
+
+  @@map("entry_bars")
+}
+
+model Gift {
+  id           BigInt   @id @default(autoincrement())
+  name         String   @db.VarChar(128)
+  coinCost     Int      @map("coin_cost")
+  imageUrl     String?  @map("image_url") @db.Text
+  animationUrl String?  @map("animation_url") @db.Text
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("gifts")
+}
+
+enum RoomMemberRole {
+  host
+  co_host
+  speaker
+  listener
+}
+
+enum GameRoundPhase {
+  betting
+  drawing
+  completed
+}
+
+enum GameBetStatus {
+  placed
+  won
+  lost
+}
+
+enum StarChatStatus {
+  active
+  ended
+}
+
+model RoomTheme {
+  id        BigInt   @id @default(autoincrement())
+  name      String   @db.VarChar(128)
+  imageUrl  String?  @map("image_url") @db.Text
+  coinCost  Int      @default(0) @map("coin_cost")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  rooms Room[]
+
+  @@map("room_themes")
+}
+
+model Room {
+  id               String    @id @default(uuid()) @db.Uuid
+  displayId        String    @unique @map("display_id") @db.VarChar(8)
+  title            String    @db.VarChar(255)
+  ownerId          BigInt    @map("owner_id")
+  hostId           BigInt?   @map("host_id")
+  coHostId         BigInt?   @map("co_host_id")
+  agoraChannelName String    @map("agora_channel_name") @db.VarChar(128)
+  maxSeats         Int       @default(8) @map("max_seats")
+  isLive           Boolean   @default(true) @map("is_live")
+  isPermanent      Boolean   @default(false) @map("is_permanent")
+  coverImageUrl    String?   @map("cover_image_url") @db.Text
+  description      String?   @db.Text
+  tags             Json?
+  settings         Json?
+  themeId          BigInt?   @map("theme_id")
+  countryCode      String?   @map("country_code") @db.VarChar(8)
+  allowedCountry   String?   @map("allowed_country") @db.VarChar(8)
+  allowedGender    String?   @map("allowed_gender") @db.VarChar(16)
+  minAge           Int?      @map("min_age")
+  maxAge           Int?      @map("max_age")
+  lastActivityAt   DateTime? @map("last_activity_at") @db.Timestamptz(6)
+  hostLastHeartbeatAt DateTime? @map("host_last_heartbeat_at") @db.Timestamptz(6)
+  endedAt          DateTime? @map("ended_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  owner   User       @relation("RoomOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  host    User?      @relation("RoomHost", fields: [hostId], references: [id])
+  coHost  User?      @relation("RoomCoHost", fields: [coHostId], references: [id])
+  theme   RoomTheme? @relation(fields: [themeId], references: [id])
+  members     RoomMember[]
+  seats       Seat[]
+  blocks      RoomBlock[]
+  affiliations AgencyAffiliation[]
+
+  @@index([isLive, lastActivityAt])
+  @@index([ownerId])
+  @@map("rooms")
+}
+
+model RoomMember {
+  id              BigInt         @id @default(autoincrement())
+  roomId          String         @map("room_id") @db.Uuid
+  userId          BigInt         @map("user_id")
+  role            RoomMemberRole @default(listener)
+  seatIndex       Int?           @map("seat_index")
+  agoraUid        Int?           @map("agora_uid")
+  isActive        Boolean        @default(true) @map("is_active")
+  lastHeartbeatAt DateTime?      @map("last_heartbeat_at") @db.Timestamptz(6)
+  joinedAt        DateTime       @default(now()) @map("joined_at") @db.Timestamptz(6)
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId, isActive])
+  @@map("room_members")
+}
+
+model Seat {
+  id              BigInt    @id @default(autoincrement())
+  roomId          String    @map("room_id") @db.Uuid
+  seatIndex       Int       @map("seat_index")
+  userId          BigInt?   @map("user_id")
+  isMuted         Boolean   @default(false) @map("is_muted")
+  mutedByUserId   BigInt?   @map("muted_by_user_id")
+  isLocked        Boolean   @default(false) @map("is_locked")
+  lastHeartbeatAt DateTime? @map("last_heartbeat_at") @db.Timestamptz(6)
+
+  room Room  @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id])
+
+  @@unique([roomId, seatIndex])
+  @@index([userId])
+  @@map("seats")
+}
+
+model RoomBlock {
+  id        BigInt    @id @default(autoincrement())
+  roomId    String    @map("room_id") @db.Uuid
+  userId    BigInt    @map("user_id")
+  reason    String?   @db.VarChar(255)
+  kind      String    @default("block") @db.VarChar(16)
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, userId])
+  @@map("room_blocks")
+}
+
+model Sticker {
+  id           BigInt   @id @default(autoincrement())
+  name         String   @db.VarChar(128)
+  coinCost     Int      @default(0) @map("coin_cost")
+  imageUrl     String?  @map("image_url") @db.Text
+  animationUrl String?  @map("animation_url") @db.Text
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  unlocks UserUnlockedSticker[]
+
+  @@map("stickers")
+}
+
+model UserUnlockedSticker {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  stickerId BigInt   @map("sticker_id")
+  coinsPaid Int      @default(0) @map("coins_paid")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sticker Sticker @relation(fields: [stickerId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, stickerId])
+  @@map("user_unlocked_stickers")
+}
+
+model GreedyRound {
+  id             BigInt         @id @default(autoincrement())
+  phase          GameRoundPhase @default(betting)
+  bettingEndsAt  DateTime       @map("betting_ends_at") @db.Timestamptz(6)
+  winningItem    String?        @map("winning_item") @db.VarChar(32)
+  winningMultiplier Int?        @map("winning_multiplier")
+  settledAt      DateTime?      @map("settled_at") @db.Timestamptz(6)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  bets GreedyBet[]
+
+  @@index([phase, bettingEndsAt])
+  @@map("greedy_rounds")
+}
+
+model GreedyBet {
+  id              BigInt        @id @default(autoincrement())
+  roundId         BigInt        @map("round_id")
+  userId          BigInt        @map("user_id")
+  item            String        @db.VarChar(32)
+  chipAmount      BigInt        @map("chip_amount")
+  multiplier      Int
+  potentialPayout BigInt        @map("potential_payout")
+  actualPayout    BigInt        @default(0) @map("actual_payout")
+  status          GameBetStatus @default(placed)
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  round GreedyRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roundId, userId])
+  @@map("greedy_bets")
+}
+
+model Lucky77Round {
+  id            BigInt         @id @default(autoincrement())
+  phase         GameRoundPhase @default(betting)
+  bettingEndsAt DateTime       @map("betting_ends_at") @db.Timestamptz(6)
+  winningItem   String?        @map("winning_item") @db.VarChar(32)
+  winningMultiplier Int?       @map("winning_multiplier")
+  settledAt     DateTime?      @map("settled_at") @db.Timestamptz(6)
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  bets Lucky77Bet[]
+
+  @@index([phase, bettingEndsAt])
+  @@map("lucky77_rounds")
+}
+
+model Lucky77Bet {
+  id              BigInt        @id @default(autoincrement())
+  roundId         BigInt        @map("round_id")
+  userId          BigInt        @map("user_id")
+  option          String        @db.VarChar(32)
+  chipAmount      BigInt        @map("chip_amount")
+  multiplier      Int
+  potentialPayout BigInt        @map("potential_payout")
+  actualPayout    BigInt        @default(0) @map("actual_payout")
+  status          GameBetStatus @default(placed)
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  round Lucky77Round @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  user  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roundId, userId])
+  @@map("lucky77_bets")
+}
+
+model Conversation {
+  id        BigInt   @id @default(autoincrement())
+  type      String   @default("private") @db.VarChar(16)
+  name      String?  @db.VarChar(255)
+  imageUrl  String?  @map("image_url") @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  participants ConversationParticipant[]
+  messages     Message[]
+  starSessions StarChatSession[]
+
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id         BigInt    @id @default(autoincrement())
+  conversationId BigInt @map("conversation_id")
+  userId     BigInt    @map("user_id")
+  lastReadAt DateTime? @map("last_read_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id             BigInt   @id @default(autoincrement())
+  conversationId BigInt   @map("conversation_id")
+  senderId       BigInt   @map("sender_id")
+  messageType    String   @default("text") @map("message_type") @db.VarChar(32)
+  messageText    String?  @map("message_text") @db.Text
+  messageMedia   String?  @map("message_media") @db.Text
+  giftId         BigInt?  @map("gift_id")
+  stickerId      BigInt?  @map("sticker_id")
+  status         String   @default("sent") @db.VarChar(16)
+  clientUuid     String?  @map("client_uuid") @db.VarChar(64)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+model StarChatSession {
+  id                 BigInt         @id @default(autoincrement())
+  conversationId     BigInt         @map("conversation_id")
+  payerId            BigInt         @map("payer_id")
+  starUserId         BigInt         @map("star_user_id")
+  status             StarChatStatus @default(active)
+  startedAt          DateTime       @default(now()) @map("started_at") @db.Timestamptz(6)
+  endedAt            DateTime?      @map("ended_at") @db.Timestamptz(6)
+  payerHeartbeatAt   DateTime?      @map("payer_heartbeat_at") @db.Timestamptz(6)
+  pricePerMin        Int            @map("price_per_min")
+  commissionPercent  Decimal        @map("commission_percent") @db.Decimal(8, 2)
+  coinsCharged       BigInt         @default(0) @map("coins_charged")
+  gemsCredited       BigInt         @default(0) @map("gems_credited")
+  endReason          String?        @map("end_reason") @db.VarChar(64)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  payer        User         @relation("StarChatPayer", fields: [payerId], references: [id])
+  star         User         @relation("StarChatStar", fields: [starUserId], references: [id])
+
+  @@index([payerId, status])
+  @@index([conversationId, status])
+  @@map("star_chat_sessions")
+}
+
+enum MediaKind {
+  post
+  reel
+}
+
+enum AgencyAffiliationStatus {
+  pending
+  accepted
+  rejected
+  left
+}
+
+enum AgencyWeeklyStatus {
+  pending
+  approved
+  rejected
+  paid
+}
+
+model MediaItem {
+  id               BigInt    @id @default(autoincrement())
+  userId           BigInt    @map("user_id")
+  kind             MediaKind
+  mediaType        String    @map("media_type") @db.VarChar(16)
+  fileUrl          String    @map("file_url") @db.Text
+  thumbnailUrl     String?   @map("thumbnail_url") @db.Text
+  caption          String?   @db.Text
+  musicUrl         String?   @map("music_url") @db.Text
+  effectName       String?   @map("effect_name") @db.VarChar(128)
+  duration         Int?
+  aspectRatio      String?   @map("aspect_ratio") @db.VarChar(16)
+  isCameraRecorded Boolean   @default(false) @map("is_camera_recorded")
+  likesCount       Int       @default(0) @map("likes_count")
+  commentsCount    Int       @default(0) @map("comments_count")
+  sharesCount      Int       @default(0) @map("shares_count")
+  viewsCount       Int       @default(0) @map("views_count")
+  isDeleted        Boolean   @default(false) @map("is_deleted")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  comments MediaComment[]
+  likes    MediaLike[]
+  saves    MediaSave[]
+
+  @@index([kind, createdAt])
+  @@index([userId, kind])
+  @@map("media_items")
+}
+
+model MediaComment {
+  id        BigInt   @id @default(autoincrement())
+  mediaId   BigInt   @map("media_id")
+  userId    BigInt   @map("user_id")
+  comment   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  media MediaItem @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([mediaId, createdAt])
+  @@map("media_comments")
+}
+
+model MediaLike {
+  id        BigInt   @id @default(autoincrement())
+  mediaId   BigInt   @map("media_id")
+  userId    BigInt   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  media MediaItem @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([mediaId, userId])
+  @@map("media_likes")
+}
+
+model MediaSave {
+  id        BigInt   @id @default(autoincrement())
+  mediaId   BigInt   @map("media_id")
+  userId    BigInt   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  media MediaItem @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([mediaId, userId])
+  @@map("media_saves")
+}
+
+model MusicTrack {
+  id        BigInt   @id @default(autoincrement())
+  title     String   @db.VarChar(255)
+  artist    String?  @db.VarChar(255)
+  fileUrl   String   @map("file_url") @db.Text
+  isTrending Boolean @default(false) @map("is_trending")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("music_tracks")
+}
+
+model Banner {
+  id             BigInt   @id @default(autoincrement())
+  title          String   @db.VarChar(255)
+  subtitle       String?  @db.VarChar(255)
+  category       String   @default("event") @db.VarChar(32)
+  badgeText      String?  @map("badge_text") @db.VarChar(64)
+  imageUrl       String?  @map("image_url") @db.Text
+  bgColorStart   String?  @map("bg_color_start") @db.VarChar(16)
+  bgColorEnd     String?  @map("bg_color_end") @db.VarChar(16)
+  buttonText     String?  @map("button_text") @db.VarChar(64)
+  actionType     String?  @map("action_type") @db.VarChar(32)
+  actionTarget   String?  @map("action_target") @db.Text
+  detailsContent String?  @map("details_content") @db.Text
+  sortOrder      Int      @default(0) @map("sort_order")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([isActive, sortOrder])
+  @@map("banners")
+}
+
+model FaqItem {
+  id        BigInt   @id @default(autoincrement())
+  question  String   @db.Text
+  answer    String   @db.Text
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("faq_items")
+}
+
+model Feedback {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt?  @map("user_id")
+  message   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("feedback")
+}
+
+model AgencyAffiliation {
+  id           BigInt                   @id @default(autoincrement())
+  agencyUserId BigInt                   @map("agency_user_id")
+  roomOwnerId  BigInt                   @map("room_owner_id")
+  roomId       String?                  @map("room_id") @db.Uuid
+  status       AgencyAffiliationStatus  @default(pending)
+  joinedAt     DateTime?                @map("joined_at") @db.Timestamptz(6)
+  leftAt       DateTime?                @map("left_at") @db.Timestamptz(6)
+  cooldownUntil DateTime?               @map("cooldown_until") @db.Timestamptz(6)
+  createdAt    DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  agency    User  @relation("AgencyOwner", fields: [agencyUserId], references: [id], onDelete: Cascade)
+  roomOwner User  @relation("AgencyMember", fields: [roomOwnerId], references: [id], onDelete: Cascade)
+  room      Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+
+  @@index([agencyUserId, status])
+  @@index([roomOwnerId, status])
+  @@map("agency_affiliations")
+}
+
+model AgencyWeeklyDistribution {
+  id            BigInt             @id @default(autoincrement())
+  periodId      BigInt             @map("period_id")
+  weekStart     DateTime           @map("week_start") @db.Date
+  weekEnd       DateTime           @map("week_end") @db.Date
+  agencyUserId  BigInt             @map("agency_user_id")
+  roomOwnerId   BigInt             @map("room_owner_id")
+  suggestedGems Int                @default(0) @map("suggested_gems")
+  approvedGems  Int?               @map("approved_gems")
+  status        AgencyWeeklyStatus @default(pending)
+  notes         String?            @db.Text
+  paidAt        DateTime?          @map("paid_at") @db.Timestamptz(6)
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  roomOwner User @relation(fields: [roomOwnerId], references: [id], onDelete: Cascade)
+
+  @@unique([periodId, agencyUserId, roomOwnerId])
+  @@index([agencyUserId, periodId])
+  @@map("agency_weekly_distributions")
+}
+
+model BonusClaim {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  kind      String   @db.VarChar(32)
+  coins     Int      @default(0)
+  meta      Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind, createdAt])
+  @@map("bonus_claims")
+}

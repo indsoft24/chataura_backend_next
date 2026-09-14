@@ -1,0 +1,116 @@
+services:
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: chataura_nginx
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - nestjs-api
+    networks:
+      - chataura_net
+    profiles:
+      - full
+
+  nestjs-api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: production
+    container_name: chataura_api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://chataura_user:${DB_PASSWORD:-chataura_dev}@postgres:5432/chataura_db?schema=public&connection_limit=25
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - NODE_OPTIONS=--max-old-space-size=1200
+    deploy:
+      resources:
+        limits:
+          memory: 1500M
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - chataura_net
+    profiles:
+      - full
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: chataura_postgres
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: chataura_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-chataura_dev}
+      POSTGRES_DB: chataura_db
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c effective_cache_size=768MB
+      -c work_mem=8MB
+      -c maintenance_work_mem=64MB
+      -c max_connections=100
+      -c random_page_cost=1.1
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    deploy:
+      resources:
+        limits:
+          memory: 2500M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chataura_user -d chataura_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chataura_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: chataura_redis
+    restart: unless-stopped
+    # Host Redis often occupies 6379; map compose Redis to 6380 for local Nest (.env can use either).
+    ports:
+      - "6380:6379"
+    command: >
+      redis-server
+      --maxmemory 700mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --save 900 1
+      --save 300 10
+    volumes:
+      - redis_data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 800M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - chataura_net
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  chataura_net:
+    driver: bridge

@@ -1,0 +1,60 @@
+# Compiled output
+/dist
+/build
+*.tsbuildinfo
+
+# Dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# OS Files
+.DS_Store
+Thumbs.db
+*.pem
+
+# Testing & Coverage
+/coverage
+/.nyc_output
+
+# IDEs & Editors
+.idea/
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Environment Variables (strictly protect credentials)
+.env
+.env.*
+!.env.example
+
+# Prisma SQLite / temporary files
+prisma/*.db
+prisma/*.db-journal
+
+# User Uploads & Media Storage
+/uploads/
+uploads/*
+!uploads/.gitkeep
+
+# Docker volumes / runtime dumps
+*.dump
+postgres_data/
+redis_data/
