@@ -4,7 +4,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm install
 
 COPY prisma ./prisma
 RUN npx prisma generate
@@ -21,7 +21,7 @@ ENV NODE_ENV=production
 ENV NODE_OPTIONS=--max-old-space-size=1200
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm install --omit=dev && npm cache clean --force
 
 COPY prisma ./prisma
 RUN npx prisma generate
@@ -29,6 +29,8 @@ RUN npx prisma generate
 COPY --from=builder /app/dist ./dist
 
 EXPOSE 3000
+
+RUN mkdir -p /app/uploads && chown -R node:node /app
 
 USER node
 

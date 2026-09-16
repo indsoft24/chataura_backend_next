@@ -136,28 +136,33 @@ export class AdminService {
     };
   }
 
-  gifts() {
-    return this.prisma.gift.findMany({ orderBy: { id: 'asc' } }).then((rows) =>
-      rows.map((g) => ({
+  async gifts() {
+    const rows = await this.prisma.gift.findMany({ orderBy: { id: 'asc' } });
+    return {
+      gifts: rows.map((g) => ({
         id: Number(g.id),
         name: g.name,
         coin_cost: g.coinCost,
         image_url: g.imageUrl,
         is_active: g.isActive,
       })),
-    );
+    };
   }
 
   async createGift(body: {
     name: string;
-    coin_cost: number;
+    coin_cost?: number;
+    coinCost?: number;
     image_url?: string;
+    imageUrl?: string;
   }) {
+    const cost = body.coin_cost ?? body.coinCost ?? 0;
+    const img = body.image_url ?? body.imageUrl ?? null;
     const g = await this.prisma.gift.create({
       data: {
         name: body.name,
-        coinCost: Number(body.coin_cost),
-        imageUrl: body.image_url ?? null,
+        coinCost: Number(cost),
+        imageUrl: img,
       },
     });
     return {
@@ -165,20 +170,29 @@ export class AdminService {
       name: g.name,
       coin_cost: g.coinCost,
       image_url: g.imageUrl,
+      is_active: g.isActive,
     };
   }
 
   async updateGift(
     id: bigint,
-    body: { name?: string; coin_cost?: number; is_active?: boolean },
+    body: {
+      name?: string;
+      coin_cost?: number;
+      coinCost?: number;
+      image_url?: string;
+      imageUrl?: string;
+      is_active?: boolean;
+    },
   ) {
+    const cost = body.coin_cost ?? body.coinCost;
+    const img = body.image_url ?? body.imageUrl;
     const g = await this.prisma.gift.update({
       where: { id },
       data: {
         ...(body.name !== undefined ? { name: body.name } : {}),
-        ...(body.coin_cost !== undefined
-          ? { coinCost: Number(body.coin_cost) }
-          : {}),
+        ...(cost !== undefined ? { coinCost: Number(cost) } : {}),
+        ...(img !== undefined ? { imageUrl: img } : {}),
         ...(body.is_active !== undefined ? { isActive: body.is_active } : {}),
       },
     });
@@ -186,8 +200,14 @@ export class AdminService {
       id: Number(g.id),
       name: g.name,
       coin_cost: g.coinCost,
+      image_url: g.imageUrl,
       is_active: g.isActive,
     };
+  }
+
+  async deleteGift(id: bigint) {
+    await this.prisma.gift.delete({ where: { id } });
+    return { message: 'Deleted' };
   }
 
   async bannersAdmin() {
@@ -376,6 +396,11 @@ export class AdminService {
     return this.serializePackage(p);
   }
 
+  async deletePackage(id: bigint) {
+    await this.prisma.coinPackage.delete({ where: { id } });
+    return { message: 'Deleted' };
+  }
+
   private serializePackage(p: {
     id: bigint;
     audience: string;
@@ -417,6 +442,488 @@ export class AdminService {
         },
         created_at: w.createdAt.toISOString(),
       })),
+    };
+  }
+
+  async approveWithdrawal(id: bigint) {
+    const w = await this.prisma.withdrawalRequest.update({
+      where: { id },
+      data: { status: 'approved' },
+    });
+    return { id: Number(w.id), status: w.status };
+  }
+
+  async rejectWithdrawal(id: bigint, reason?: string) {
+    const w = await this.prisma.withdrawalRequest.update({
+      where: { id },
+      data: { status: 'rejected', note: reason ?? 'Rejected by admin' },
+    });
+    return { id: Number(w.id), status: w.status };
+  }
+
+  async resolveReport(id: bigint) {
+    await this.prisma.userReport.delete({ where: { id } });
+    return { message: 'Report resolved and removed' };
+  }
+
+  // Levels
+  async levels() {
+    const rows = await this.prisma.level.findMany({ orderBy: { level: 'asc' } });
+    return {
+      levels: rows.map((l) => ({
+        id: l.id,
+        level: l.level,
+        min_xp: l.minXp,
+        max_xp: l.maxXp,
+        label: l.label,
+        badge_url: l.badgeUrl,
+        icon_url: l.iconUrl,
+      })),
+    };
+  }
+
+  async createLevel(body: {
+    level: number;
+    min_xp: number;
+    max_xp: number;
+    label?: string;
+    badge_url?: string;
+    icon_url?: string;
+  }) {
+    const l = await this.prisma.level.create({
+      data: {
+        level: Number(body.level),
+        minXp: Number(body.min_xp),
+        maxXp: Number(body.max_xp),
+        label: body.label ?? null,
+        badgeUrl: body.badge_url ?? null,
+        iconUrl: body.icon_url ?? null,
+      },
+    });
+    return {
+      id: l.id,
+      level: l.level,
+      min_xp: l.minXp,
+      max_xp: l.maxXp,
+      label: l.label,
+      badge_url: l.badgeUrl,
+      icon_url: l.iconUrl,
+    };
+  }
+
+  async updateLevel(
+    id: number,
+    body: {
+      min_xp?: number;
+      max_xp?: number;
+      label?: string;
+      badge_url?: string;
+      icon_url?: string;
+    },
+  ) {
+    const l = await this.prisma.level.update({
+      where: { id },
+      data: {
+        ...(body.min_xp !== undefined ? { minXp: Number(body.min_xp) } : {}),
+        ...(body.max_xp !== undefined ? { maxXp: Number(body.max_xp) } : {}),
+        ...(body.label !== undefined ? { label: body.label } : {}),
+        ...(body.badge_url !== undefined ? { badgeUrl: body.badge_url } : {}),
+        ...(body.icon_url !== undefined ? { iconUrl: body.icon_url } : {}),
+      },
+    });
+    return {
+      id: l.id,
+      level: l.level,
+      min_xp: l.minXp,
+      max_xp: l.maxXp,
+      label: l.label,
+      badge_url: l.badgeUrl,
+      icon_url: l.iconUrl,
+    };
+  }
+
+  async deleteLevel(id: number) {
+    await this.prisma.level.delete({ where: { id } });
+    return { message: 'Deleted' };
+  }
+
+  // Frames & Role Frames
+  async frames(category?: string) {
+    const where: Prisma.FrameWhereInput = category ? { category } : {};
+    const rows = await this.prisma.frame.findMany({
+      where,
+      orderBy: { id: 'asc' },
+    });
+    return {
+      frames: rows.map((f) => ({
+        id: Number(f.id),
+        name: f.name,
+        slug: f.slug,
+        category: f.category,
+        level_required: f.levelRequired,
+        coin_cost: f.coinCost,
+        is_premium: f.isPremium,
+        is_active: f.isActive,
+        image_url: f.imageUrl,
+        animation_key: f.animationKey,
+      })),
+    };
+  }
+
+  async createFrame(body: {
+    name: string;
+    category?: string;
+    level_required?: number;
+    coin_cost?: number;
+    is_premium?: boolean;
+    image_url?: string;
+    animation_key?: string;
+  }) {
+    const f = await this.prisma.frame.create({
+      data: {
+        name: body.name,
+        category: body.category ?? 'avatar',
+        levelRequired: Number(body.level_required ?? 1),
+        coinCost: body.coin_cost !== undefined && body.coin_cost !== null ? Number(body.coin_cost) : null,
+        isPremium: Boolean(body.is_premium ?? false),
+        imageUrl: body.image_url ?? null,
+        animationKey: body.animation_key ?? null,
+      },
+    });
+    return {
+      id: Number(f.id),
+      name: f.name,
+      category: f.category,
+      level_required: f.levelRequired,
+      coin_cost: f.coinCost,
+      is_premium: f.isPremium,
+      image_url: f.imageUrl,
+      is_active: f.isActive,
+    };
+  }
+
+  async updateFrame(
+    id: bigint,
+    body: {
+      name?: string;
+      category?: string;
+      level_required?: number;
+      coin_cost?: number;
+      is_premium?: boolean;
+      is_active?: boolean;
+      image_url?: string;
+      animation_key?: string;
+    },
+  ) {
+    const f = await this.prisma.frame.update({
+      where: { id },
+      data: {
+        ...(body.name !== undefined ? { name: body.name } : {}),
+        ...(body.category !== undefined ? { category: body.category } : {}),
+        ...(body.level_required !== undefined
+          ? { levelRequired: Number(body.level_required) }
+          : {}),
+        ...(body.coin_cost !== undefined
+          ? { coinCost: body.coin_cost !== null ? Number(body.coin_cost) : null }
+          : {}),
+        ...(body.is_premium !== undefined
+          ? { isPremium: Boolean(body.is_premium) }
+          : {}),
+        ...(body.is_active !== undefined
+          ? { isActive: Boolean(body.is_active) }
+          : {}),
+        ...(body.image_url !== undefined ? { imageUrl: body.image_url } : {}),
+        ...(body.animation_key !== undefined
+          ? { animationKey: body.animation_key }
+          : {}),
+      },
+    });
+    return {
+      id: Number(f.id),
+      name: f.name,
+      category: f.category,
+      is_active: f.isActive,
+    };
+  }
+
+  async deleteFrame(id: bigint) {
+    await this.prisma.frame.delete({ where: { id } });
+    return { message: 'Deleted' };
+  }
+
+  // Entry Bars
+  async entryBars() {
+    const rows = await this.prisma.entryBar.findMany({ orderBy: { id: 'asc' } });
+    return {
+      entry_bars: rows.map((eb) => ({
+        id: Number(eb.id),
+        name: eb.name,
+        level_required: eb.levelRequired,
+        image_url: eb.imageUrl,
+        is_active: eb.isActive,
+      })),
+    };
+  }
+
+  async createEntryBar(body: {
+    name: string;
+    level_required?: number;
+    image_url?: string;
+  }) {
+    const eb = await this.prisma.entryBar.create({
+      data: {
+        name: body.name,
+        levelRequired: Number(body.level_required ?? 1),
+        imageUrl: body.image_url ?? null,
+      },
+    });
+    return {
+      id: Number(eb.id),
+      name: eb.name,
+      level_required: eb.levelRequired,
+      image_url: eb.imageUrl,
+      is_active: eb.isActive,
+    };
+  }
+
+  async updateEntryBar(
+    id: bigint,
+    body: {
+      name?: string;
+      level_required?: number;
+      image_url?: string;
+      is_active?: boolean;
+    },
+  ) {
+    const eb = await this.prisma.entryBar.update({
+      where: { id },
+      data: {
+        ...(body.name !== undefined ? { name: body.name } : {}),
+        ...(body.level_required !== undefined
+          ? { levelRequired: Number(body.level_required) }
+          : {}),
+        ...(body.image_url !== undefined ? { imageUrl: body.image_url } : {}),
+        ...(body.is_active !== undefined
+          ? { isActive: Boolean(body.is_active) }
+          : {}),
+      },
+    });
+    return { id: Number(eb.id), name: eb.name, is_active: eb.isActive };
+  }
+
+  async deleteEntryBar(id: bigint) {
+    await this.prisma.entryBar.delete({ where: { id } });
+    return { message: 'Deleted' };
+  }
+
+  // Room Themes
+  async roomThemes() {
+    const rows = await this.prisma.roomTheme.findMany({ orderBy: { id: 'asc' } });
+    return {
+      room_themes: rows.map((rt) => ({
+        id: Number(rt.id),
+        name: rt.name,
+        image_url: rt.imageUrl,
+        coin_cost: rt.coinCost,
+        is_active: rt.isActive,
+      })),
+    };
+  }
+
+  async createRoomTheme(body: {
+    name: string;
+    coin_cost?: number;
+    image_url?: string;
+  }) {
+    const rt = await this.prisma.roomTheme.create({
+      data: {
+        name: body.name,
+        coinCost: Number(body.coin_cost ?? 0),
+        imageUrl: body.image_url ?? null,
+      },
+    });
+    return {
+      id: Number(rt.id),
+      name: rt.name,
+      coin_cost: rt.coinCost,
+      image_url: rt.imageUrl,
+      is_active: rt.isActive,
+    };
+  }
+
+  async updateRoomTheme(
+    id: bigint,
+    body: {
+      name?: string;
+      coin_cost?: number;
+      image_url?: string;
+      is_active?: boolean;
+    },
+  ) {
+    const rt = await this.prisma.roomTheme.update({
+      where: { id },
+      data: {
+        ...(body.name !== undefined ? { name: body.name } : {}),
+        ...(body.coin_cost !== undefined
+          ? { coinCost: Number(body.coin_cost) }
+          : {}),
+        ...(body.image_url !== undefined ? { imageUrl: body.image_url } : {}),
+        ...(body.is_active !== undefined
+          ? { isActive: Boolean(body.is_active) }
+          : {}),
+      },
+    });
+    return { id: Number(rt.id), name: rt.name, is_active: rt.isActive };
+  }
+
+  async deleteRoomTheme(id: bigint) {
+    await this.prisma.roomTheme.delete({ where: { id } });
+    return { message: 'Deleted' };
+  }
+
+  // Stickers
+  async stickers() {
+    const rows = await this.prisma.sticker.findMany({ orderBy: { id: 'asc' } });
+    return {
+      stickers: rows.map((s) => ({
+        id: Number(s.id),
+        name: s.name,
+        coin_cost: s.coinCost,
+        image_url: s.imageUrl,
+        animation_url: s.animationUrl,
+        is_active: s.isActive,
+      })),
+    };
+  }
+
+  async createSticker(body: {
+    name: string;
+    coin_cost?: number;
+    image_url?: string;
+    animation_url?: string;
+  }) {
+    const s = await this.prisma.sticker.create({
+      data: {
+        name: body.name,
+        coinCost: Number(body.coin_cost ?? 0),
+        imageUrl: body.image_url ?? null,
+        animationUrl: body.animation_url ?? null,
+      },
+    });
+    return {
+      id: Number(s.id),
+      name: s.name,
+      coin_cost: s.coinCost,
+      image_url: s.imageUrl,
+      is_active: s.isActive,
+    };
+  }
+
+  async updateSticker(
+    id: bigint,
+    body: {
+      name?: string;
+      coin_cost?: number;
+      image_url?: string;
+      animation_url?: string;
+      is_active?: boolean;
+    },
+  ) {
+    const s = await this.prisma.sticker.update({
+      where: { id },
+      data: {
+        ...(body.name !== undefined ? { name: body.name } : {}),
+        ...(body.coin_cost !== undefined
+          ? { coinCost: Number(body.coin_cost) }
+          : {}),
+        ...(body.image_url !== undefined ? { imageUrl: body.image_url } : {}),
+        ...(body.animation_url !== undefined
+          ? { animationUrl: body.animation_url }
+          : {}),
+        ...(body.is_active !== undefined
+          ? { isActive: Boolean(body.is_active) }
+          : {}),
+      },
+    });
+    return { id: Number(s.id), name: s.name, is_active: s.isActive };
+  }
+
+  async deleteSticker(id: bigint) {
+    await this.prisma.sticker.delete({ where: { id } });
+    return { message: 'Deleted' };
+  }
+
+  // Settings
+  async settings() {
+    let setting = await this.prisma.adminSetting.findUnique({ where: { id: 1 } });
+    if (!setting) {
+      setting = await this.prisma.adminSetting.create({
+        data: { id: 1 },
+      });
+    }
+    return {
+      settings: {
+        id: setting.id,
+        gems_per_coin: Number(setting.gemsPerCoin),
+        min_gems_convert_to_coins: setting.minGemsConvertToCoins,
+        coin_to_xp_ratio: Number(setting.coinToXpRatio),
+        gift_commission_pct: Number(setting.giftCommissionPct),
+        earnings_purchase_enabled: setting.earningsPurchaseEnabled,
+        cashout_enabled: setting.cashoutEnabled,
+        audio_call_price_per_min: setting.audioCallPricePerMin,
+        video_call_price_per_min: setting.videoCallPricePerMin,
+        star_chat_price_per_min: setting.starChatPricePerMin,
+        star_chat_commission_pct: Number(setting.starChatCommissionPct),
+        star_chat_heartbeat_sec: setting.starChatHeartbeatSec,
+        spin_cost: setting.spinCost,
+        bonus_config: setting.bonusConfig,
+      },
+    };
+  }
+
+  async updateSettings(body: Record<string, unknown>) {
+    const data: Prisma.AdminSettingUpdateInput = {};
+    if (body.gift_commission_pct !== undefined)
+      data.giftCommissionPct = Number(body.gift_commission_pct);
+    if (body.star_chat_commission_pct !== undefined)
+      data.starChatCommissionPct = Number(body.star_chat_commission_pct);
+    if (body.cashout_enabled !== undefined)
+      data.cashoutEnabled = Boolean(body.cashout_enabled);
+    if (body.earnings_purchase_enabled !== undefined)
+      data.earningsPurchaseEnabled = Boolean(body.earnings_purchase_enabled);
+    if (body.gems_per_coin !== undefined)
+      data.gemsPerCoin = Number(body.gems_per_coin);
+    if (body.coin_to_xp_ratio !== undefined)
+      data.coinToXpRatio = Number(body.coin_to_xp_ratio);
+    if (body.audio_call_price_per_min !== undefined)
+      data.audioCallPricePerMin = Number(body.audio_call_price_per_min);
+    if (body.video_call_price_per_min !== undefined)
+      data.videoCallPricePerMin = Number(body.video_call_price_per_min);
+    if (body.star_chat_price_per_min !== undefined)
+      data.starChatPricePerMin = Number(body.star_chat_price_per_min);
+    if (body.spin_cost !== undefined)
+      data.spinCost = Number(body.spin_cost);
+    if (body.bonus_config !== undefined)
+      data.bonusConfig = body.bonus_config as Prisma.InputJsonValue;
+
+    const setting = await this.prisma.adminSetting.upsert({
+      where: { id: 1 },
+      create: { id: 1, ...(data as Prisma.AdminSettingCreateInput) },
+      update: data,
+    });
+    return {
+      settings: {
+        id: setting.id,
+        gems_per_coin: Number(setting.gemsPerCoin),
+        gift_commission_pct: Number(setting.giftCommissionPct),
+        star_chat_commission_pct: Number(setting.starChatCommissionPct),
+        cashout_enabled: setting.cashoutEnabled,
+        earnings_purchase_enabled: setting.earningsPurchaseEnabled,
+        spin_cost: setting.spinCost,
+        coin_to_xp_ratio: Number(setting.coinToXpRatio),
+        audio_call_price_per_min: setting.audioCallPricePerMin,
+        video_call_price_per_min: setting.videoCallPricePerMin,
+      },
     };
   }
 
