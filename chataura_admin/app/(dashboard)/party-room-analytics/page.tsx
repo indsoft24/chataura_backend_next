@@ -99,11 +99,11 @@ export default function PartyRoomAnalyticsPage() {
   };
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+    <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: '1.75rem', fontWeight: 700, color: '#111827' }}>Party Room Analytics</h1>
-          <p style={{ margin: '4px 0 0', color: '#6b7280', fontSize: '0.9rem' }}>
+          <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Party Room Analytics</h1>
+          <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>
             Live presence telemetry, participant microphone engagement, and room session logs.
           </p>
         </div>
@@ -276,7 +276,7 @@ export default function PartyRoomAnalyticsPage() {
           </div>
         </div>
       )}
-    </div>
+    </main>
   );
 }
 

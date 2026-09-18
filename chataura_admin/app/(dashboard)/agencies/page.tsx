@@ -68,10 +68,10 @@ export default function AgenciesPage() {
   };
 
   return (
-    <div>
-      <div style={{ marginBottom: 20 }}>
-        <h1 style={{ margin: 0, fontSize: '1.75rem', fontWeight: 700, color: '#111827' }}>Agencies Management</h1>
-        <p style={{ margin: '4px 0 0', color: '#6b7280', fontSize: '0.9rem' }}>
+    <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
+      <div style={{ marginBottom: '32px' }}>
+        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Agencies Management</h1>
+        <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>
           Monitor agency partners, room creator affiliations, and manage transfer cooldowns.
         </p>
       </div>
@@ -285,6 +285,6 @@ export default function AgenciesPage() {
           </table>
         </div>
       )}
-    </div>
+    </main>
   );
 }
