@@ -41,8 +41,12 @@ export class AdminController {
   ) {}
 
   @Get('dashboard')
-  dashboard() {
-    return this.admin.dashboard();
+  dashboard(
+    @Query('period') period?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.admin.dashboard(period, from, to);
   }
 
   @Get('users')

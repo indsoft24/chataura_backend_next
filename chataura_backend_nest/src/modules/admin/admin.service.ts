@@ -6,126 +6,302 @@ import { userForApi } from '../user/user.serializer';
 export class AdminService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async dashboard() {
-    const today = this.startOfDay();
-    const weekAgo = this.startOfWeek();
+  async dashboard(period = 'weekly', fromStr?: string, toStr?: string) {
+    const validPeriod = ['daily', 'weekly', 'monthly'].includes(period) ? period : 'weekly';
+    const now = new Date();
+
+    let to: Date;
+    if (toStr) {
+      to = new Date(toStr);
+      to.setHours(23, 59, 59, 999);
+    } else {
+      to = new Date(now);
+      to.setHours(23, 59, 59, 999);
+    }
+
+    let from: Date;
+    if (fromStr) {
+      from = new Date(fromStr);
+      from.setHours(0, 0, 0, 0);
+    } else {
+      from = new Date(to);
+      if (validPeriod === 'daily') {
+        from.setHours(0, 0, 0, 0);
+      } else if (validPeriod === 'monthly') {
+        from.setDate(1);
+        from.setHours(0, 0, 0, 0);
+      } else {
+        from.setDate(from.getDate() - 7);
+        from.setHours(0, 0, 0, 0);
+      }
+    }
+
+    if (from > to) {
+      const temp = from;
+      from = to;
+      to = temp;
+    }
+
+    const durationDays = Math.max(1, Math.round((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)));
+    const previousFrom = new Date(from.getTime() - durationDays * 24 * 60 * 60 * 1000);
+    const previousTo = new Date(from.getTime() - 1);
+
+    const todayStart = this.startOfDay();
+    const weekAgoStart = this.startOfWeek();
 
     const [
       users,
+      newUsersInRange,
       liveRooms,
+      callsInRange,
+      postsInRange,
+      feedbackInRange,
+      reportsInRange,
       giftsToday,
       rechargeToday,
       rechargeThisWeek,
-      coinTxCount,
-      volumeAgg,
-      giftVolume,
-      adminCredits,
-      reports,
-      pendingWithdrawals,
+      rechargeSelected,
+      rechargePrevious,
+      volumeSelected,
+      volumePrevious,
+      giftVolumeSelected,
+      callVolumeSelected,
+      adminCreditsSelected,
+      gameVolumeSelected,
+      gameWinVolumeSelected,
+      purchasesByStatus,
+      withdrawalsByStatus,
+      starChatAgg,
+      systemUser,
     ] = await Promise.all([
       this.prisma.user.count({ where: { accountStatus: 'active' } }),
+      this.prisma.user.count({ where: { createdAt: { gte: from, lte: to } } }),
       this.prisma.room.count({ where: { isLive: true } }),
+      this.prisma.starChatSession.count({ where: { startedAt: { gte: from, lte: to } } }),
+      this.prisma.mediaItem.count({ where: { createdAt: { gte: from, lte: to } } }),
+      this.prisma.feedback.count({ where: { createdAt: { gte: from, lte: to } } }),
+      this.prisma.userReport.count({ where: { createdAt: { gte: from, lte: to } } }),
       this.prisma.coinTransaction.aggregate({
-        where: {
-          type: 'GIFT',
-          createdAt: { gte: today },
-        },
+        where: { type: 'GIFT', createdAt: { gte: todayStart } },
         _sum: { coinAmount: true },
       }),
       this.prisma.coinPurchaseTransaction.aggregate({
-        where: {
-          status: 'success',
-          createdAt: { gte: today },
-        },
+        where: { status: 'success', createdAt: { gte: todayStart } },
         _sum: { coinsCredited: true, amountMinor: true },
       }),
       this.prisma.coinPurchaseTransaction.aggregate({
-        where: {
-          status: 'success',
-          createdAt: { gte: weekAgo },
-        },
+        where: { status: 'success', createdAt: { gte: weekAgoStart } },
         _sum: { coinsCredited: true, amountMinor: true },
       }),
-      this.prisma.coinTransaction.count(),
+      this.prisma.coinPurchaseTransaction.aggregate({
+        where: { status: 'success', createdAt: { gte: from, lte: to } },
+        _sum: { coinsCredited: true, amountMinor: true },
+      }),
+      this.prisma.coinPurchaseTransaction.aggregate({
+        where: { status: 'success', createdAt: { gte: previousFrom, lte: previousTo } },
+        _sum: { coinsCredited: true, amountMinor: true },
+      }),
       this.prisma.coinTransaction.aggregate({
+        where: { createdAt: { gte: from, lte: to } },
+        _count: true,
         _sum: { coinAmount: true, netAmount: true, commissionAmount: true },
       }),
       this.prisma.coinTransaction.aggregate({
-        where: { type: 'GIFT' },
+        where: { createdAt: { gte: previousFrom, lte: previousTo } },
+        _sum: { coinAmount: true, commissionAmount: true },
+      }),
+      this.prisma.coinTransaction.aggregate({
+        where: { type: 'GIFT', createdAt: { gte: from, lte: to } },
         _sum: { coinAmount: true },
       }),
       this.prisma.coinTransaction.aggregate({
-        where: { type: { in: ['ADMIN_CREDIT', 'ADMIN_ADJUST'] } },
+        where: { type: 'STAR_CHAT', createdAt: { gte: from, lte: to } },
         _sum: { coinAmount: true },
       }),
-      this.prisma.userReport.count(),
-      this.prisma.withdrawalRequest.count({ where: { status: 'pending' } }),
+      this.prisma.coinTransaction.aggregate({
+        where: { type: { in: ['ADMIN_CREDIT', 'ADMIN_ADJUST', 'SELLER_TRANSFER'] }, createdAt: { gte: from, lte: to } },
+        _sum: { coinAmount: true },
+      }),
+      this.prisma.coinTransaction.aggregate({
+        where: { type: { in: ['GAME_LUCKY77', 'GAME_GREEDY', 'SPIN'] }, createdAt: { gte: from, lte: to } },
+        _sum: { coinAmount: true },
+      }),
+      this.prisma.coinTransaction.aggregate({
+        where: { type: { in: ['GAME_LUCKY77_WIN', 'GAME_GREEDY_WIN', 'SPIN_WIN'] }, createdAt: { gte: from, lte: to } },
+        _sum: { coinAmount: true },
+      }),
+      this.prisma.coinPurchaseTransaction.groupBy({
+        by: ['status'],
+        where: { createdAt: { gte: from, lte: to } },
+        _count: true,
+        _sum: { coinsCredited: true, amountMinor: true },
+      }),
+      this.prisma.withdrawalRequest.groupBy({
+        by: ['status'],
+        where: { createdAt: { gte: from, lte: to } },
+        _count: true,
+        _sum: { amount: true },
+      }),
+      this.prisma.starChatSession.aggregate({
+        where: { startedAt: { gte: from, lte: to } },
+        _count: true,
+        _sum: { coinsCharged: true, gemsCredited: true },
+      }),
+      this.prisma.user.findFirst({
+        where: { role: 'admin' },
+        select: { id: true, name: true, displayName: true, email: true, walletBalance: true, coinBalance: true },
+      }),
     ]);
 
-    const revToday = (rechargeToday._sum.amountMinor ?? 0) / 100;
-    const revThisWeek = (rechargeThisWeek._sum.amountMinor ?? 0) / 100;
+    const curRev = (rechargeSelected._sum.amountMinor ?? 0) / 100;
+    const prevRev = (rechargePrevious._sum.amountMinor ?? 0) / 100;
+    const revenueGrowthPercent = prevRev > 0
+      ? Number((((curRev - prevRev) / prevRev) * 100).toFixed(2))
+      : (curRev > 0 ? 100.0 : 0.0);
 
-    const recentCommissions: {
-      date: string;
-      transactions: number;
-      commission: number;
-    }[] = [];
-    for (let i = 0; i < 3; i++) {
-      const dStart = new Date();
-      dStart.setDate(dStart.getDate() - i);
-      dStart.setHours(0, 0, 0, 0);
-      const dEnd = new Date(dStart);
-      dEnd.setDate(dEnd.getDate() + 1);
+    const curComm = Number(volumeSelected._sum.commissionAmount ?? 0n);
+    const prevComm = Number(volumePrevious._sum.commissionAmount ?? 0n);
+    const commissionGrowthPercent = prevComm > 0
+      ? Number((((curComm - prevComm) / prevComm) * 100).toFixed(2))
+      : (curComm > 0 ? 100.0 : 0.0);
 
-      const [count, agg] = await Promise.all([
-        this.prisma.coinTransaction.count({
-          where: { createdAt: { gte: dStart, lt: dEnd } },
-        }),
-        this.prisma.coinTransaction.aggregate({
-          where: { createdAt: { gte: dStart, lt: dEnd } },
-          _sum: { commissionAmount: true },
-        }),
-      ]);
-      recentCommissions.push({
-        date: dStart.toISOString().split('T')[0],
-        transactions: count,
-        commission: Number(agg._sum.commissionAmount ?? 0n),
-      });
-    }
+    // Commission trend by day
+    const commissionByDayRaw = await this.prisma.$queryRawUnsafe<any[]>(`
+      SELECT 
+        TO_CHAR(created_at, 'YYYY-MM-DD') as bucket,
+        COUNT(*)::int as tx_count,
+        COALESCE(SUM(commission_amount), 0)::bigint as commission,
+        COALESCE(SUM(coin_amount), 0)::bigint as gross_volume
+      FROM coin_transactions
+      WHERE created_at >= $1 AND created_at <= $2
+      GROUP BY TO_CHAR(created_at, 'YYYY-MM-DD')
+      ORDER BY bucket ASC;
+    `, from, to);
+
+    const commissionByDay = commissionByDayRaw.map((r) => ({
+      bucket: r.bucket,
+      tx_count: Number(r.tx_count),
+      commission: Number(r.commission),
+      gross_volume: Number(r.gross_volume),
+    }));
+
+    // Top users by commission
+    const topUsersRaw = await this.prisma.$queryRawUnsafe<any[]>(`
+      SELECT 
+        u.id as user_id, 
+        COALESCE(u.display_name, u.name, CONCAT('User #', u.id)) as user_name, 
+        u.email as user_email, 
+        u.avatar_url, 
+        COUNT(*)::int as tx_count, 
+        COALESCE(SUM(t.commission_amount), 0)::bigint as commission_total
+      FROM coin_transactions t
+      JOIN users u ON u.id = t.user_id
+      WHERE t.created_at >= $1 AND t.created_at <= $2
+      GROUP BY u.id, u.display_name, u.name, u.email, u.avatar_url
+      ORDER BY commission_total DESC, tx_count DESC
+      LIMIT 10;
+    `, from, to);
+
+    const topUsersByCommission = topUsersRaw.map((u, idx) => ({
+      rank: idx + 1,
+      user_id: Number(u.user_id),
+      user_name: u.user_name,
+      user_email: u.user_email,
+      avatar_url: u.avatar_url,
+      tx_count: Number(u.tx_count),
+      commission_total: Number(u.commission_total),
+    }));
+
+    const rechargePurchases = purchasesByStatus.map((p) => ({
+      status: String(p.status).toLowerCase(),
+      tx_count: p._count,
+      total_coins: p._sum.coinsCredited ?? 0,
+      total_amount: (p._sum.amountMinor ?? 0) / 100,
+    }));
+
+    const withdrawals = withdrawalsByStatus.map((w) => ({
+      status: String(w.status).toLowerCase(),
+      request_count: w._count,
+      total_gems: Number(w._sum.amount ?? 0n),
+    }));
 
     return {
+      period: validPeriod,
+      from: from.toISOString().split('T')[0],
+      to: to.toISOString().split('T')[0],
+      overview: {
+        total_users: users,
+        new_users_in_range: newUsersInRange,
+        active_rooms: liveRooms,
+        calls_in_range: callsInRange,
+        content_posts_in_range: postsInRange,
+        feedback_in_range: feedbackInRange,
+        reports_in_range: reportsInRange,
+      },
+      revenue: {
+        today: (rechargeToday._sum.amountMinor ?? 0) / 100,
+        this_week: (rechargeThisWeek._sum.amountMinor ?? 0) / 100,
+        current_period: curRev,
+        previous_period: prevRev,
+        growth_percent: revenueGrowthPercent,
+      },
+      commission: {
+        current_period: curComm,
+        previous_period: prevComm,
+        growth_percent: commissionGrowthPercent,
+      },
+      finance: {
+        tx_count: volumeSelected._count,
+        gross_volume: Number(volumeSelected._sum.coinAmount ?? 0n),
+        net_volume: Number(volumeSelected._sum.netAmount ?? 0n),
+        commission: curComm,
+        gift_volume: Number(giftVolumeSelected._sum.coinAmount ?? 0n),
+        call_volume: Number(callVolumeSelected._sum.coinAmount ?? 0n),
+        admin_credit_volume: Number(adminCreditsSelected._sum.coinAmount ?? 0n),
+        game_volume: Number(gameVolumeSelected._sum.coinAmount ?? 0n),
+        game_win_volume: Number(gameWinVolumeSelected._sum.coinAmount ?? 0n),
+      },
+      callCommission: {
+        total_calls: starChatAgg._count ?? 0,
+        caller_charged: Number(starChatAgg._sum?.coinsCharged ?? 0n),
+        creator_paid: Number(starChatAgg._sum?.gemsCredited ?? 0n),
+        platform_commission_accrued: Math.max(0, Number(starChatAgg._sum?.coinsCharged ?? 0n) - Number(starChatAgg._sum?.gemsCredited ?? 0n)),
+      },
+      systemUser: systemUser
+        ? {
+            id: Number(systemUser.id),
+            name: systemUser.displayName ?? systemUser.name,
+            email: systemUser.email,
+            wallet_balance: Number(systemUser.walletBalance),
+            coin_balance: Number(systemUser.coinBalance),
+          }
+        : null,
+      commissionByDay,
+      topUsersByCommission,
+      recharge: {
+        coin_purchase: rechargePurchases,
+      },
+      withdrawals,
+      // Backward compatibility with legacy shape
       users,
       live_rooms: liveRooms,
       coin_burn_today: Number(giftsToday._sum.coinAmount ?? 0n),
       recharge_today: rechargeToday._sum.coinsCredited ?? 0,
-      revenue_today: revToday,
-      revenue_this_week: revThisWeek,
-      coin_tx_count: coinTxCount,
-      gross_volume: Number(volumeAgg._sum.coinAmount ?? 0n),
-      net_volume: Number(volumeAgg._sum.netAmount ?? 0n),
-      commission_total: Number(volumeAgg._sum.commissionAmount ?? 0n),
-      gift_volume: Number(giftVolume._sum.coinAmount ?? 0n),
-      admin_credits: Number(adminCredits._sum.coinAmount ?? 0n),
-      reports,
-      pending_withdrawals: pendingWithdrawals,
-      recent_commissions: recentCommissions,
-      total_coin_transactions: coinTxCount,
-      financials: {
-        total_coin_volume: Number(volumeAgg._sum.coinAmount ?? 0n),
-        total_net_volume: Number(volumeAgg._sum.netAmount ?? 0n),
-        total_commission_collected: Number(
-          volumeAgg._sum.commissionAmount ?? 0n,
-        ),
-        total_gift_volume: Number(giftVolume._sum.coinAmount ?? 0n),
-        total_admin_credits: Number(adminCredits._sum.coinAmount ?? 0n),
-        revenue_today_inr: revToday,
-        revenue_this_week_inr: revThisWeek,
-        recent_daily_commissions: recentCommissions,
-      },
-      system: {
-        pending_reports: reports,
-        pending_withdrawals: pendingWithdrawals,
-      },
+      revenue_today: (rechargeToday._sum.amountMinor ?? 0) / 100,
+      revenue_this_week: (rechargeThisWeek._sum.amountMinor ?? 0) / 100,
+      coin_tx_count: volumeSelected._count,
+      gross_volume: Number(volumeSelected._sum.coinAmount ?? 0n),
+      net_volume: Number(volumeSelected._sum.netAmount ?? 0n),
+      commission_total: curComm,
+      gift_volume: Number(giftVolumeSelected._sum.coinAmount ?? 0n),
+      admin_credits: Number(adminCreditsSelected._sum.coinAmount ?? 0n),
+      reports: reportsInRange,
+      pending_withdrawals: withdrawals.find((w) => w.status === 'pending')?.request_count ?? 0,
+      recent_commissions: commissionByDay.slice(-7).map((c) => ({
+        date: c.bucket,
+        transactions: c.tx_count,
+        commission: c.commission,
+      })),
     };
   }
 
