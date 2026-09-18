@@ -10,11 +10,15 @@ import {
 } from '@nestjs/common';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
+import { RoomGiftingService } from './room-gifting.service';
 import { RoomService } from './room.service';
 
 @Controller()
 export class RoomController {
-  constructor(private readonly rooms: RoomService) {}
+  constructor(
+    private readonly rooms: RoomService,
+    private readonly gifting: RoomGiftingService,
+  ) {}
 
   @Get('rooms')
   list(
@@ -265,12 +269,12 @@ export class RoomController {
 
   @Get('rooms/:id/gifts/stats')
   giftStats(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.rooms.giftStats(user.id, id);
+    return this.gifting.giftStats(user.id, id);
   }
 
   @Get('gift-types')
   giftTypes() {
-    return this.rooms.giftTypes();
+    return this.gifting.giftTypes();
   }
 
   @Post('rooms/:id/gifts/send')
@@ -284,7 +288,7 @@ export class RoomController {
       quantity?: number;
     },
   ) {
-    return this.rooms.sendRoomGift(user.id, id, body);
+    return this.gifting.sendRoomGift(user.id, id, body);
   }
 
   @Post('gifts/send-batch')
@@ -298,7 +302,7 @@ export class RoomController {
       room_id: string;
     },
   ) {
-    return this.rooms.sendBatchGift(user.id, body);
+    return this.gifting.sendBatchGift(user.id, body);
   }
 
   @Get('stickers')

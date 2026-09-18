@@ -15,9 +15,7 @@ export class TokenService {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
   ) {
-    this.accessTtl = Number(
-      this.config.get('JWT_ACCESS_TTL_SECONDS', '3600'),
-    );
+    this.accessTtl = Number(this.config.get('JWT_ACCESS_TTL_SECONDS', '3600'));
     this.refreshTtl = Number(
       this.config.get('JWT_REFRESH_TTL_SECONDS', '2592000'),
     );

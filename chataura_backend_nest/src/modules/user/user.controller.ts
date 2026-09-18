@@ -7,9 +7,10 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   Res,
 } from '@nestjs/common';
-import type { FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { SkipEmailVerified } from '../../common/decorators/skip-email-verified.decorator';
@@ -76,11 +77,29 @@ export class UserController {
   }
 
   @Post('user/update')
-  updateProfile(
+  async updateProfile(
     @CurrentUser() user: AuthUser,
-    @Body() body: Record<string, unknown>,
+    @Req() req: FastifyRequest,
+    @Body() body?: Record<string, unknown>,
   ) {
-    return this.users.updateProfile(user.id, body as never);
+    let payload: Record<string, any> = body ? { ...body } : {};
+    const reqAny = req as any;
+    if (typeof reqAny.isMultipart === 'function' && reqAny.isMultipart()) {
+      const parts = reqAny.parts();
+      for await (const part of parts) {
+        if (part.type === 'file') {
+          if ((part.fieldname === 'avatar' || part.fieldname === 'image') && part.filename) {
+            const dest = await this.users.saveAvatar(part.filename, part.file);
+            if (dest) payload.avatar_url = dest;
+          } else if (part.file) {
+            part.file.resume();
+          }
+        } else {
+          payload[part.fieldname] = part.value;
+        }
+      }
+    }
+    return this.users.updateProfile(user.id, payload);
   }
 
   @Post('user/privacy')
@@ -111,10 +130,7 @@ export class UserController {
   }
 
   @Get('users/star-accounts')
-  starAccounts(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
+  starAccounts(@Query('page') page?: string, @Query('limit') limit?: string) {
     return this.users.starAccounts(Number(page ?? 1), Number(limit ?? 20));
   }
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 type StaffRow = {
   id: number;
@@ -19,18 +20,19 @@ type StaffRow = {
 
 export default function StaffPage() {
   const router = useRouter();
+  const { token } = useAdminAuth();
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [userId, setUserId] = useState('');
   const [role, setRole] = useState<'admin' | 'seller'>('admin');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
-  async function load(token: string) {
+  async function load(tok: string) {
     setLoading(true);
     try {
       const json = await api<{ success: boolean; data?: { staff: StaffRow[] } }>(
         '/admin/staff',
-        token,
+        tok,
       );
       setStaff(json.data?.staff ?? []);
     } catch (e) {
@@ -41,13 +43,10 @@ export default function StaffPage() {
   }
 
   useEffect(() => {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) {
-      router.replace('/login');
-      return;
+    if (token) {
+      void load(token);
     }
-    void load(token);
-  }, [router]);
+  }, [token]);
 
   async function linkExisting() {
     const token = localStorage.getItem('ca_admin_token');

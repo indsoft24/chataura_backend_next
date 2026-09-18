@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 type Settings = {
   id: number;
@@ -17,6 +18,7 @@ type Settings = {
 
 export default function StaffCommissionsPage() {
   const router = useRouter();
+  const { token } = useAdminAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
@@ -28,10 +30,10 @@ export default function StaffCommissionsPage() {
   const [cashoutEnabled, setCashoutEnabled] = useState(false);
   const [earningsPurchaseEnabled, setEarningsPurchaseEnabled] = useState(true);
 
-  async function load(token: string) {
+  async function load(tok: string) {
     setLoading(true);
     try {
-      const json = await api<{ success: boolean; data?: { settings: Settings } }>('/admin/settings', token);
+      const json = await api<{ success: boolean; data?: { settings: Settings } }>('/admin/settings', tok);
       if (json.data?.settings) {
         const s = json.data.settings;
         setGiftComm(String(s.gift_commission_pct ?? 20));
@@ -48,13 +50,10 @@ export default function StaffCommissionsPage() {
   }
 
   useEffect(() => {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) {
-      router.replace('/login');
-      return;
+    if (token) {
+      void load(token);
     }
-    void load(token);
-  }, [router]);
+  }, [token]);
 
   async function save() {
     const token = localStorage.getItem('ca_admin_token');

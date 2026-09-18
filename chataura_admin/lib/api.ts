@@ -1,5 +1,15 @@
 export const API =
-  process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3005/api/v1';
+  process.env.NEXT_PUBLIC_API_URL || '/api/v2';
+
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
 
 export async function api<T>(
   path: string,
@@ -14,5 +24,31 @@ export async function api<T>(
       ...(init?.headers ?? {}),
     },
   });
+
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`;
+    try {
+      const ct = res.headers.get('content-type') ?? '';
+      if (ct.includes('application/json')) {
+        const body = (await res.json()) as { error?: { message?: string }; message?: string };
+        message = body?.error?.message ?? body?.message ?? message;
+      } else {
+        // HTML error page from Nginx / proxy — don't try to parse JSON
+        message = `Server error (${res.status})`;
+      }
+    } catch {
+      // ignore parse errors
+    }
+    if (res.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('ca_admin_token');
+      const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '/nextadmin';
+      const loginUrl = `${basePath.replace(/\/$/, '')}/login`;
+      if (!window.location.pathname.endsWith('/login')) {
+        window.location.href = loginUrl;
+      }
+    }
+    throw new ApiError(res.status, message);
+  }
+
   return res.json() as Promise<T>;
 }

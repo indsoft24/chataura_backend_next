@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 
 const MENU_GROUPS = [
   {
@@ -45,6 +45,7 @@ const MENU_GROUPS = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
 
   return (
     <aside style={{
@@ -115,6 +116,35 @@ export function Sidebar() {
           </div>
         ))}
       </nav>
+      <div style={{ marginTop: 'auto', padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+        <button
+          onClick={() => {
+            localStorage.removeItem('ca_admin_token');
+            document.cookie = 'ca_admin_token=; path=/; max-age=0; SameSite=Lax';
+            router.push('/login');
+          }}
+          style={{
+            width: '100%',
+            padding: '10px',
+            borderRadius: '8px',
+            background: 'rgba(239, 68, 68, 0.1)',
+            color: '#f87171',
+            border: '1px solid rgba(239, 68, 68, 0.2)',
+            cursor: 'pointer',
+            fontSize: '0.85rem',
+            fontWeight: 600,
+            transition: 'all 0.2s',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
+          }}
+        >
+          Logout
+        </button>
+      </div>
     </aside>
   );
 }

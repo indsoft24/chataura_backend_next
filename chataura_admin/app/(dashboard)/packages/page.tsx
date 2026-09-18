@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 type Pack = {
   id: number;
@@ -16,6 +17,7 @@ type Pack = {
 
 export default function PackagesPage() {
   const router = useRouter();
+  const { token } = useAdminAuth();
   const [rows, setRows] = useState<Pack[]>([]);
   const [coins, setCoins] = useState('100');
   const [price, setPrice] = useState('99');
@@ -25,12 +27,12 @@ export default function PackagesPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
-  async function load(token: string) {
+  async function load(tok: string) {
     setLoading(true);
     try {
       const json = await api<{ success: boolean; data?: { packages: Pack[] } }>(
         '/admin/packages',
-        token,
+        tok,
       );
       setRows(json.data?.packages ?? []);
     } catch (e) {
@@ -41,13 +43,10 @@ export default function PackagesPage() {
   }
 
   useEffect(() => {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) {
-      router.replace('/login');
-      return;
+    if (token) {
+      void load(token);
     }
-    void load(token);
-  }, [router]);
+  }, [token]);
 
   async function create() {
     const token = localStorage.getItem('ca_admin_token');

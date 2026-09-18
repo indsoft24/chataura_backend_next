@@ -22,10 +22,7 @@ export class GamificationController {
   }
 
   @Post(['xp/add', 'user/level/add-xp'])
-  addXp(
-    @CurrentUser() user: AuthUser,
-    @Body() body: { amount: number },
-  ) {
+  addXp(@CurrentUser() user: AuthUser, @Body() body: { amount: number }) {
     return this.game.addXp(user.id, Number(body.amount));
   }
 

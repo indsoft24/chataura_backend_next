@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 type Sticker = {
   id: number;
@@ -15,6 +16,7 @@ type Sticker = {
 
 export default function StickersPage() {
   const router = useRouter();
+  const { token } = useAdminAuth();
   const [stickers, setStickers] = useState<Sticker[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -25,10 +27,10 @@ export default function StickersPage() {
   const [animationUrl, setAnimationUrl] = useState('');
   const [error, setError] = useState('');
 
-  async function load(token: string) {
+  async function load(tok: string) {
     setLoading(true);
     try {
-      const json = await api<{ success: boolean; data?: { stickers: Sticker[] } }>('/admin/stickers', token);
+      const json = await api<{ success: boolean; data?: { stickers: Sticker[] } }>('/admin/stickers', tok);
       setStickers(json.data?.stickers ?? []);
     } catch (e) {
       console.error(e);
@@ -38,13 +40,10 @@ export default function StickersPage() {
   }
 
   useEffect(() => {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) {
-      router.replace('/login');
-      return;
+    if (token) {
+      void load(token);
     }
-    void load(token);
-  }, [router]);
+  }, [token]);
 
   async function create() {
     const token = localStorage.getItem('ca_admin_token');

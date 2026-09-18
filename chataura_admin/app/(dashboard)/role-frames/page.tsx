@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 type Frame = {
   id: number;
@@ -17,6 +18,7 @@ type Frame = {
 
 export default function RoleFramesPage() {
   const router = useRouter();
+  const { token } = useAdminAuth();
   const [frames, setFrames] = useState<Frame[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -26,10 +28,10 @@ export default function RoleFramesPage() {
   const [imageUrl, setImageUrl] = useState('');
   const [error, setError] = useState('');
 
-  async function load(token: string) {
+  async function load(tok: string) {
     setLoading(true);
     try {
-      const json = await api<{ success: boolean; data?: { frames: Frame[] } }>('/admin/frames?category=role', token);
+      const json = await api<{ success: boolean; data?: { frames: Frame[] } }>('/admin/frames?category=role', tok);
       setFrames(json.data?.frames ?? []);
     } catch (e) {
       console.error(e);
@@ -39,13 +41,10 @@ export default function RoleFramesPage() {
   }
 
   useEffect(() => {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) {
-      router.replace('/login');
-      return;
+    if (token) {
+      void load(token);
     }
-    void load(token);
-  }, [router]);
+  }, [token]);
 
   async function create() {
     const token = localStorage.getItem('ca_admin_token');

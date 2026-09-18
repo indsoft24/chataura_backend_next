@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 type Level = {
   id: number;
@@ -16,6 +17,7 @@ type Level = {
 
 export default function LevelsPage() {
   const router = useRouter();
+  const { token } = useAdminAuth();
   const [levels, setLevels] = useState<Level[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -27,10 +29,10 @@ export default function LevelsPage() {
   const [badgeUrl, setBadgeUrl] = useState('');
   const [error, setError] = useState('');
 
-  async function load(token: string) {
+  async function load(tok: string) {
     setLoading(true);
     try {
-      const json = await api<{ success: boolean; data?: { levels: Level[] } }>('/admin/levels', token);
+      const json = await api<{ success: boolean; data?: { levels: Level[] } }>('/admin/levels', tok);
       const list = json.data?.levels ?? [];
       setLevels(list);
       if (list.length > 0) {
@@ -49,13 +51,10 @@ export default function LevelsPage() {
   }
 
   useEffect(() => {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) {
-      router.replace('/login');
-      return;
+    if (token) {
+      void load(token);
     }
-    void load(token);
-  }, [router]);
+  }, [token]);
 
   async function create() {
     const token = localStorage.getItem('ca_admin_token');

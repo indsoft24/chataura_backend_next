@@ -200,11 +200,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     return this.serializeRoom(room);
   }
 
-  async update(
-    userId: bigint,
-    id: string,
-    body: Record<string, unknown>,
-  ) {
+  async update(userId: bigint, id: string, body: Record<string, unknown>) {
     const room = await this.findRoom(id);
     const isHost = room.hostId === userId;
     const isCoHost = room.coHostId === userId;
@@ -218,7 +214,10 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       if (body.theme_id === undefined) {
         throw new ForbiddenException({
           success: false,
-          error: { code: 'FORBIDDEN', message: 'Co-host may only change theme' },
+          error: {
+            code: 'FORBIDDEN',
+            message: 'Co-host may only change theme',
+          },
         });
       }
       const updated = await this.prisma.room.update({
@@ -244,9 +243,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         ...(typeof body.description === 'string'
           ? { description: body.description }
           : {}),
-        ...(body.settings
-          ? { settings: body.settings as Prisma.InputJsonValue }
-          : {}),
+        ...(body.settings ? { settings: body.settings } : {}),
         ...(body.theme_id !== undefined
           ? { themeId: BigInt(String(body.theme_id)) }
           : {}),
@@ -428,7 +425,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         data: { hostLastHeartbeatAt: new Date(), lastActivityAt: new Date() },
       });
     }
-    return { ok: true, bonus_earned: [], agency_linked: false, agency_cashback: null };
+    return {
+      ok: true,
+      bonus_earned: [],
+      agency_linked: false,
+      agency_cashback: null,
+    };
   }
 
   async token(userId: bigint, id: string, uid?: string) {
@@ -502,9 +504,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         reason: reason ?? null,
         kind,
         expiresAt:
-          kind === 'kick'
-            ? new Date(Date.now() + KICK_SECONDS * 1000)
-            : null,
+          kind === 'kick' ? new Date(Date.now() + KICK_SECONDS * 1000) : null,
       },
     });
     await this.prisma.roomMember.updateMany({
@@ -550,7 +550,10 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     this.assertHost(room, actorId);
     await this.prisma.room.update({
       where: { id: room.id },
-      data: { hostId: targetId, coHostId: room.coHostId === targetId ? null : room.coHostId },
+      data: {
+        hostId: targetId,
+        coHostId: room.coHostId === targetId ? null : room.coHostId,
+      },
     });
     await this.prisma.roomMember.updateMany({
       where: { roomId: room.id, userId: targetId },
@@ -589,7 +592,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     return { ...snap, rtc_role: 'publisher' };
   }
 
-  async assignSeat(actorId: bigint, id: string, seatIndex: number, targetId: bigint) {
+  async assignSeat(
+    actorId: bigint,
+    id: string,
+    seatIndex: number,
+    targetId: bigint,
+  ) {
     const room = await this.findRoom(id);
     this.assertHost(room, actorId);
     await this.requireActiveMember(room.id, targetId);
@@ -666,7 +674,11 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     const seat = await this.prisma.seat.findUnique({
       where: { roomId_seatIndex: { roomId: room.id, seatIndex } },
     });
-    if (!seat) throw new NotFoundException({ success: false, error: { code: 'NOT_FOUND', message: 'Seat not found' } });
+    if (!seat)
+      throw new NotFoundException({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Seat not found' },
+      });
     const isHost = room.hostId === actorId;
     const isCoHost = room.coHostId === actorId;
     const isSelf = seat.userId === actorId;
@@ -676,7 +688,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         error: { code: 'FORBIDDEN', message: 'Cannot mute this seat' },
       });
     }
-    if (isSelf && !isHost && seat.mutedByUserId && seat.mutedByUserId !== actorId) {
+    if (
+      isSelf &&
+      !isHost &&
+      seat.mutedByUserId &&
+      seat.mutedByUserId !== actorId
+    ) {
       throw new ForbiddenException({
         success: false,
         error: { code: 'HOST_MUTED', message: 'You were muted by the host' },
@@ -724,243 +741,6 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     const snap = await this.seatsSnapshot(room.id, actorId, last);
     this.events.emitSeatUpdated(room.id, snap);
     return { ...snap, message: 'Seat removed' };
-  }
-
-  async giftTypes() {
-    const gifts = await this.prisma.gift.findMany({
-      where: { isActive: true },
-      orderBy: { id: 'asc' },
-    });
-    return gifts.map((g) => ({
-      id: Number(g.id),
-      name: g.name,
-      coin_cost: g.coinCost,
-      coin_price: g.coinCost,
-      image_url: g.imageUrl,
-      animation_url: g.animationUrl,
-    }));
-  }
-
-  async sendRoomGift(
-    senderId: bigint,
-    id: string,
-    body: { gift_id: number | string; receiver_id: number | string; quantity?: number },
-  ) {
-    const room = await this.findRoom(id);
-    const quantity = Math.min(Math.max(Number(body.quantity ?? 1), 1), 100);
-    const gift = await this.prisma.gift.findFirst({
-      where: { id: BigInt(body.gift_id), isActive: true },
-    });
-    if (!gift) {
-      throw new NotFoundException({
-        success: false,
-        error: { code: 'GIFT_NOT_FOUND', message: 'Gift not found' },
-      });
-    }
-    const receiverId = BigInt(body.receiver_id);
-    await this.requireActiveMember(room.id, senderId);
-    const recvMember = await this.prisma.roomMember.findFirst({
-      where: { roomId: room.id, userId: receiverId, isActive: true },
-    });
-    const seated = await this.prisma.seat.findFirst({
-      where: { roomId: room.id, userId: receiverId },
-    });
-    if (
-      !recvMember &&
-      !seated &&
-      room.hostId !== receiverId &&
-      room.ownerId !== receiverId
-    ) {
-      throw new BadRequestException({
-        success: false,
-        error: { code: 'NOT_IN_ROOM', message: 'Receiver is not in this room' },
-      });
-    }
-    const settings = await this.prisma.adminSetting.findUnique({
-      where: { id: 1 },
-    });
-    const commissionPct = Number(settings?.giftCommissionPct ?? 20) / 100;
-    const cost = BigInt(gift.coinCost * quantity);
-    const commission = BigInt(Math.floor(Number(cost) * commissionPct));
-    const netGems = cost - commission;
-
-    const result = await this.prisma.$transaction(async (tx) => {
-      try {
-        const ref = `room_${room.id}_gift_${gift.id}_${senderId}_${Date.now()}`;
-        const { after } = await this.ledger.debitCoins(
-          tx,
-          senderId,
-          cost,
-          'GIFT',
-          `Room gift: ${gift.name}`,
-          ref,
-        );
-        await tx.coinTransaction.updateMany({
-          where: { userId: senderId, referenceId: ref },
-          data: {
-            meta: {
-              room_id: room.id,
-              gift_id: Number(gift.id),
-              receiver_id: Number(receiverId),
-              quantity,
-            },
-          },
-        });
-        const recv = await this.ledger.lockUser(tx, receiverId);
-        if (!recv) {
-          throw new NotFoundException({
-            success: false,
-            error: { code: 'RECEIVER_NOT_FOUND', message: 'Receiver not found' },
-          });
-        }
-        await tx.user.update({
-          where: { id: receiverId },
-          data: {
-            gems: { increment: netGems },
-            totalEarnedCoins: { increment: netGems },
-          },
-        });
-        const sender = await tx.user.findUniqueOrThrow({
-          where: { id: senderId },
-        });
-        return {
-          transaction_id: `RG_${Date.now()}`,
-          coin_amount: Number(cost),
-          commission_amount: Number(commission),
-          net_amount: Number(netGems),
-          sender_balance_after: Number(after),
-          receiver_gems_after: Number(recv.gems + netGems),
-          balances: {
-            coins: Number(after),
-            gems: Number(sender.gems),
-            referral_balance: Number(sender.referralBalance),
-          },
-          agency_cashback: null,
-        };
-      } catch (e) {
-        if ((e as { code?: string }).code === 'INSUFFICIENT_BALANCE') {
-          throw new BadRequestException({
-            success: false,
-            error: {
-              code: 'INSUFFICIENT_BALANCE',
-              message: 'Insufficient coin balance',
-            },
-          });
-        }
-        throw e;
-      }
-    });
-    this.events.emitGiftOverlay(room.id, {
-      gift_id: Number(gift.id),
-      image_url: gift.imageUrl,
-      animation_url: gift.animationUrl,
-      sender_id: Number(senderId),
-      receiver_id: Number(receiverId),
-      quantity,
-    });
-    return result;
-  }
-
-  async sendBatchGift(
-    senderId: bigint,
-    body: {
-      gift_id: number | string;
-      receiver_ids: Array<number | string>;
-      quantity?: number;
-      room_id: string;
-    },
-  ) {
-    const ids = body.receiver_ids ?? [];
-    const results = [];
-    for (const rid of ids) {
-      results.push(
-        await this.sendRoomGift(senderId, body.room_id, {
-          gift_id: body.gift_id,
-          receiver_id: rid,
-          quantity: body.quantity,
-        }),
-      );
-    }
-    const last = results[results.length - 1];
-    return {
-      transaction_ids: results.map((r) => r.transaction_id),
-      coin_amount: results.reduce((s, r) => s + r.coin_amount, 0),
-      per_receiver_coin_amount: last?.coin_amount ?? 0,
-      receiver_count: ids.length,
-      sender_balance_after: last?.sender_balance_after ?? 0,
-      agency_cashback: null,
-    };
-  }
-
-  async giftStats(userId: bigint, id: string) {
-    const room = await this.findRoom(id);
-    await this.requireActiveMember(room.id, userId);
-    const rows = await this.prisma.coinTransaction.findMany({
-      where: {
-        type: 'GIFT',
-        coinAmount: { lt: 0 },
-        OR: [
-          { referenceId: { startsWith: `room_${room.id}_` } },
-          { meta: { path: ['room_id'], equals: room.id } },
-        ],
-      },
-      include: { user: true },
-      orderBy: { id: 'desc' },
-    });
-    const senders = new Map<
-      string,
-      { user_id: number; name: string | null; avatar: string | null; coins: number; gift_count: number }
-    >();
-    const receivers = new Map<
-      string,
-      { user_id: number; name: string | null; avatar: string | null; coins: number; gift_count: number }
-    >();
-    let totalCoins = 0;
-    for (const row of rows) {
-      const coins = Math.abs(Number(row.coinAmount));
-      totalCoins += coins;
-      const sid = Number(row.userId);
-      const prev = senders.get(String(sid));
-      senders.set(String(sid), {
-        user_id: sid,
-        name: row.user.displayName ?? row.user.name,
-        avatar: row.user.avatarUrl,
-        coins: (prev?.coins ?? 0) + coins,
-        gift_count: (prev?.gift_count ?? 0) + 1,
-      });
-      const meta = (row.meta ?? {}) as { receiver_id?: number };
-      if (meta.receiver_id) {
-        const rid = Number(meta.receiver_id);
-        const rprev = receivers.get(String(rid));
-        receivers.set(String(rid), {
-          user_id: rid,
-          name: rprev?.name ?? null,
-          avatar: rprev?.avatar ?? null,
-          coins: (rprev?.coins ?? 0) + coins,
-          gift_count: (rprev?.gift_count ?? 0) + 1,
-        });
-      }
-    }
-    const recvIds = [...receivers.keys()].map((k) => BigInt(k));
-    if (recvIds.length) {
-      const users = await this.prisma.user.findMany({
-        where: { id: { in: recvIds } },
-      });
-      for (const u of users) {
-        const rec = receivers.get(String(Number(u.id)));
-        if (rec) {
-          rec.name = u.displayName ?? u.name;
-          rec.avatar = u.avatarUrl;
-        }
-      }
-    }
-    return {
-      room_id: room.id,
-      total_coins: totalCoins,
-      gift_count: rows.length,
-      senders: [...senders.values()].sort((a, b) => b.coins - a.coins),
-      receivers: [...receivers.values()].sort((a, b) => b.coins - a.coins),
-    };
   }
 
   async stickers(userId: bigint) {
@@ -1038,7 +818,11 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   async sendSticker(
     userId: bigint,
     id: string,
-    body: { sticker_id: number | string; receiver_id?: number; quantity?: number },
+    body: {
+      sticker_id: number | string;
+      receiver_id?: number;
+      quantity?: number;
+    },
   ) {
     const room = await this.findRoom(id);
     await this.requireActiveMember(room.id, userId);
@@ -1114,7 +898,11 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private async seatsSnapshot(roomId: string, viewerId: bigint, maxSeats: number) {
+  private async seatsSnapshot(
+    roomId: string,
+    viewerId: bigint,
+    maxSeats: number,
+  ) {
     const seats = await this.prisma.seat.findMany({
       where: { roomId, seatIndex: { lt: maxSeats } },
       include: { user: true },
@@ -1208,13 +996,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
           theme: true,
           _count: { select: { members: { where: { isActive: true } } } },
         };
-    const room =
-      id.includes('-')
-        ? await this.prisma.room.findUnique({ where: { id }, include })
-        : await this.prisma.room.findUnique({
-            where: { displayId: id },
-            include,
-          });
+    const room = id.includes('-')
+      ? await this.prisma.room.findUnique({ where: { id }, include })
+      : await this.prisma.room.findUnique({
+          where: { displayId: id },
+          include,
+        });
     if (!room) {
       throw new NotFoundException({
         success: false,
@@ -1266,7 +1053,10 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     }
     throw new ForbiddenException({
       success: false,
-      error: { code: 'ROOM_BLOCKED', message: 'You are blocked from this room' },
+      error: {
+        code: 'ROOM_BLOCKED',
+        message: 'You are blocked from this room',
+      },
     });
   }
 

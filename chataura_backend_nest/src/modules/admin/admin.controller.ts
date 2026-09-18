@@ -9,12 +9,36 @@ import {
   Query,
 } from '@nestjs/common';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { AdminCatalogService } from './admin-catalog.service';
 import { AdminService } from './admin.service';
+import {
+  CreateEntryBarDto,
+  CreateFrameDto,
+  CreateGiftDto,
+  CreateLevelDto,
+  CreatePackageDto,
+  CreateRoomThemeDto,
+  CreateStickerDto,
+  LinkUserDto,
+  RejectWithdrawalDto,
+  StarDto,
+  SuspendDto,
+  UpdateEntryBarDto,
+  UpdateFrameDto,
+  UpdateGiftDto,
+  UpdateLevelDto,
+  UpdatePackageDto,
+  UpdateRoomThemeDto,
+  UpdateStickerDto,
+} from './dto/admin.dto';
 
 @Roles('admin')
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly admin: AdminService) {}
+  constructor(
+    private readonly admin: AdminService,
+    private readonly catalog: AdminCatalogService,
+  ) {}
 
   @Get('dashboard')
   dashboard() {
@@ -31,10 +55,7 @@ export class AdminController {
   }
 
   @Post('users/:id/suspend')
-  suspend(
-    @Param('id') id: string,
-    @Body() body?: { reason?: string },
-  ) {
+  suspend(@Param('id') id: string, @Body() body?: SuspendDto) {
     return this.admin.suspend(BigInt(id), body?.reason);
   }
 
@@ -44,26 +65,17 @@ export class AdminController {
   }
 
   @Post('users/:id/star')
-  star(
-    @Param('id') id: string,
-    @Body() body?: { is_star?: boolean },
-  ) {
+  star(@Param('id') id: string, @Body() body?: StarDto) {
     return this.admin.setStar(BigInt(id), body?.is_star !== false);
   }
 
   @Post('users/:id/deactivate')
-  deactivate(
-    @Param('id') id: string,
-    @Body() body?: { reason?: string },
-  ) {
+  deactivate(@Param('id') id: string, @Body() body?: SuspendDto) {
     return this.admin.deactivate(BigInt(id), body?.reason);
   }
 
   @Post('users/:id/link')
-  link(
-    @Param('id') id: string,
-    @Body() body?: { role?: 'user' | 'seller' | 'admin'; email?: string },
-  ) {
+  link(@Param('id') id: string, @Body() body?: LinkUserDto) {
     return this.admin.linkExistingUser(BigInt(id), body ?? {});
   }
 
@@ -74,40 +86,22 @@ export class AdminController {
 
   @Get('packages')
   packages() {
-    return this.admin.packages();
+    return this.catalog.packages();
   }
 
   @Post('packages')
-  createPackage(
-    @Body()
-    body: {
-      coins: number;
-      price: number;
-      currency?: string;
-      audience?: string;
-      original_price?: number;
-    },
-  ) {
-    return this.admin.createPackage(body);
+  createPackage(@Body() body: CreatePackageDto) {
+    return this.catalog.createPackage(body);
   }
 
   @Patch('packages/:id')
-  updatePackage(
-    @Param('id') id: string,
-    @Body()
-    body: {
-      coins?: number;
-      price?: number;
-      is_active?: boolean;
-      audience?: string;
-    },
-  ) {
-    return this.admin.updatePackage(BigInt(id), body);
+  updatePackage(@Param('id') id: string, @Body() body: UpdatePackageDto) {
+    return this.catalog.updatePackage(BigInt(id), body);
   }
 
   @Delete('packages/:id')
   deletePackage(@Param('id') id: string) {
-    return this.admin.deletePackage(BigInt(id));
+    return this.catalog.deletePackage(BigInt(id));
   }
 
   @Get('reports')
@@ -127,65 +121,42 @@ export class AdminController {
 
   @Get('gifts')
   gifts() {
-    return this.admin.gifts();
+    return this.catalog.gifts();
   }
 
   @Post('gifts')
-  createGift(
-    @Body()
-    body: {
-      name: string;
-      coin_cost?: number;
-      coinCost?: number;
-      image_url?: string;
-      imageUrl?: string;
-    },
-  ) {
-    return this.admin.createGift(body);
+  createGift(@Body() body: CreateGiftDto) {
+    return this.catalog.createGift(body);
   }
 
   @Patch('gifts/:id')
-  updateGift(
-    @Param('id') id: string,
-    @Body()
-    body: {
-      name?: string;
-      coin_cost?: number;
-      coinCost?: number;
-      image_url?: string;
-      imageUrl?: string;
-      is_active?: boolean;
-    },
-  ) {
-    return this.admin.updateGift(BigInt(id), body);
+  updateGift(@Param('id') id: string, @Body() body: UpdateGiftDto) {
+    return this.catalog.updateGift(BigInt(id), body);
   }
 
   @Delete('gifts/:id')
   deleteGift(@Param('id') id: string) {
-    return this.admin.deleteGift(BigInt(id));
+    return this.catalog.deleteGift(BigInt(id));
   }
 
   @Get('banners')
   banners() {
-    return this.admin.bannersAdmin();
+    return this.catalog.bannersAdmin();
   }
 
   @Post('banners')
   createBanner(@Body() body: Record<string, unknown>) {
-    return this.admin.createBanner(body);
+    return this.catalog.createBanner(body);
   }
 
   @Patch('banners/:id')
-  updateBanner(
-    @Param('id') id: string,
-    @Body() body: Record<string, unknown>,
-  ) {
-    return this.admin.updateBanner(BigInt(id), body);
+  updateBanner(@Param('id') id: string, @Body() body: Record<string, unknown>) {
+    return this.catalog.updateBanner(BigInt(id), body);
   }
 
   @Delete('banners/:id')
   deleteBanner(@Param('id') id: string) {
-    return this.admin.deleteBanner(BigInt(id));
+    return this.catalog.deleteBanner(BigInt(id));
   }
 
   @Get('withdrawals')
@@ -201,7 +172,7 @@ export class AdminController {
   @Post('withdrawals/:id/reject')
   rejectWithdrawal(
     @Param('id') id: string,
-    @Body() body?: { reason?: string },
+    @Body() body?: RejectWithdrawalDto,
   ) {
     return this.admin.rejectWithdrawal(BigInt(id), body?.reason);
   }
@@ -209,210 +180,116 @@ export class AdminController {
   // Levels
   @Get('levels')
   levels() {
-    return this.admin.levels();
+    return this.catalog.levels();
   }
 
   @Post('levels')
-  createLevel(
-    @Body()
-    body: {
-      level: number;
-      min_xp: number;
-      max_xp: number;
-      label?: string;
-      badge_url?: string;
-      icon_url?: string;
-    },
-  ) {
-    return this.admin.createLevel(body);
+  createLevel(@Body() body: CreateLevelDto) {
+    return this.catalog.createLevel(body);
   }
 
   @Patch('levels/:id')
-  updateLevel(
-    @Param('id') id: string,
-    @Body()
-    body: {
-      min_xp?: number;
-      max_xp?: number;
-      label?: string;
-      badge_url?: string;
-      icon_url?: string;
-    },
-  ) {
-    return this.admin.updateLevel(Number(id), body);
+  updateLevel(@Param('id') id: string, @Body() body: UpdateLevelDto) {
+    return this.catalog.updateLevel(Number(id), body);
   }
 
   @Delete('levels/:id')
   deleteLevel(@Param('id') id: string) {
-    return this.admin.deleteLevel(Number(id));
+    return this.catalog.deleteLevel(Number(id));
   }
 
   // Frames & Role Frames
   @Get('frames')
   frames(@Query('category') category?: string) {
-    return this.admin.frames(category);
+    return this.catalog.frames(category);
   }
 
   @Post('frames')
-  createFrame(
-    @Body()
-    body: {
-      name: string;
-      category?: string;
-      level_required?: number;
-      coin_cost?: number;
-      is_premium?: boolean;
-      image_url?: string;
-      animation_key?: string;
-    },
-  ) {
-    return this.admin.createFrame(body);
+  createFrame(@Body() body: CreateFrameDto) {
+    return this.catalog.createFrame(body);
   }
 
   @Patch('frames/:id')
-  updateFrame(
-    @Param('id') id: string,
-    @Body()
-    body: {
-      name?: string;
-      category?: string;
-      level_required?: number;
-      coin_cost?: number;
-      is_premium?: boolean;
-      is_active?: boolean;
-      image_url?: string;
-      animation_key?: string;
-    },
-  ) {
-    return this.admin.updateFrame(BigInt(id), body);
+  updateFrame(@Param('id') id: string, @Body() body: UpdateFrameDto) {
+    return this.catalog.updateFrame(BigInt(id), body);
   }
 
   @Delete('frames/:id')
   deleteFrame(@Param('id') id: string) {
-    return this.admin.deleteFrame(BigInt(id));
+    return this.catalog.deleteFrame(BigInt(id));
   }
 
   // Entry Bars
   @Get('entry-bars')
   entryBars() {
-    return this.admin.entryBars();
+    return this.catalog.entryBars();
   }
 
   @Post('entry-bars')
-  createEntryBar(
-    @Body()
-    body: {
-      name: string;
-      level_required?: number;
-      image_url?: string;
-    },
-  ) {
-    return this.admin.createEntryBar(body);
+  createEntryBar(@Body() body: CreateEntryBarDto) {
+    return this.catalog.createEntryBar(body);
   }
 
   @Patch('entry-bars/:id')
-  updateEntryBar(
-    @Param('id') id: string,
-    @Body()
-    body: {
-      name?: string;
-      level_required?: number;
-      image_url?: string;
-      is_active?: boolean;
-    },
-  ) {
-    return this.admin.updateEntryBar(BigInt(id), body);
+  updateEntryBar(@Param('id') id: string, @Body() body: UpdateEntryBarDto) {
+    return this.catalog.updateEntryBar(BigInt(id), body);
   }
 
   @Delete('entry-bars/:id')
   deleteEntryBar(@Param('id') id: string) {
-    return this.admin.deleteEntryBar(BigInt(id));
+    return this.catalog.deleteEntryBar(BigInt(id));
   }
 
   // Room Themes
   @Get('room-themes')
   roomThemes() {
-    return this.admin.roomThemes();
+    return this.catalog.roomThemes();
   }
 
   @Post('room-themes')
-  createRoomTheme(
-    @Body()
-    body: {
-      name: string;
-      coin_cost?: number;
-      image_url?: string;
-    },
-  ) {
-    return this.admin.createRoomTheme(body);
+  createRoomTheme(@Body() body: CreateRoomThemeDto) {
+    return this.catalog.createRoomTheme(body);
   }
 
   @Patch('room-themes/:id')
-  updateRoomTheme(
-    @Param('id') id: string,
-    @Body()
-    body: {
-      name?: string;
-      coin_cost?: number;
-      image_url?: string;
-      is_active?: boolean;
-    },
-  ) {
-    return this.admin.updateRoomTheme(BigInt(id), body);
+  updateRoomTheme(@Param('id') id: string, @Body() body: UpdateRoomThemeDto) {
+    return this.catalog.updateRoomTheme(BigInt(id), body);
   }
 
   @Delete('room-themes/:id')
   deleteRoomTheme(@Param('id') id: string) {
-    return this.admin.deleteRoomTheme(BigInt(id));
+    return this.catalog.deleteRoomTheme(BigInt(id));
   }
 
   // Stickers
   @Get('stickers')
   stickers() {
-    return this.admin.stickers();
+    return this.catalog.stickers();
   }
 
   @Post('stickers')
-  createSticker(
-    @Body()
-    body: {
-      name: string;
-      coin_cost?: number;
-      image_url?: string;
-      animation_url?: string;
-    },
-  ) {
-    return this.admin.createSticker(body);
+  createSticker(@Body() body: CreateStickerDto) {
+    return this.catalog.createSticker(body);
   }
 
   @Patch('stickers/:id')
-  updateSticker(
-    @Param('id') id: string,
-    @Body()
-    body: {
-      name?: string;
-      coin_cost?: number;
-      image_url?: string;
-      animation_url?: string;
-      is_active?: boolean;
-    },
-  ) {
-    return this.admin.updateSticker(BigInt(id), body);
+  updateSticker(@Param('id') id: string, @Body() body: UpdateStickerDto) {
+    return this.catalog.updateSticker(BigInt(id), body);
   }
 
   @Delete('stickers/:id')
   deleteSticker(@Param('id') id: string) {
-    return this.admin.deleteSticker(BigInt(id));
+    return this.catalog.deleteSticker(BigInt(id));
   }
 
   // Settings
   @Get('settings')
   settings() {
-    return this.admin.settings();
+    return this.catalog.settings();
   }
 
   @Patch('settings')
   updateSettings(@Body() body: Record<string, unknown>) {
-    return this.admin.updateSettings(body);
+    return this.catalog.updateSettings(body);
   }
 }

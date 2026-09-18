@@ -31,6 +31,8 @@ export default function LoginPage() {
         return;
       }
       localStorage.setItem('ca_admin_token', json.data.access_token);
+      const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+      document.cookie = `ca_admin_token=${encodeURIComponent(json.data.access_token)}; path=/; max-age=86400; SameSite=Lax; ${isHttps ? 'Secure;' : ''}`;
       router.push('/');
     } catch (err: any) {
       console.error(err);

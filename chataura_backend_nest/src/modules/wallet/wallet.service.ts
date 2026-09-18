@@ -38,7 +38,9 @@ export class WalletService {
   }
 
   async balance(userId: bigint) {
-    const u = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const u = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
     return {
       wallet_balance: Number(u.walletBalance),
       coins: Number(u.walletBalance),
@@ -94,8 +96,7 @@ export class WalletService {
 
     const currency = (body.currency ?? pkg.currency ?? 'INR').toUpperCase();
     const amountMinor = Math.round(Number(pkg.price) * 100);
-    const keyId =
-      this.config.get<string>('RAZORPAY_KEY_ID') || 'rzp_test_mock';
+    const keyId = this.config.get<string>('RAZORPAY_KEY_ID') || 'rzp_test_mock';
 
     let orderId: string;
     if (this.razorpay) {
@@ -115,7 +116,10 @@ export class WalletService {
         this.logger.error(`Razorpay order failed: ${String(e)}`);
         throw new ServiceUnavailableException({
           success: false,
-          error: { code: 'GATEWAY_TIMEOUT', message: 'Payment gateway unavailable' },
+          error: {
+            code: 'GATEWAY_TIMEOUT',
+            message: 'Payment gateway unavailable',
+          },
         });
       }
     } else {
@@ -170,7 +174,9 @@ export class WalletService {
     }
 
     if (purchase.status === 'success') {
-      const u = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+      const u = await this.prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+      });
       return {
         status: 'already_credited',
         coins_credited: purchase.coinsCredited,
@@ -192,7 +198,10 @@ export class WalletService {
       if (a.length !== b.length || !timingSafeEqual(a, b)) {
         throw new BadRequestException({
           success: false,
-          error: { code: 'INVALID_SIGNATURE', message: 'Invalid payment signature' },
+          error: {
+            code: 'INVALID_SIGNATURE',
+            message: 'Invalid payment signature',
+          },
         });
       }
     } else {
@@ -217,7 +226,10 @@ export class WalletService {
     if (dup) {
       throw new BadRequestException({
         success: false,
-        error: { code: 'DUPLICATE_PAYMENT', message: 'Payment already processed' },
+        error: {
+          code: 'DUPLICATE_PAYMENT',
+          message: 'Payment already processed',
+        },
       });
     }
 
@@ -241,7 +253,9 @@ export class WalletService {
       return after;
     });
 
-    const u = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const u = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
     return {
       status: 'success',
       coins_credited: purchase.coinsCredited,
@@ -317,7 +331,10 @@ export class WalletService {
       } else {
         throw new BadRequestException({
           success: false,
-          error: { code: 'INVALID_CURRENCY', message: 'currency must be INR or USD' },
+          error: {
+            code: 'INVALID_CURRENCY',
+            message: 'currency must be INR or USD',
+          },
         });
       }
 
@@ -328,6 +345,7 @@ export class WalletService {
         'EARNINGS_PURCHASE',
         'Package purchased with earnings',
         `pkg_${pkg.id}`,
+        locked,
       );
 
       await tx.coinPurchaseTransaction.create({
@@ -357,7 +375,11 @@ export class WalletService {
 
   async transfer(
     senderId: bigint,
-    body: { receiver_id: number | string; coin_amount: number | string; note?: string },
+    body: {
+      receiver_id: number | string;
+      coin_amount: number | string;
+      note?: string;
+    },
   ) {
     const sender = await this.prisma.user.findUniqueOrThrow({
       where: { id: senderId },
@@ -365,21 +387,39 @@ export class WalletService {
     if (sender.role !== 'seller' && sender.role !== 'admin') {
       throw new ForbiddenException({
         success: false,
-        error: { code: 'FORBIDDEN', message: 'Only sellers can transfer coins' },
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Only sellers can transfer coins',
+        },
       });
     }
 
     const receiverId = BigInt(body.receiver_id);
+    if (senderId === receiverId) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'SELF_TRANSFER_FORBIDDEN',
+          message: 'Cannot transfer coins to yourself',
+        },
+      });
+    }
     const amount = BigInt(body.coin_amount);
     if (amount <= 0n) {
       throw new BadRequestException({
         success: false,
-        error: { code: 'INVALID_AMOUNT', message: 'coin_amount must be positive' },
+        error: {
+          code: 'INVALID_AMOUNT',
+          message: 'coin_amount must be positive',
+        },
       });
     }
 
     return this.prisma.$transaction(async (tx) => {
       try {
+        const userMap = await this.ledger.lockUsers(tx, [senderId, receiverId]);
+        const senderLocked = userMap.get(senderId.toString());
+        const receiverLocked = userMap.get(receiverId.toString());
         const { after } = await this.ledger.debitCoins(
           tx,
           senderId,
@@ -387,6 +427,7 @@ export class WalletService {
           'SELLER_TRANSFER',
           body.note ?? 'Coin transfer',
           `to_${receiverId}`,
+          senderLocked,
         );
         const recvAfter = await this.ledger.creditCoins(
           tx,
@@ -395,6 +436,7 @@ export class WalletService {
           'SELLER_TRANSFER',
           'Coins received',
           `from_${senderId}`,
+          receiverLocked,
         );
         const row = await tx.coinTransaction.findFirst({
           where: { userId: senderId, type: 'SELLER_TRANSFER' },
@@ -414,6 +456,15 @@ export class WalletService {
             error: {
               code: 'INSUFFICIENT_BALANCE',
               message: 'Insufficient coin balance',
+            },
+          });
+        }
+        if ((e as { code?: string }).code === 'USER_NOT_FOUND') {
+          throw new NotFoundException({
+            success: false,
+            error: {
+              code: 'USER_NOT_FOUND',
+              message: 'User not found',
             },
           });
         }
@@ -446,6 +497,8 @@ export class WalletService {
         amount,
         'REFERRAL_CONVERT',
         'Referral balance converted',
+        undefined,
+        locked,
       );
       return {
         referral_balance: 0,
@@ -486,7 +539,10 @@ export class WalletService {
     if (coins <= 0n) {
       throw new BadRequestException({
         success: false,
-        error: { code: 'INVALID_AMOUNT', message: 'Not enough gems for 1 coin' },
+        error: {
+          code: 'INVALID_AMOUNT',
+          message: 'Not enough gems for 1 coin',
+        },
       });
     }
 
@@ -512,6 +568,8 @@ export class WalletService {
         coins,
         'GEM_TO_COINS',
         'Gems converted to coins',
+        undefined,
+        locked,
       );
       const gemsAfter = locked.gems - gemsAmount;
       await tx.gemConversion.create({
@@ -557,16 +615,13 @@ export class WalletService {
     }));
   }
 
-  async transactions(
-    userId: bigint,
-    page = 1,
-    limit = 20,
-    filter?: string,
-  ) {
+  async transactions(userId: bigint, page = 1, limit = 20, filter?: string) {
     const take = Math.min(Math.max(limit, 1), 100);
     const skip = (Math.max(page, 1) - 1) * take;
-    const where: { userId: bigint; coinAmount?: { gt: bigint } | { lt: bigint } } =
-      { userId };
+    const where: {
+      userId: bigint;
+      coinAmount?: { gt: bigint } | { lt: bigint };
+    } = { userId };
     if (filter === 'earned') where.coinAmount = { gt: 0n };
     if (filter === 'expense') where.coinAmount = { lt: 0n };
 
@@ -650,7 +705,8 @@ export class WalletService {
       success: false,
       error: {
         code: 'CASH_OUT_DISABLED',
-        message: 'Withdrawals are no longer available. Convert gems to coins instead.',
+        message:
+          'Withdrawals are no longer available. Convert gems to coins instead.',
       },
     });
   }
@@ -674,6 +730,15 @@ export class WalletService {
     senderId: bigint,
     body: { gift_id: number | string; receiver_id: number | string },
   ) {
+    if (!body?.gift_id || !body?.receiver_id) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'gift_id and receiver_id are required',
+        },
+      });
+    }
     const gift = await this.prisma.gift.findFirst({
       where: { id: BigInt(body.gift_id), isActive: true },
     });
@@ -692,6 +757,18 @@ export class WalletService {
 
     return this.prisma.$transaction(async (tx) => {
       try {
+        const userMap = await this.ledger.lockUsers(tx, [senderId, receiverId]);
+        const recv = userMap.get(receiverId.toString());
+        const sender = userMap.get(senderId.toString());
+        if (!recv) {
+          throw new NotFoundException({
+            success: false,
+            error: {
+              code: 'RECEIVER_NOT_FOUND',
+              message: 'Receiver not found',
+            },
+          });
+        }
         const { after } = await this.ledger.debitCoins(
           tx,
           senderId,
@@ -699,6 +776,7 @@ export class WalletService {
           'GIFT',
           `Gift: ${gift.name}`,
           `gift_${gift.id}_to_${receiverId}`,
+          sender,
         );
         await this.ledger.writeLedger(tx, {
           userId: senderId,
@@ -710,13 +788,6 @@ export class WalletService {
           balanceAfter: after,
         });
 
-        const recv = await this.ledger.lockUser(tx, receiverId);
-        if (!recv) {
-          throw new NotFoundException({
-            success: false,
-            error: { code: 'RECEIVER_NOT_FOUND', message: 'Receiver not found' },
-          });
-        }
         await tx.user.update({
           where: { id: receiverId },
           data: {
@@ -733,9 +804,8 @@ export class WalletService {
           balances: {
             coins: Number(after),
             gems: Number(
-              (
-                await tx.user.findUniqueOrThrow({ where: { id: senderId } })
-              ).gems,
+              (await tx.user.findUniqueOrThrow({ where: { id: senderId } }))
+                .gems,
             ),
           },
         };
@@ -746,6 +816,15 @@ export class WalletService {
             error: {
               code: 'INSUFFICIENT_BALANCE',
               message: 'Insufficient coin balance',
+            },
+          });
+        }
+        if ((e as { code?: string }).code === 'USER_NOT_FOUND') {
+          throw new NotFoundException({
+            success: false,
+            error: {
+              code: 'RECEIVER_NOT_FOUND',
+              message: 'Receiver not found',
             },
           });
         }
@@ -773,7 +852,9 @@ export class WalletService {
       callType === 'video'
         ? settings.videoCallPricePerMin
         : settings.audioCallPricePerMin;
-    const u = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const u = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
     const balance = Number(u.walletBalance);
     void receiverId;
     return {

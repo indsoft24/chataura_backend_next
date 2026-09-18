@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 type Gift = {
   id: number;
@@ -15,6 +16,7 @@ type Gift = {
 
 export default function GiftsPage() {
   const router = useRouter();
+  const { token } = useAdminAuth();
   const [gifts, setGifts] = useState<Gift[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -24,10 +26,10 @@ export default function GiftsPage() {
   const [imageUrl, setImageUrl] = useState('');
   const [error, setError] = useState('');
 
-  async function load(token: string) {
+  async function load(tok: string) {
     setLoading(true);
     try {
-      const json = await api<any>('/admin/gifts', token);
+      const json = await api<any>('/admin/gifts', tok);
       const list = Array.isArray(json.data) ? json.data : (json.data?.gifts ?? []);
       setGifts(list);
     } catch (e) {
@@ -38,13 +40,10 @@ export default function GiftsPage() {
   }
 
   useEffect(() => {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) {
-      router.replace('/login');
-      return;
+    if (token) {
+      void load(token);
     }
-    void load(token);
-  }, [router]);
+  }, [token]);
 
   async function create() {
     const token = localStorage.getItem('ca_admin_token');

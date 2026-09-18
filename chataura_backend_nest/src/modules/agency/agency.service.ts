@@ -6,12 +6,16 @@ import {
 } from '@nestjs/common';
 import { AgencyAffiliationStatus } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { LedgerService } from '../wallet/ledger.service';
 
 const COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class AgencyService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ledger: LedgerService,
+  ) {}
 
   async me(userId: bigint) {
     const active = await this.prisma.agencyAffiliation.findFirst({
@@ -134,11 +138,7 @@ export class AgencyService {
     return { requests: rows.map((r) => this.serializeAff(r)) };
   }
 
-  async accept(
-    userId: bigint,
-    id: bigint,
-    body?: { room_id?: string },
-  ) {
+  async accept(userId: bigint, id: bigint, body?: { room_id?: string }) {
     const row = await this.requireAgencyRequest(userId, id);
     const roomId = body?.room_id ?? row.roomId;
     const updated = await this.prisma.agencyAffiliation.update({
@@ -257,6 +257,89 @@ export class AgencyService {
     body: { approved_gems: number; notes?: string },
   ) {
     await this.assertAgency(userId);
+    const gems = Math.max(0, Number(body.approved_gems));
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.agencyWeeklyDistribution.findUnique({
+        where: { id },
+      });
+      if (!row || row.agencyUserId !== userId) {
+        throw new NotFoundException({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Distribution not found' },
+        });
+      }
+      if (row.status !== 'pending') {
+        throw new BadRequestException({
+          success: false,
+          error: { code: 'ALREADY_SETTLED', message: 'Already processed' },
+        });
+      }
+
+      // Optimistically claim status transition
+      const claimed = await tx.agencyWeeklyDistribution.updateMany({
+        where: { id, agencyUserId: userId, status: 'pending' },
+        data: {
+          status: 'paid',
+          approvedGems: gems,
+          notes: body.notes ?? null,
+          paidAt: new Date(),
+        },
+      });
+      if (claimed.count === 0) {
+        throw new BadRequestException({
+          success: false,
+          error: { code: 'ALREADY_SETTLED', message: 'Already processed' },
+        });
+      }
+
+      const locked = await this.ledger.lockUser(tx, row.roomOwnerId);
+      if (!locked) {
+        throw new NotFoundException({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'Room owner not found' },
+        });
+      }
+
+      await tx.user.update({
+        where: { id: row.roomOwnerId },
+        data: {
+          gems: { increment: gems },
+          totalEarnedCoins: { increment: gems },
+        },
+      });
+
+      await this.ledger.writeLedger(tx, {
+        userId: row.roomOwnerId,
+        type: 'AGENCY_WEEKLY_PAYOUT',
+        title: `Agency distribution #${id}`,
+        coinAmount: 0,
+        netAmount: BigInt(gems),
+        referenceId: `agency_dist_${id}`,
+        status: 'success',
+        meta: {
+          distribution_id: Number(id),
+          agency_user_id: Number(userId),
+          approved_gems: gems,
+          notes: body.notes ?? null,
+        },
+      });
+
+      return tx.agencyWeeklyDistribution.findUniqueOrThrow({
+        where: { id },
+      });
+    });
+
+    return {
+      id: Number(updated.id),
+      status: updated.status,
+      approved_gems: updated.approvedGems,
+      paid_at: updated.paidAt?.toISOString() ?? null,
+    };
+  }
+
+  async weeklyReject(userId: bigint, id: bigint, body?: { notes?: string }) {
+    await this.assertAgency(userId);
     const row = await this.prisma.agencyWeeklyDistribution.findUnique({
       where: { id },
     });
@@ -272,55 +355,22 @@ export class AgencyService {
         error: { code: 'ALREADY_SETTLED', message: 'Already processed' },
       });
     }
-    const gems = Math.max(0, Number(body.approved_gems));
-    await this.prisma.$transaction([
-      this.prisma.user.update({
-        where: { id: row.roomOwnerId },
-        data: { gems: { increment: gems } },
-      }),
-      this.prisma.agencyWeeklyDistribution.update({
-        where: { id },
-        data: {
-          status: 'paid',
-          approvedGems: gems,
-          notes: body.notes ?? null,
-          paidAt: new Date(),
-        },
-      }),
-    ]);
-    const fresh = await this.prisma.agencyWeeklyDistribution.findUniqueOrThrow({
-      where: { id },
-    });
-    return {
-      id: Number(fresh.id),
-      status: fresh.status,
-      approved_gems: fresh.approvedGems,
-      paid_at: fresh.paidAt?.toISOString() ?? null,
-    };
-  }
-
-  async weeklyReject(
-    userId: bigint,
-    id: bigint,
-    body?: { notes?: string },
-  ) {
-    await this.assertAgency(userId);
-    const row = await this.prisma.agencyWeeklyDistribution.findUnique({
-      where: { id },
-    });
-    if (!row || row.agencyUserId !== userId) {
-      throw new NotFoundException({
-        success: false,
-        error: { code: 'NOT_FOUND', message: 'Distribution not found' },
-      });
-    }
-    const fresh = await this.prisma.agencyWeeklyDistribution.update({
-      where: { id },
+    const claimed = await this.prisma.agencyWeeklyDistribution.updateMany({
+      where: { id, agencyUserId: userId, status: 'pending' },
       data: {
         status: 'rejected',
         notes: body?.notes ?? null,
         paidAt: new Date(),
       },
+    });
+    if (claimed.count === 0) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'ALREADY_SETTLED', message: 'Already processed' },
+      });
+    }
+    const fresh = await this.prisma.agencyWeeklyDistribution.findUniqueOrThrow({
+      where: { id },
     });
     return {
       id: Number(fresh.id),
@@ -366,7 +416,11 @@ export class AgencyService {
     const now = new Date();
     const day = now.getUTCDay() || 7;
     const start = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - day + 1),
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate() - day + 1,
+      ),
     );
     const end = new Date(start);
     end.setUTCDate(start.getUTCDate() + 6);
@@ -485,9 +539,7 @@ export class AgencyService {
       affiliation_id: Number(row.id),
       joined_at: row.joinedAt?.toISOString() ?? null,
       owner: this.userSummary(row.roomOwner),
-      rooms: row.room
-        ? [this.serializeRoomSummary(row.room, true)]
-        : [],
+      rooms: row.room ? [this.serializeRoomSummary(row.room, true)] : [],
       linked_room_id: row.roomId,
       linked_room: row.room ? this.serializeRoom(row.room) : null,
       is_permanent: row.room?.isPermanent ?? false,

@@ -63,14 +63,8 @@ export class AgencyController {
   }
 
   @Get('agency/weekly')
-  weekly(
-    @CurrentUser() user: AuthUser,
-    @Query('period_id') periodId?: string,
-  ) {
-    return this.agency.weekly(
-      user.id,
-      periodId ? BigInt(periodId) : undefined,
-    );
+  weekly(@CurrentUser() user: AuthUser, @Query('period_id') periodId?: string) {
+    return this.agency.weekly(user.id, periodId ? BigInt(periodId) : undefined);
   }
 
   @Post('agency/weekly/:id/approve')

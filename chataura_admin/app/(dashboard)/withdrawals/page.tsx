@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 type Withdrawal = {
   id: number;
@@ -21,15 +22,16 @@ type Withdrawal = {
 
 export default function WithdrawalsPage() {
   const router = useRouter();
+  const { token } = useAdminAuth();
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [processingId, setProcessingId] = useState<number | null>(null);
 
-  async function load(token: string) {
+  async function load(tok: string) {
     setLoading(true);
     try {
-      const json = await api<{ success: boolean; data?: { withdrawals: Withdrawal[] } }>('/admin/withdrawals', token);
+      const json = await api<{ success: boolean; data?: { withdrawals: Withdrawal[] } }>('/admin/withdrawals', tok);
       setWithdrawals(json.data?.withdrawals ?? []);
     } catch (e) {
       console.error(e);
@@ -39,13 +41,10 @@ export default function WithdrawalsPage() {
   }
 
   useEffect(() => {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) {
-      router.replace('/login');
-      return;
+    if (token) {
+      void load(token);
     }
-    void load(token);
-  }, [router]);
+  }, [token]);
 
   async function handleAction(id: number, action: 'approve' | 'reject') {
     const token = localStorage.getItem('ca_admin_token');

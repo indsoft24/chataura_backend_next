@@ -7,6 +7,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { ChatEvents } from './chat.events';
@@ -50,48 +51,67 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       take,
       orderBy: { conversation: { updatedAt: 'desc' } },
     });
-    return Promise.all(
-      parts.map(async (p) => {
-        const c = p.conversation;
-        const other = c.participants.find((x) => x.userId !== userId)?.user;
-        const last = c.messages[0];
-        const unread = await this.prisma.message.count({
-          where: {
-            conversationId: c.id,
-            senderId: { not: userId },
-            createdAt: { gt: p.lastReadAt ?? new Date(0) },
-          },
-        });
-        return {
-          id: Number(c.id),
-          name: c.name ?? other?.displayName ?? other?.name,
-          type: c.type,
-          image_url: c.imageUrl ?? other?.avatarUrl,
-          last_message: last?.messageText ?? null,
-          last_message_type: last?.messageType ?? null,
-          last_message_at: last?.createdAt.toISOString() ?? null,
-          unread_count: unread,
-          group_id: c.type === 'group' ? Number(c.id) : null,
-          other_user: other
-            ? {
-                id: Number(other.id),
-                name: other.displayName ?? other.name,
-                avatar_url: other.avatarUrl,
-                is_online: other.isOnline,
-                last_seen_at: other.lastSeenAt?.toISOString() ?? null,
-                selected_frame_id: other.selectedFrameId
-                  ? Number(other.selectedFrameId)
-                  : null,
-              }
-            : null,
-          members: c.participants.map((m) => ({
-            id: Number(m.user.id),
-            name: m.user.displayName ?? m.user.name,
-            avatar_url: m.user.avatarUrl,
-          })),
-        };
-      }),
-    );
+
+    if (parts.length === 0) {
+      return [];
+    }
+
+    const convIds = parts.map((p) => p.conversationId);
+    const unreadRows = await this.prisma.$queryRaw<
+      Array<{ conversation_id: bigint; unread_count: number | bigint }>
+    >`
+      SELECT 
+        cp.conversation_id,
+        COUNT(m.id)::int AS unread_count
+      FROM conversation_participants cp
+      JOIN messages m 
+        ON m.conversation_id = cp.conversation_id 
+        AND m.sender_id != cp.user_id 
+        AND m.created_at > COALESCE(cp.last_read_at, '1970-01-01'::timestamptz)
+      WHERE cp.user_id = ${userId}
+        AND cp.conversation_id IN (${Prisma.join(convIds)})
+      GROUP BY cp.conversation_id
+    `;
+
+    const unreadMap = new Map<string, number>();
+    for (const row of unreadRows) {
+      unreadMap.set(row.conversation_id.toString(), Number(row.unread_count));
+    }
+
+    return parts.map((p) => {
+      const c = p.conversation;
+      const other = c.participants.find((x) => x.userId !== userId)?.user;
+      const last = c.messages[0];
+      const unread = unreadMap.get(c.id.toString()) ?? 0;
+      return {
+        id: Number(c.id),
+        name: c.name ?? other?.displayName ?? other?.name,
+        type: c.type,
+        image_url: c.imageUrl ?? other?.avatarUrl,
+        last_message: last?.messageText ?? null,
+        last_message_type: last?.messageType ?? null,
+        last_message_at: last?.createdAt.toISOString() ?? null,
+        unread_count: unread,
+        group_id: c.type === 'group' ? Number(c.id) : null,
+        other_user: other
+          ? {
+              id: Number(other.id),
+              name: other.displayName ?? other.name,
+              avatar_url: other.avatarUrl,
+              is_online: other.isOnline,
+              last_seen_at: other.lastSeenAt?.toISOString() ?? null,
+              selected_frame_id: other.selectedFrameId
+                ? Number(other.selectedFrameId)
+                : null,
+            }
+          : null,
+        members: c.participants.map((m) => ({
+          id: Number(m.user.id),
+          name: m.user.displayName ?? m.user.name,
+          avatar_url: m.user.avatarUrl,
+        })),
+      };
+    });
   }
 
   async withUser(userId: bigint, otherId: bigint) {
@@ -164,7 +184,10 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     if (convo.type !== 'private') {
       throw new ForbiddenException({
         success: false,
-        error: { code: 'FORBIDDEN', message: 'Cannot delete group conversations' },
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Cannot delete group conversations',
+        },
       });
     }
     await this.requireParticipant(userId, conversationId);
@@ -396,7 +419,11 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
 
   async updateStatus(
     userId: bigint,
-    body: { conversation_id?: number | string; message_id?: number | string; status?: string },
+    body: {
+      conversation_id?: number | string;
+      message_id?: number | string;
+      status?: string;
+    },
   ) {
     if (body.conversation_id) {
       await this.markRead(userId, BigInt(body.conversation_id));
@@ -448,7 +475,9 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     const iAmPayer = payer?.id === userId;
     const iAmStar = star?.id === userId;
     const settings = await this.settings();
-    const me = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const me = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
     const active = await this.prisma.starChatSession.findFirst({
       where: { conversationId, status: 'active' },
     });
@@ -571,51 +600,64 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       Math.ceil((Date.now() - session.startedAt.getTime()) / 60_000),
     );
     const coins = BigInt(minutes * session.pricePerMin);
-    const commission = BigInt(
-      Math.floor(Number(coins) * (Number(session.commissionPercent) / 100)),
-    );
-    const gems = coins - commission;
 
     await this.prisma.$transaction(async (tx) => {
-      try {
+      // Atomic claim: transition from non-ended to ended
+      const claim = await tx.starChatSession.updateMany({
+        where: { id: sessionId, status: { not: 'ended' } },
+        data: { status: 'ended', endedAt: new Date(), endReason: reason },
+      });
+      if (claim.count === 0) {
+        return;
+      }
+
+      // Lock participants deterministically
+      const userMap = await this.ledger.lockUsers(tx, [
+        session.payerId,
+        session.starUserId,
+      ]);
+      const payerLocked = userMap.get(session.payerId.toString());
+
+      let coinsToDebit = coins;
+      if (payerLocked && payerLocked.wallet_balance < coins) {
+        coinsToDebit =
+          payerLocked.wallet_balance > 0n ? payerLocked.wallet_balance : 0n;
+      }
+
+      let actualCoinsDebited = 0n;
+      if (coinsToDebit > 0n) {
         await this.ledger.debitCoins(
           tx,
           session.payerId,
-          coins,
+          coinsToDebit,
           'STAR_CHAT',
           'Star chat session',
           `star_chat_${session.id}`,
+          payerLocked,
         );
-      } catch (e) {
-        if ((e as { code?: string }).code === 'INSUFFICIENT_BALANCE') {
-          const locked = await this.ledger.lockUser(tx, session.payerId);
-          const available = locked?.wallet_balance ?? 0n;
-          if (available > 0n) {
-            await this.ledger.debitCoins(
-              tx,
-              session.payerId,
-              available,
-              'STAR_CHAT',
-              'Star chat session (partial)',
-              `star_chat_${session.id}`,
-            );
-          }
-        } else {
-          throw e;
-        }
+        actualCoinsDebited = coinsToDebit;
       }
-      await tx.user.update({
-        where: { id: session.starUserId },
-        data: { gems: { increment: gems } },
-      });
+
+      const commission = BigInt(
+        Math.floor(
+          Number(actualCoinsDebited) * (Number(session.commissionPercent) / 100),
+        ),
+      );
+      const actualGemsCredited =
+        actualCoinsDebited > commission ? actualCoinsDebited - commission : 0n;
+
+      if (actualGemsCredited > 0n) {
+        await tx.user.update({
+          where: { id: session.starUserId },
+          data: { gems: { increment: actualGemsCredited } },
+        });
+      }
+
       await tx.starChatSession.update({
         where: { id: session.id },
         data: {
-          status: 'ended',
-          endedAt: new Date(),
-          coinsCharged: coins,
-          gemsCredited: gems,
-          endReason: reason,
+          coinsCharged: actualCoinsDebited,
+          gemsCredited: actualGemsCredited,
         },
       });
     });

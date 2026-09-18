@@ -98,7 +98,7 @@ export class MediaController {
       media_type?: string;
     },
   ) {
-    const fileUrl = await this.maybeStore(req, body.file_url);
+    const fileUrl = await this.media.storeFromRequest(req, body.file_url);
     return this.media.create(user.id, 'post', { ...body, file_url: fileUrl });
   }
 
@@ -117,7 +117,7 @@ export class MediaController {
       is_camera_recorded?: boolean;
     },
   ) {
-    const fileUrl = await this.maybeStore(req, body.file_url);
+    const fileUrl = await this.media.storeFromRequest(req, body.file_url);
     return this.media.create(user.id, 'reel', {
       ...body,
       file_url: fileUrl,
@@ -128,17 +128,16 @@ export class MediaController {
   @Post('upload')
   async upload(
     @Req() req: FastifyRequest,
-    @Body() body: { filename?: string; content_type?: string; file_url?: string },
+    @Body()
+    body: { filename?: string; content_type?: string; file_url?: string },
   ) {
-    const stored = await this.maybeStore(req, body.file_url);
+    const stored = await this.media.storeFromRequest(req, body.file_url);
     if (stored) return { url: stored };
     return this.media.signedUpload(body.filename, body.content_type);
   }
 
   @Post('upload/signed-url')
-  signed(
-    @Body() body: { filename?: string; content_type?: string },
-  ) {
+  signed(@Body() body: { filename?: string; content_type?: string }) {
     return this.media.signedUpload(body.filename, body.content_type);
   }
 
@@ -226,7 +225,12 @@ export class MediaController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.media.mine(user.id, 'post', Number(page ?? 1), Number(limit ?? 20));
+    return this.media.mine(
+      user.id,
+      'post',
+      Number(page ?? 1),
+      Number(limit ?? 20),
+    );
   }
 
   @Get('me/reels')
@@ -235,7 +239,12 @@ export class MediaController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.media.mine(user.id, 'reel', Number(page ?? 1), Number(limit ?? 20));
+    return this.media.mine(
+      user.id,
+      'reel',
+      Number(page ?? 1),
+      Number(limit ?? 20),
+    );
   }
 
   @Get('me/saved')
@@ -345,23 +354,5 @@ export class MediaController {
     return this.media.feedback(user.id, body.message ?? body.feedback ?? '');
   }
 
-  private async maybeStore(req: FastifyRequest, fallback?: string) {
-    if (typeof req.file !== 'function') return fallback;
-    try {
-      const part = await req.file();
-      if (!part) return fallback;
-      const mime = (part.mimetype || '').toLowerCase();
-      const allowed =
-        !mime ||
-        mime.startsWith('image/') ||
-        mime.startsWith('video/') ||
-        mime === 'application/json' ||
-        mime === 'application/octet-stream' ||
-        mime.includes('lottie');
-      if (!allowed) return fallback;
-      return this.media.storeLocalFile(part.filename, part.file);
-    } catch {
-      return fallback;
-    }
-  }
 }
+

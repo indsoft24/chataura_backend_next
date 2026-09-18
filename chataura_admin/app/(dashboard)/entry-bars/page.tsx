@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 type EntryBar = {
   id: number;
@@ -14,6 +15,7 @@ type EntryBar = {
 
 export default function EntryBarsPage() {
   const router = useRouter();
+  const { token } = useAdminAuth();
   const [bars, setBars] = useState<EntryBar[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -23,10 +25,10 @@ export default function EntryBarsPage() {
   const [imageUrl, setImageUrl] = useState('');
   const [error, setError] = useState('');
 
-  async function load(token: string) {
+  async function load(tok: string) {
     setLoading(true);
     try {
-      const json = await api<{ success: boolean; data?: { entry_bars: EntryBar[] } }>('/admin/entry-bars', token);
+      const json = await api<{ success: boolean; data?: { entry_bars: EntryBar[] } }>('/admin/entry-bars', tok);
       setBars(json.data?.entry_bars ?? []);
     } catch (e) {
       console.error(e);
@@ -36,13 +38,10 @@ export default function EntryBarsPage() {
   }
 
   useEffect(() => {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) {
-      router.replace('/login');
-      return;
+    if (token) {
+      void load(token);
     }
-    void load(token);
-  }, [router]);
+  }, [token]);
 
   async function create() {
     const token = localStorage.getItem('ca_admin_token');

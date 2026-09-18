@@ -70,7 +70,9 @@ export async function createTestApp(): Promise<NestFastifyApplication> {
   return app;
 }
 
-export function parse<T = Record<string, unknown>>(payload: string): Envelope<T> {
+export function parse<T = Record<string, unknown>>(
+  payload: string,
+): Envelope<T> {
   return JSON.parse(payload) as Envelope<T>;
 }
 
@@ -146,7 +148,10 @@ export async function creditCoins(userId: number, amount: number) {
   });
 }
 
-export async function setRole(userId: number, role: 'user' | 'seller' | 'admin' | 'agency') {
+export async function setRole(
+  userId: number,
+  role: 'user' | 'seller' | 'admin' | 'agency',
+) {
   await prisma.user.update({
     where: { id: BigInt(userId) },
     data: { role },

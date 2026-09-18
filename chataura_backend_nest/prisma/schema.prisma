@@ -127,6 +127,7 @@ model User {
 
   @@index([accountStatus])
   @@index([isStarAccount, starRank])
+  @@index([invitedBy])
   @@map("users")
 }
 
@@ -634,6 +635,7 @@ model GreedyBet {
   user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([roundId, userId])
+  @@index([status, createdAt])
   @@map("greedy_bets")
 }
 

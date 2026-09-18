@@ -55,7 +55,9 @@ export class GameService {
     await this.ensureGreedyRound();
     await this.settleGreedyIfDue();
     const round = await this.currentGreedy();
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
     const bets = await this.prisma.greedyBet.findMany({
       where: { roundId: round.id, userId },
     });
@@ -83,7 +85,9 @@ export class GameService {
   }
 
   async greedyBet(userId: bigint, item: string, amount: number) {
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
     this.assertCanPlay(user.role);
     if (!GREEDY_ITEMS[item]) {
       throw new BadRequestException({
@@ -154,11 +158,7 @@ export class GameService {
     };
   }
 
-  async greedyQuickBet(
-    userId: bigint,
-    type: string,
-    chipAmount: number,
-  ) {
+  async greedyQuickBet(userId: bigint, type: string, chipAmount: number) {
     const kind = type === 'veggie' || type === 'salad' ? 'salad' : 'feast';
     const items = kind === 'salad' ? GREEDY_SALAD : GREEDY_FEAST;
     const updated: Record<string, number> = {};
@@ -192,7 +192,9 @@ export class GameService {
     if (round.phase !== 'completed') {
       return this.greedyState(userId);
     }
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
     const bets = await this.prisma.greedyBet.findMany({
       where: { roundId, userId },
     });
@@ -235,39 +237,46 @@ export class GameService {
   async greedyLeaderboard(take = 20) {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
-    const bets = await this.prisma.greedyBet.findMany({
-      where: {
-        status: 'won',
-        createdAt: { gte: start },
-      },
-      include: { user: true },
-    });
-    const map = new Map<
-      string,
-      { user_id: number; name: string | null; avatar_url: string | null; total_won: number }
-    >();
-    for (const b of bets) {
-      const key = b.userId.toString();
-      const cur = map.get(key) ?? {
-        user_id: Number(b.userId),
-        name: b.user.displayName ?? b.user.name,
-        avatar_url: b.user.avatarUrl,
-        total_won: 0,
-      };
-      cur.total_won += Number(b.actualPayout);
-      map.set(key, cur);
-    }
-    return [...map.values()]
-      .sort((a, b) => b.total_won - a.total_won)
-      .slice(0, take)
-      .map((row, i) => ({ rank: i + 1, ...row }));
+    const limit = Math.max(1, Math.min(take, 100));
+
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        user_id: bigint;
+        name: string | null;
+        avatar_url: string | null;
+        total_won: bigint;
+      }>
+    >`
+      SELECT 
+        b.user_id,
+        COALESCE(u.display_name, u.name) AS name,
+        u.avatar_url,
+        SUM(b.actual_payout)::bigint AS total_won
+      FROM greedy_bets b
+      JOIN users u ON u.id = b.user_id
+      WHERE b.status = 'won'
+        AND b.created_at >= ${start}
+      GROUP BY b.user_id, u.display_name, u.name, u.avatar_url
+      ORDER BY total_won DESC
+      LIMIT ${limit}
+    `;
+
+    return rows.map((row, i) => ({
+      rank: i + 1,
+      user_id: Number(row.user_id),
+      name: row.name,
+      avatar_url: row.avatar_url,
+      total_won: Number(row.total_won),
+    }));
   }
 
   async luckyState(userId: bigint) {
     await this.ensureLuckyRound();
     await this.settleLuckyIfDue();
     const round = await this.currentLucky();
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
     const bets = await this.prisma.lucky77Bet.findMany({
       where: { roundId: round.id, userId },
     });
@@ -296,7 +305,9 @@ export class GameService {
   }
 
   async luckyBet(userId: bigint, option: string, amount: number) {
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
     this.assertCanPlay(user.role);
     if (!LUCKY77_OPTIONS[option]) {
       throw new BadRequestException({
@@ -312,7 +323,10 @@ export class GameService {
     }
     await this.ensureLuckyRound();
     const round = await this.currentLucky();
-    if (secondsRemaining(round.bettingEndsAt) <= 1 || round.phase !== 'betting') {
+    if (
+      secondsRemaining(round.bettingEndsAt) <= 1 ||
+      round.phase !== 'betting'
+    ) {
       throw new BadRequestException({
         success: false,
         error: { code: 'BETTING_CLOSED', message: 'Betting is closed' },
@@ -390,7 +404,9 @@ export class GameService {
       });
     }
     if (round.phase !== 'completed') return this.luckyState(userId);
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
     const bets = await this.prisma.lucky77Bet.findMany({
       where: { roundId, userId },
     });
@@ -438,32 +454,52 @@ export class GameService {
   }
 
   async currentGreedy() {
-    return (await this.ensureGreedyRound())!;
+    return await this.ensureGreedyRound();
   }
 
   async currentLucky() {
-    return (await this.ensureLuckyRound())!;
+    return await this.ensureLuckyRound();
   }
 
   async settleGreedyIfDue(roundId?: bigint) {
-    const round = roundId
-      ? await this.prisma.greedyRound.findUnique({ where: { id: roundId } })
-      : await this.prisma.greedyRound.findFirst({
-          where: { phase: { in: ['betting', 'drawing'] } },
-          orderBy: { id: 'desc' },
-        });
-    if (!round || round.phase === 'completed') return;
-    if (round.bettingEndsAt.getTime() > Date.now()) return;
+    const now = new Date();
+    const settled = await this.prisma.$transaction(async (tx) => {
+      let rows: Array<{ id: bigint; phase: string; betting_ends_at: Date }>;
+      if (roundId) {
+        rows = await tx.$queryRaw<
+          Array<{ id: bigint; phase: string; betting_ends_at: Date }>
+        >`SELECT id, phase, betting_ends_at FROM greedy_rounds WHERE id = ${roundId} AND phase != 'completed' FOR UPDATE SKIP LOCKED`;
+      } else {
+        rows = await tx.$queryRaw<
+          Array<{ id: bigint; phase: string; betting_ends_at: Date }>
+        >`SELECT id, phase, betting_ends_at FROM greedy_rounds WHERE phase != 'completed' AND betting_ends_at <= ${now} ORDER BY id ASC LIMIT 1 FOR UPDATE SKIP LOCKED`;
+      }
+      const current = rows[0];
+      if (
+        !current ||
+        current.phase === 'completed' ||
+        new Date(current.betting_ends_at).getTime() > Date.now()
+      ) {
+        return null;
+      }
 
-    const winner = pickWeighted(GREEDY_ITEMS);
-    const mult = GREEDY_ITEMS[winner].multiplier;
-    await this.prisma.greedyRound.update({
-      where: { id: round.id },
-      data: { phase: 'drawing' },
-    });
+      // Winner rolled within single-claimer lock
+      const winner = pickWeighted(GREEDY_ITEMS);
+      const mult = GREEDY_ITEMS[winner].multiplier;
 
-    await this.prisma.$transaction(async (tx) => {
-      const bets = await tx.greedyBet.findMany({ where: { roundId: round.id } });
+      await tx.greedyRound.update({
+        where: { id: current.id },
+        data: {
+          phase: 'completed',
+          winningItem: winner,
+          winningMultiplier: mult,
+          settledAt: new Date(),
+        },
+      });
+
+      const bets = await tx.greedyBet.findMany({
+        where: { roundId: current.id },
+      });
       const byUser = new Map<string, typeof bets>();
       for (const b of bets) {
         const k = b.userId.toString();
@@ -484,18 +520,70 @@ export class GameService {
           });
         }
         if (payout > 0n) {
-          await this.ledger.creditCoins(
-            tx,
-            userBets[0].userId,
-            payout,
-            'GAME_GREEDY_WIN',
-            `Greedy win ${winner}`,
-            `greedy_win_${round.id}`,
-          );
+          const winRef = `greedy_win_${current.id}`;
+          const alreadyPaid = await tx.coinTransaction.findFirst({
+            where: {
+              userId: userBets[0].userId,
+              referenceId: winRef,
+            },
+          });
+          if (!alreadyPaid) {
+            await this.ledger.creditCoins(
+              tx,
+              userBets[0].userId,
+              payout,
+              'GAME_GREEDY_WIN',
+              `Greedy win ${winner}`,
+              winRef,
+            );
+          }
         }
       }
-      await tx.greedyRound.update({
-        where: { id: round.id },
+
+      return {
+        roundId: current.id,
+        winner,
+        mult,
+      };
+    });
+
+    if (!settled) return;
+
+    await this.ensureGreedyRound();
+    this.events.emitResult('greedy', {
+      roundId: Number(settled.roundId),
+      winningItem: settled.winner,
+      multiplier: settled.mult,
+    });
+  }
+
+  async settleLuckyIfDue(roundId?: bigint) {
+    const now = new Date();
+    const settled = await this.prisma.$transaction(async (tx) => {
+      let rows: Array<{ id: bigint; phase: string; betting_ends_at: Date }>;
+      if (roundId) {
+        rows = await tx.$queryRaw<
+          Array<{ id: bigint; phase: string; betting_ends_at: Date }>
+        >`SELECT id, phase, betting_ends_at FROM lucky77_rounds WHERE id = ${roundId} AND phase != 'completed' FOR UPDATE SKIP LOCKED`;
+      } else {
+        rows = await tx.$queryRaw<
+          Array<{ id: bigint; phase: string; betting_ends_at: Date }>
+        >`SELECT id, phase, betting_ends_at FROM lucky77_rounds WHERE phase != 'completed' AND betting_ends_at <= ${now} ORDER BY id ASC LIMIT 1 FOR UPDATE SKIP LOCKED`;
+      }
+      const current = rows[0];
+      if (
+        !current ||
+        current.phase === 'completed' ||
+        new Date(current.betting_ends_at).getTime() > Date.now()
+      ) {
+        return null;
+      }
+
+      const winner = pickWeighted(LUCKY77_OPTIONS);
+      const mult = LUCKY77_OPTIONS[winner].multiplier;
+
+      await tx.lucky77Round.update({
+        where: { id: current.id },
         data: {
           phase: 'completed',
           winningItem: winner,
@@ -503,34 +591,10 @@ export class GameService {
           settledAt: new Date(),
         },
       });
-    });
-    await this.ensureGreedyRound();
-    this.events.emitResult('greedy', {
-      roundId: Number(round.id),
-      winningItem: winner,
-      multiplier: mult,
-    });
-  }
 
-  async settleLuckyIfDue(roundId?: bigint) {
-    const round = roundId
-      ? await this.prisma.lucky77Round.findUnique({ where: { id: roundId } })
-      : await this.prisma.lucky77Round.findFirst({
-          where: { phase: { in: ['betting', 'drawing'] } },
-          orderBy: { id: 'desc' },
-        });
-    if (!round || round.phase === 'completed') return;
-    if (round.bettingEndsAt.getTime() > Date.now()) return;
-
-    const winner = pickWeighted(LUCKY77_OPTIONS);
-    const mult = LUCKY77_OPTIONS[winner].multiplier;
-    await this.prisma.lucky77Round.update({
-      where: { id: round.id },
-      data: { phase: 'drawing' },
-    });
-
-    await this.prisma.$transaction(async (tx) => {
-      const bets = await tx.lucky77Bet.findMany({ where: { roundId: round.id } });
+      const bets = await tx.lucky77Bet.findMany({
+        where: { roundId: current.id },
+      });
       const byUser = new Map<string, typeof bets>();
       for (const b of bets) {
         const k = b.userId.toString();
@@ -548,31 +612,40 @@ export class GameService {
           });
         }
         if (payout > 0n) {
-          await this.ledger.creditCoins(
-            tx,
-            userBets[0].userId,
-            payout,
-            'GAME_LUCKY77_WIN',
-            `Lucky77 win ${winner}`,
-            `lucky77_win_${round.id}`,
-          );
+          const winRef = `lucky77_win_${current.id}`;
+          const alreadyPaid = await tx.coinTransaction.findFirst({
+            where: {
+              userId: userBets[0].userId,
+              referenceId: winRef,
+            },
+          });
+          if (!alreadyPaid) {
+            await this.ledger.creditCoins(
+              tx,
+              userBets[0].userId,
+              payout,
+              'GAME_LUCKY77_WIN',
+              `Lucky77 win ${winner}`,
+              winRef,
+            );
+          }
         }
       }
-      await tx.lucky77Round.update({
-        where: { id: round.id },
-        data: {
-          phase: 'completed',
-          winningItem: winner,
-          winningMultiplier: mult,
-          settledAt: new Date(),
-        },
-      });
+
+      return {
+        roundId: current.id,
+        winner,
+        mult,
+      };
     });
+
+    if (!settled) return;
+
     await this.ensureLuckyRound();
     this.events.emitResult('lucky77', {
-      roundId: Number(round.id),
-      winningItem: winner,
-      multiplier: mult,
+      roundId: Number(settled.roundId),
+      winningItem: settled.winner,
+      multiplier: settled.mult,
     });
   }
 

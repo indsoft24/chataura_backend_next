@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 type Banner = {
   id: number;
@@ -18,6 +19,7 @@ type Banner = {
 
 export default function BannersPage() {
   const router = useRouter();
+  const { token } = useAdminAuth();
   const [banners, setBanners] = useState<Banner[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -29,10 +31,10 @@ export default function BannersPage() {
   const [actionTarget, setActionTarget] = useState('');
   const [error, setError] = useState('');
 
-  async function load(token: string) {
+  async function load(tok: string) {
     setLoading(true);
     try {
-      const json = await api<{ success: boolean; data?: { banners: Banner[] } }>('/admin/banners', token);
+      const json = await api<{ success: boolean; data?: { banners: Banner[] } }>('/admin/banners', tok);
       setBanners(json.data?.banners ?? []);
     } catch (e) {
       console.error(e);
@@ -42,13 +44,10 @@ export default function BannersPage() {
   }
 
   useEffect(() => {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) {
-      router.replace('/login');
-      return;
+    if (token) {
+      void load(token);
     }
-    void load(token);
-  }, [router]);
+  }, [token]);
 
   async function create() {
     const token = localStorage.getItem('ca_admin_token');

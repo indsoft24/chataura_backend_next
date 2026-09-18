@@ -18,17 +18,11 @@ export class OtpService {
 
   async store(key: string, otp: string, ttlSeconds: number): Promise<void> {
     const client = this.redis.getClient();
-    if (client.status !== 'ready') {
-      await client.connect().catch(() => undefined);
-    }
     await client.set(key, otp, 'EX', ttlSeconds);
   }
 
   async verify(key: string, otp: string): Promise<boolean> {
     const client = this.redis.getClient();
-    if (client.status !== 'ready') {
-      await client.connect().catch(() => undefined);
-    }
     const stored = await client.get(key);
     if (!stored || stored !== otp) return false;
     await client.del(key);
@@ -37,33 +31,34 @@ export class OtpService {
 
   async get(key: string): Promise<string | null> {
     const client = this.redis.getClient();
-    if (client.status !== 'ready') {
-      await client.connect().catch(() => undefined);
-    }
     return client.get(key);
   }
 
   async del(key: string): Promise<void> {
     const client = this.redis.getClient();
-    if (client.status !== 'ready') {
-      await client.connect().catch(() => undefined);
-    }
     await client.del(key);
   }
 
   async incrRate(key: string, ttlSeconds: number): Promise<number> {
     const client = this.redis.getClient();
-    if (client.status !== 'ready') {
-      await client.connect().catch(() => undefined);
-    }
     const n = await client.incr(key);
     if (n === 1) await client.expire(key, ttlSeconds);
     return n;
   }
 
-  async sendEmail(to: string, otp: string): Promise<{ sent: boolean; devOtp?: string }> {
+  async sendEmail(
+    to: string,
+    otp: string,
+  ): Promise<{ sent: boolean; devOtp?: string }> {
     const host = this.config.get<string>('SMTP_HOST');
+    const isProd = this.config.get('NODE_ENV') === 'production';
     if (!host) {
+      if (isProd) {
+        this.logger.error(
+          `SMTP_HOST is not configured in production. Cannot send OTP to ${to}`,
+        );
+        throw new Error('Email delivery service is unconfigured in production');
+      }
       this.logger.warn(`SMTP unset — OTP for ${to}: ${otp}`);
       return { sent: true, devOtp: otp };
     }

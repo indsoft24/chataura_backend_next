@@ -1,16 +1,18 @@
 export const BETTING_SECONDS = 20;
 
-export const GREEDY_ITEMS: Record<string, { multiplier: number; weight: number }> =
-  {
-    chicken: { multiplier: 45, weight: 200 },
-    cow: { multiplier: 25, weight: 350 },
-    crab: { multiplier: 15, weight: 600 },
-    fish: { multiplier: 10, weight: 950 },
-    carrot: { multiplier: 5, weight: 1975 },
-    tomato: { multiplier: 5, weight: 1975 },
-    corn: { multiplier: 5, weight: 1975 },
-    chilli: { multiplier: 5, weight: 1975 },
-  };
+export const GREEDY_ITEMS: Record<
+  string,
+  { multiplier: number; weight: number }
+> = {
+  chicken: { multiplier: 45, weight: 200 },
+  cow: { multiplier: 25, weight: 350 },
+  crab: { multiplier: 15, weight: 600 },
+  fish: { multiplier: 10, weight: 950 },
+  carrot: { multiplier: 5, weight: 1975 },
+  tomato: { multiplier: 5, weight: 1975 },
+  corn: { multiplier: 5, weight: 1975 },
+  chilli: { multiplier: 5, weight: 1975 },
+};
 
 export const GREEDY_SALAD = ['carrot', 'tomato', 'corn', 'chilli'];
 export const GREEDY_FEAST = ['chicken', 'cow', 'crab', 'fish'];
@@ -29,7 +31,9 @@ export const LUCKY77_OPTIONS: Record<
 export const LUCKY77_MIN = 50_000;
 export const LUCKY77_MAX = 10_000_000;
 
-export function pickWeighted(weights: Record<string, { weight: number }>): string {
+export function pickWeighted(
+  weights: Record<string, { weight: number }>,
+): string {
   const entries = Object.entries(weights);
   const total = entries.reduce((s, [, v]) => s + v.weight, 0);
   let roll = Math.floor(Math.random() * total);

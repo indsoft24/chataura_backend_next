@@ -157,10 +157,7 @@ export class ChatController {
   }
 
   @Post('groups/:groupId/leave')
-  leaveGroup(
-    @CurrentUser() user: AuthUser,
-    @Param('groupId') groupId: string,
-  ) {
+  leaveGroup(@CurrentUser() user: AuthUser, @Param('groupId') groupId: string) {
     return this.chat.leaveGroup(user.id, BigInt(groupId));
   }
 

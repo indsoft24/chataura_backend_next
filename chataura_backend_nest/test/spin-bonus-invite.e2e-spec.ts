@@ -4,6 +4,7 @@ import {
   createTestApp,
   creditCoins,
   parse,
+  prisma,
   registerVerified,
 } from './e2e.helpers';
 
@@ -12,6 +13,11 @@ describe('Spin / bonuses / invite / calls stub (e2e)', () => {
 
   beforeAll(async () => {
     app = await createTestApp();
+    await prisma.adminSetting.upsert({
+      where: { id: 1 },
+      update: { spinCost: 50 },
+      create: { id: 1, spinCost: 50 },
+    });
   });
 
   afterAll(async () => {
@@ -145,6 +151,52 @@ describe('Spin / bonuses / invite / calls stub (e2e)', () => {
     expect(parse(apply.payload).success).toBe(true);
   });
 
+  it('concurrent duplicate apply invite requests execute exactly once and reject race condition with ALREADY_APPLIED (30 callers)', async () => {
+    const inviter = await registerVerified(app);
+    const invitee = await registerVerified(app);
+    const inviteCode = inviter.inviteCode;
+
+    // Fire 30 concurrent requests with the same invitee token and invite code
+    const requests = Array.from({ length: 30 }, () =>
+      app.inject({
+        method: 'POST',
+        url: '/api/v1/invite/apply',
+        headers: authHeader(invitee.token),
+        payload: { invite_code: inviteCode },
+      }),
+    );
+
+    const responses = await Promise.all(requests);
+    const successes = responses.filter(
+      (r) => parse(r.payload).success === true,
+    );
+    const alreadyApplied = responses.filter(
+      (r) => parse(r.payload).error?.code === 'ALREADY_APPLIED',
+    );
+
+    expect(successes).toHaveLength(1);
+    expect(alreadyApplied).toHaveLength(29);
+
+    // Verify referee bonus transaction exists EXACTLY once
+    const refereeTx = await prisma.coinTransaction.findMany({
+      where: {
+        userId: BigInt(invitee.id),
+        type: 'REFERRAL_REFEREE',
+      },
+    });
+    expect(refereeTx).toHaveLength(1);
+
+    // Verify referrer bonus transaction exists EXACTLY once for this user
+    const referrerTx = await prisma.coinTransaction.findMany({
+      where: {
+        userId: BigInt(inviter.id),
+        type: 'REFERRAL_REFERRER',
+        referenceId: `ref_bonus_${invitee.id}`,
+      },
+    });
+    expect(referrerTx).toHaveLength(1);
+  });
+
   it('availability is busy only in a live room', async () => {
     const user = await registerVerified(app);
     const idle = await app.inject({
@@ -198,7 +250,8 @@ describe('Spin / bonuses / invite / calls stub (e2e)', () => {
       '/api/v1/calls/history',
     ]) {
       const res = await app.inject({
-        method: url.includes('initiate') || url.includes('agora') ? 'POST' : 'GET',
+        method:
+          url.includes('initiate') || url.includes('agora') ? 'POST' : 'GET',
         url,
         headers: authHeader(user.token),
         payload: {},

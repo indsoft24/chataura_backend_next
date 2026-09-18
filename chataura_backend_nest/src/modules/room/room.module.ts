@@ -5,12 +5,19 @@ import { AgoraService } from './agora.service';
 import { RoomController } from './room.controller';
 import { RoomEvents } from './room.events';
 import { RoomGateway } from './room.gateway';
+import { RoomGiftingService } from './room-gifting.service';
 import { RoomService } from './room.service';
 
 @Module({
   imports: [WalletModule, AuthModule],
   controllers: [RoomController],
-  providers: [RoomService, AgoraService, RoomEvents, RoomGateway],
-  exports: [RoomService],
+  providers: [
+    RoomService,
+    RoomGiftingService,
+    AgoraService,
+    RoomEvents,
+    RoomGateway,
+  ],
+  exports: [RoomService, RoomGiftingService],
 })
 export class RoomModule {}

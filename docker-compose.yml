@@ -28,7 +28,10 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+      - API_PREFIX=${API_PREFIX:-api/v2}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-https://chataura.in}
       - DATABASE_URL=postgresql://chataura_user:${DB_PASSWORD:-chataura_dev}@postgres:5432/chataura_db?schema=public&connection_limit=25
+      - REDIS_URL=redis://redis:6379
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - NODE_OPTIONS=--max-old-space-size=1200
@@ -36,6 +39,8 @@ services:
       resources:
         limits:
           memory: 1500M
+    volumes:
+      - uploads_data:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,12 +55,16 @@ services:
     build:
       context: ./chataura_admin
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api/v2}
+        NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-/nextadmin}
     container_name: chataura_admin_panel
     restart: unless-stopped
     ports:
       - "3100:3100"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:3005/api/v1
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-/api/v2}
+      - NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH:-/nextadmin}
     depends_on:
       - nestjs-api
     networks:
@@ -73,14 +82,7 @@ services:
       POSTGRES_USER: chataura_user
       POSTGRES_PASSWORD: ${DB_PASSWORD:-chataura_dev}
       POSTGRES_DB: chataura_db
-    command: >
-      postgres
-      -c shared_buffers=256MB
-      -c effective_cache_size=768MB
-      -c work_mem=8MB
-      -c maintenance_work_mem=64MB
-      -c max_connections=100
-      -c random_page_cost=1.1
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./chataura_backend_nest/docker/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
@@ -126,6 +128,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  uploads_data:
 
 networks:
   chataura_net:

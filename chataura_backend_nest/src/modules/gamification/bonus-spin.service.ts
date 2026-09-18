@@ -4,19 +4,50 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { LedgerService } from '../wallet/ledger.service';
+import { LedgerService, LockedUser } from '../wallet/ledger.service';
 
 const SPIN_PRIZES = [
-  { label: '100 coins', emoji: '💰', type: 'coins', coins: 100, probability: 0.12, gift_name: null },
-  { label: '50 coins', emoji: '🪙', type: 'coins', coins: 50, probability: 0.2, gift_name: null },
-  { label: 'Rose', emoji: '🌹', type: 'gift', coins: 10, probability: 0.08, gift_name: 'Rose' },
-  { label: 'Try again', emoji: '💨', type: 'loss', coins: 0, probability: 0.6, gift_name: null },
+  {
+    label: '100 coins',
+    emoji: '💰',
+    type: 'coins',
+    coins: 100,
+    probability: 0.12,
+    gift_name: null,
+  },
+  {
+    label: '50 coins',
+    emoji: '🪙',
+    type: 'coins',
+    coins: 50,
+    probability: 0.2,
+    gift_name: null,
+  },
+  {
+    label: 'Rose',
+    emoji: '🌹',
+    type: 'gift',
+    coins: 10,
+    probability: 0.08,
+    gift_name: 'Rose',
+  },
+  {
+    label: 'Try again',
+    emoji: '💨',
+    type: 'loss',
+    coins: 0,
+    probability: 0.6,
+    gift_name: null,
+  },
 ];
 
 export const DEFAULT_BONUS_CONFIG = {
   daily_streak: { enabled: true, rewards: [10, 20, 30, 40, 50, 60, 70] },
   referral_milestone: { enabled: true, required_count: 5, coins: 100 },
-  party_room: { enabled: false, tiers: [] as Array<{ id: number; duration_minutes: number; coins: number }> },
+  party_room: {
+    enabled: false,
+    tiers: [] as Array<{ id: number; duration_minutes: number; coins: number }>,
+  },
   watch_video: { enabled: false, coins: 0, min_duration_seconds: 0 },
   admob: { enabled: true, coins: 10, daily_limit: 5, cooldown_seconds: 60 },
   game_1: {
@@ -82,7 +113,7 @@ export class BonusSpinService {
     const prize = this.pickPrize();
     const result = await this.prisma.$transaction(async (tx) => {
       try {
-        const { after } = await this.ledger.debitCoins(
+        const { after, locked } = await this.ledger.debitCoins(
           tx,
           userId,
           cost,
@@ -99,6 +130,7 @@ export class BonusSpinService {
             'SPIN_WIN',
             `Spin win ${prize.label}`,
             `spin_win_${userId}_${Date.now()}`,
+            locked,
           );
         }
         return Number(balance);
@@ -129,7 +161,9 @@ export class BonusSpinService {
 
   async bonusStatus(userId: bigint) {
     const cfg = await this.bonusCfg();
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
     const start = this.startOfUtcDay();
     const [admobToday, lastAdmob, g1, g2, g3] = await Promise.all([
       this.prisma.bonusClaim.count({
@@ -157,19 +191,27 @@ export class BonusSpinService {
     const todayClaimed = this.sameUtcDay(user.lastStreakAt);
     const nextDay = todayClaimed
       ? Math.min(user.streakCount + 1, cfg.daily_streak.rewards.length)
-      : Math.min(Math.max(user.streakCount, 0) + 1, cfg.daily_streak.rewards.length);
-    const invited = await this.prisma.user.count({ where: { invitedBy: userId } });
+      : Math.min(
+          Math.max(user.streakCount, 0) + 1,
+          cfg.daily_streak.rewards.length,
+        );
+    const invited = await this.prisma.user.count({
+      where: { invitedBy: userId },
+    });
     return {
       daily_streak: {
         streak_count: user.streakCount,
         last_check_in_at: user.lastStreakAt?.toISOString() ?? null,
         today_claimed: todayClaimed,
         can_claim_today: cfg.daily_streak.enabled && !todayClaimed,
-        next_day_to_claim: todayClaimed ? nextDay : Math.max(user.streakCount, 0) + 1,
+        next_day_to_claim: todayClaimed
+          ? nextDay
+          : Math.max(user.streakCount, 0) + 1,
         days: cfg.daily_streak.rewards.map((coins, i) => ({
           day: i + 1,
           coins,
-          claimed: i < user.streakCount && (todayClaimed || i < user.streakCount),
+          claimed:
+            i < user.streakCount && (todayClaimed || i < user.streakCount),
         })),
       },
       referral_milestone: {
@@ -178,7 +220,10 @@ export class BonusSpinService {
         claimed: invited >= cfg.referral_milestone.required_count,
         progress_percent: Math.min(
           100,
-          Math.floor((invited / Math.max(cfg.referral_milestone.required_count, 1)) * 100),
+          Math.floor(
+            (invited / Math.max(cfg.referral_milestone.required_count, 1)) *
+              100,
+          ),
         ),
       },
       party_room: {
@@ -251,7 +296,10 @@ export class BonusSpinService {
     if (claimed >= game.daily_limit) {
       throw new ForbiddenException({
         success: false,
-        error: { code: 'DAILY_LIMIT', message: 'Daily game bonus limit reached' },
+        error: {
+          code: 'DAILY_LIMIT',
+          message: 'Daily game bonus limit reached',
+        },
       });
     }
     const freeLeft = Math.max(game.free_plays_per_day - claimed, 0);
@@ -267,9 +315,10 @@ export class BonusSpinService {
     if (resolved === 'win') coins = game.coins;
     if (resolved === 'draw') coins = game.coins_on_draw ?? 0;
     const after = await this.prisma.$transaction(async (tx) => {
+      let lockedUser: LockedUser | null = null;
       if (fee > 0) {
         try {
-          await this.ledger.debitCoins(
+          const debited = await this.ledger.debitCoins(
             tx,
             userId,
             fee,
@@ -277,6 +326,7 @@ export class BonusSpinService {
             `${key} replay fee`,
             `bonus_fee_${key}_${userId}_${Date.now()}`,
           );
+          lockedUser = debited.locked;
         } catch (e) {
           if ((e as { code?: string }).code === 'INSUFFICIENT_BALANCE') {
             throw new BadRequestException({
@@ -299,10 +349,13 @@ export class BonusSpinService {
           'BONUS_GAME',
           `${key} bonus`,
           `bonus_${key}_${userId}_${Date.now()}`,
+          lockedUser,
         );
       } else {
-        const u = await this.ledger.lockUser(tx, userId);
-        balance = u?.wallet_balance ?? 0n;
+        if (!lockedUser) {
+          lockedUser = await this.ledger.lockUser(tx, userId);
+        }
+        balance = lockedUser?.wallet_balance ?? 0n;
       }
       await tx.bonusClaim.create({
         data: { userId, kind: key, coins, meta: { result: resolved } },
@@ -324,11 +377,16 @@ export class BonusSpinService {
         error: { code: 'DISABLED', message: 'Streak bonus is disabled' },
       });
     }
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
     if (this.sameUtcDay(user.lastStreakAt)) {
       throw new ForbiddenException({
         success: false,
-        error: { code: 'ALREADY_CLAIMED', message: 'Streak already claimed today' },
+        error: {
+          code: 'ALREADY_CLAIMED',
+          message: 'Streak already claimed today',
+        },
       });
     }
     const yesterday = this.sameUtcDay(
@@ -406,7 +464,11 @@ export class BonusSpinService {
     if (key === 'game_3') {
       if (body.result === 'draw' || body.winner === 'draw') return 'draw';
       if (body.result === 'loss' || body.winner === 'ai') return 'loss';
-      if (body.result === 'win' || body.won === true || body.winner === 'player') {
+      if (
+        body.result === 'win' ||
+        body.won === true ||
+        body.winner === 'player'
+      ) {
         return 'win';
       }
     }
@@ -431,7 +493,7 @@ export class BonusSpinService {
   private async bonusCfg() {
     const settings = await this.settings();
     const extra = (settings.bonusConfig ?? {}) as Record<string, unknown>;
-    return { ...DEFAULT_BONUS_CONFIG, ...extra } as typeof DEFAULT_BONUS_CONFIG;
+    return { ...DEFAULT_BONUS_CONFIG, ...extra };
   }
 
   private async settings() {
@@ -441,11 +503,15 @@ export class BonusSpinService {
   }
 
   private startOfUtcDay(d = new Date()) {
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    return new Date(
+      Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
+    );
   }
 
   private sameUtcDay(value?: Date | null, vs = new Date()) {
     if (!value) return false;
-    return this.startOfUtcDay(value).getTime() === this.startOfUtcDay(vs).getTime();
+    return (
+      this.startOfUtcDay(value).getTime() === this.startOfUtcDay(vs).getTime()
+    );
   }
 }

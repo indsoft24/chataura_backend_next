@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 type Report = {
   id: number;
@@ -17,14 +18,15 @@ type Report = {
 
 export default function ReportsPage() {
   const router = useRouter();
+  const { token } = useAdminAuth();
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState('');
 
-  async function load(token: string) {
+  async function load(tok: string) {
     setLoading(true);
     try {
-      const json = await api<{ success: boolean; data?: { reports: Report[] } }>('/admin/reports', token);
+      const json = await api<{ success: boolean; data?: { reports: Report[] } }>('/admin/reports', tok);
       setReports(json.data?.reports ?? []);
     } catch (e) {
       console.error(e);
@@ -34,13 +36,10 @@ export default function ReportsPage() {
   }
 
   useEffect(() => {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) {
-      router.replace('/login');
-      return;
+    if (token) {
+      void load(token);
     }
-    void load(token);
-  }, [router]);
+  }, [token]);
 
   async function resolveReport(id: number) {
     const token = localStorage.getItem('ca_admin_token');

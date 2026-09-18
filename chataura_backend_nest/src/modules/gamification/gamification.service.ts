@@ -30,10 +30,20 @@ export class GamificationService {
     await this.prisma.level.createMany({ data: levels });
   }
 
-  levelPayload(user: {
-    level: number;
-    xp: number;
-  }, levelRow?: { minXp: number; maxXp: number; label: string | null; badgeUrl: string | null; iconUrl: string | null } | null, levelUp = false) {
+  levelPayload(
+    user: {
+      level: number;
+      xp: number;
+    },
+    levelRow?: {
+      minXp: number;
+      maxXp: number;
+      label: string | null;
+      badgeUrl: string | null;
+      iconUrl: string | null;
+    } | null,
+    levelUp = false,
+  ) {
     const min = levelRow?.minXp ?? 0;
     const max = levelRow?.maxXp ?? Math.max(user.xp, 1);
     const span = Math.max(max - min + 1, 1);
@@ -67,7 +77,9 @@ export class GamificationService {
 
   async catalog(userId: bigint) {
     await this.ensureDefaultLevels();
-    const levels = await this.prisma.level.findMany({ orderBy: { level: 'asc' } });
+    const levels = await this.prisma.level.findMany({
+      orderBy: { level: 'asc' },
+    });
     const current = await this.getLevel(userId);
     return {
       levels: levels.map((l) => ({
@@ -162,7 +174,8 @@ export class GamificationService {
       is_premium: f.isPremium,
       image_url: f.imageUrl,
       animation_key: f.animationKey,
-      unlocked: unlockedIds.has(f.id.toString()) || f.levelRequired <= user.level,
+      unlocked:
+        unlockedIds.has(f.id.toString()) || f.levelRequired <= user.level,
       is_selected: user.selectedFrameId === f.id,
     });
 

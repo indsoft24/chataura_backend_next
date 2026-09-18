@@ -108,7 +108,10 @@ export class AuthService {
     if (dto.country) {
       await this.prisma.user.update({
         where: { id: user.id },
-        data: { lastClientCountry: dto.country, country: user.country ?? dto.country },
+        data: {
+          lastClientCountry: dto.country,
+          country: user.country ?? dto.country,
+        },
       });
     }
 
@@ -134,11 +137,17 @@ export class AuthService {
     if (!user) {
       isNew = true;
       const name = String(payload.name ?? email);
-      const passwordHash = await bcrypt.hash(randomBytes(24).toString('hex'), 10);
+      const passwordHash = await bcrypt.hash(
+        randomBytes(24).toString('hex'),
+        10,
+      );
       const emailVerified =
         payload.email_verified === undefined
           ? true
-          : Boolean(payload.email_verified === true || payload.email_verified === 'true');
+          : Boolean(
+              payload.email_verified === true ||
+              payload.email_verified === 'true',
+            );
 
       user = await this.prisma.user.create({
         data: {
@@ -164,7 +173,10 @@ export class AuthService {
         const verified =
           payload.email_verified === undefined
             ? true
-            : Boolean(payload.email_verified === true || payload.email_verified === 'true');
+            : Boolean(
+                payload.email_verified === true ||
+                payload.email_verified === 'true',
+              );
         if (verified) {
           user = await this.prisma.user.update({
             where: { id: user.id },
@@ -213,7 +225,9 @@ export class AuthService {
   }
 
   async sendEmailOtp(userId: bigint) {
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
     if (!user.email) {
       throw new BadRequestException({
         success: false,
@@ -222,9 +236,16 @@ export class AuthService {
     }
 
     const code = this.otp.generateOtp();
-    await this.otp.store(`email_otp:email_verification:${userId}`, code, 15 * 60);
+    await this.otp.store(
+      `email_otp:email_verification:${userId}`,
+      code,
+      15 * 60,
+    );
     const result = await this.otp.sendEmail(user.email, code);
-    return result.devOtp ? { message: 'OTP sent', dev_otp: result.devOtp } : null;
+    const isProd = this.config.get<string>('NODE_ENV') === 'production';
+    return !isProd && result.devOtp
+      ? { message: 'OTP sent', dev_otp: result.devOtp }
+      : null;
   }
 
   async verifyEmailOtp(userId: bigint, dto: VerifyEmailOtpDto) {
@@ -239,7 +260,9 @@ export class AuthService {
       });
     }
 
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
     const wasVerified = !!user.emailVerifiedAt;
     await this.prisma.user.update({
       where: { id: userId },
@@ -255,7 +278,10 @@ export class AuthService {
 
   async forgotPassword(dto: ForgotPasswordDto) {
     const email = dto.email.toLowerCase();
-    const attempts = await this.otp.incrRate(`forgot_password_rate:${email}`, 600);
+    const attempts = await this.otp.incrRate(
+      `forgot_password_rate:${email}`,
+      600,
+    );
     if (attempts > 3) {
       throw new BadRequestException({
         success: false,
@@ -274,10 +300,11 @@ export class AuthService {
     const code = this.otp.generateOtp();
     await this.otp.store(`email_otp:forgot_password:${email}`, code, 600);
     const result = await this.otp.sendEmail(user.email!, code);
+    const isProd = this.config.get<string>('NODE_ENV') === 'production';
     return {
       success: true,
       message: 'OTP sent to your email',
-      ...(result.devOtp ? { dev_otp: result.devOtp } : {}),
+      ...(!isProd && result.devOtp ? { dev_otp: result.devOtp } : {}),
       _raw: true,
     };
   }
@@ -320,7 +347,9 @@ export class AuthService {
   }
 
   async changePasswordRequest(userId: bigint, dto: ChangePasswordRequestDto) {
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
     if (!user.email) {
       throw new BadRequestException({
         success: false,
@@ -331,16 +360,13 @@ export class AuthService {
     const code = this.otp.generateOtp();
     const pendingHash = await bcrypt.hash(dto.new_password, 10);
     await this.otp.store(`email_otp:change_password:${userId}`, code, 600);
-    await this.otp.store(
-      `change_password_pending:${userId}`,
-      pendingHash,
-      600,
-    );
+    await this.otp.store(`change_password_pending:${userId}`, pendingHash, 600);
     const result = await this.otp.sendEmail(user.email, code);
+    const isProd = this.config.get('NODE_ENV') === 'production';
     return {
       success: true,
       message: 'OTP sent to your registered email',
-      ...(result.devOtp ? { dev_otp: result.devOtp } : {}),
+      ...(!isProd && result.devOtp ? { dev_otp: result.devOtp } : {}),
       _raw: true,
     };
   }
@@ -356,7 +382,10 @@ export class AuthService {
         _status: 400,
       };
     }
-    if (!pendingHash || !(await bcrypt.compare(dto.new_password, pendingHash))) {
+    if (
+      !pendingHash ||
+      !(await bcrypt.compare(dto.new_password, pendingHash))
+    ) {
       await this.otp.del(`email_otp:change_password:${userId}`);
       await this.otp.del(`change_password_pending:${userId}`);
       return {
@@ -454,7 +483,12 @@ export class AuthService {
       this.config.get('REFERRAL_REWARD_REFERRER', '100'),
     );
     if (referee > 0) {
-      await this.creditSpendable(inviteeId, referee, 'REFERRAL_REFEREE', 'Referral join bonus');
+      await this.creditSpendable(
+        inviteeId,
+        referee,
+        'REFERRAL_REFEREE',
+        'Referral join bonus',
+      );
     }
     if (referrerAmt > 0) {
       await this.creditSpendable(
@@ -496,7 +530,14 @@ export class AuthService {
     idToken: string,
   ): Promise<Record<string, unknown> | null> {
     const clientId = this.config.get<string>('GOOGLE_CLIENT_ID');
+    const isProd = this.config.get('NODE_ENV') === 'production';
     if (!clientId) {
+      if (isProd) {
+        throw new UnauthorizedException({
+          code: 'AUTH_CONFIG_ERROR',
+          message: 'Google authentication is not configured in production',
+        });
+      }
       // Dev fallback: decode JWT payload without signature when GOOGLE_CLIENT_ID unset
       try {
         const parts = idToken.split('.');

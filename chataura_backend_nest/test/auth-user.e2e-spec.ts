@@ -125,4 +125,22 @@ describe('Auth / User (e2e)', () => {
     expect(res.statusCode).toBe(403);
     expect(parse(res.payload).error?.code).toBe('ACCOUNT_SUSPENDED');
   });
+
+  it('handles concurrent OTP operations without connection storm or failure', async () => {
+    const user = await registerVerified(app);
+    // Send 20 concurrent OTP operations
+    const promises = Array.from({ length: 20 }, () =>
+      app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/send-email-otp',
+        headers: authHeader(user.token),
+      }),
+    );
+    const results = await Promise.all(promises);
+    for (const res of results) {
+      expect([200, 201]).toContain(res.statusCode);
+      const parsed = parse(res.payload);
+      expect(parsed.success).toBe(true);
+    }
+  });
 });

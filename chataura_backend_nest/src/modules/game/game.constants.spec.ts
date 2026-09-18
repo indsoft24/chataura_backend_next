@@ -1,8 +1,4 @@
-import {
-  GREEDY_ITEMS,
-  LUCKY77_OPTIONS,
-  pickWeighted,
-} from './game.constants';
+import { GREEDY_ITEMS, LUCKY77_OPTIONS, pickWeighted } from './game.constants';
 
 function empiricalRtp(
   table: Record<string, { multiplier: number; weight: number }>,

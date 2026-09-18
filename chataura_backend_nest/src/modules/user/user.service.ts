@@ -3,7 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { createWriteStream, existsSync, mkdirSync } from 'fs';
+import { basename, resolve } from 'path';
+import { pipeline } from 'stream/promises';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { LedgerService } from '../wallet/ledger.service';
 import { profileForApi, userForApi } from './user.serializer';
 
 const PUBLIC_BASE =
@@ -11,7 +15,10 @@ const PUBLIC_BASE =
 
 @Injectable()
 export class UserService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ledger: LedgerService,
+  ) {}
 
   async invite(userId: bigint) {
     const user = await this.prisma.user.findUniqueOrThrow({
@@ -24,7 +31,7 @@ export class UserService {
     return {
       invite_code: code,
       invite_link: `${PUBLIC_BASE}/invite/${code}`,
-      referral_register_url: `${PUBLIC_BASE}/api/v1/auth/register?invite_code=${code}`,
+      referral_register_url: `${PUBLIC_BASE}/${(process.env.API_PREFIX || 'api/v2').replace(/^\/+|\/+$/g, '')}/auth/register?invite_code=${code}`,
       reward_rules: { signup_bonus: 50 },
       total_invited: totalInvited,
       total_earned_coins: Number(user.referralBalance),
@@ -45,84 +52,91 @@ export class UserService {
         error: { code: 'VALIDATION_ERROR', message: 'invite_code is required' },
       });
     }
-    const me = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-    });
-    if (me.invitedBy) {
-      throw new BadRequestException({
-        success: false,
-        error: {
-          code: 'ALREADY_APPLIED',
-          message: 'Invite code already applied',
-        },
-      });
-    }
-    const referrer = await this.prisma.user.findUnique({
-      where: { inviteCode: code },
-    });
-    if (!referrer) {
-      throw new BadRequestException({
-        success: false,
-        error: { code: 'INVALID_CODE', message: 'Invalid invite code' },
-      });
-    }
-    if (referrer.id === userId) {
-      throw new BadRequestException({
-        success: false,
-        error: { code: 'INVALID_CODE', message: 'Cannot apply your own invite code' },
-      });
-    }
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { invitedBy: referrer.id },
-    });
+
     const referee = Number(process.env.REFERRAL_REWARD_REFEREE ?? '50');
     const referrerAmt = Number(process.env.REFERRAL_REWARD_REFERRER ?? '100');
-    if (referee > 0) {
-      const u = await this.prisma.user.update({
-        where: { id: userId },
-        data: {
-          coinBalance: { increment: referee },
-          walletBalance: { increment: referee },
-        },
+
+    return this.prisma.$transaction(async (tx) => {
+      const referrer = await tx.user.findUnique({
+        where: { inviteCode: code },
       });
-      await this.prisma.coinTransaction.create({
-        data: {
-          userId,
-          type: 'REFERRAL_REFEREE',
-          title: 'Referral join bonus',
-          coinAmount: BigInt(referee),
-          balanceAfter: u.walletBalance,
-          status: 'success',
-        },
+      if (!referrer) {
+        throw new BadRequestException({
+          success: false,
+          error: { code: 'INVALID_CODE', message: 'Invalid invite code' },
+        });
+      }
+      if (referrer.id === userId) {
+        throw new BadRequestException({
+          success: false,
+          error: {
+            code: 'INVALID_CODE',
+            message: 'Cannot apply your own invite code',
+          },
+        });
+      }
+
+      // Lock both rows in deterministic ascending ID order
+      const userMap = await this.ledger.lockUsers(tx, [userId, referrer.id]);
+
+      const updated = await tx.user.updateMany({
+        where: { id: userId, invitedBy: null },
+        data: { invitedBy: referrer.id },
       });
-    }
-    if (referrerAmt > 0) {
-      const r = await this.prisma.user.update({
-        where: { id: referrer.id },
-        data: {
-          coinBalance: { increment: referrerAmt },
-          walletBalance: { increment: referrerAmt },
-        },
-      });
-      await this.prisma.coinTransaction.create({
-        data: {
-          userId: referrer.id,
-          type: 'REFERRAL_REFERRER',
-          title: 'Referral invite bonus',
-          coinAmount: BigInt(referrerAmt),
-          balanceAfter: r.walletBalance,
-          status: 'success',
-        },
-      });
-    }
-    return {
-      applied: true,
-      invited_by: Number(referrer.id),
-      invite_code: code,
-      invitee_coins: referee,
-      referrer_coins: referrerAmt,
-    };
+      if (updated.count === 0) {
+        throw new BadRequestException({
+          success: false,
+          error: {
+            code: 'ALREADY_APPLIED',
+            message: 'Invite code already applied',
+          },
+        });
+      }
+
+      if (referee > 0) {
+        const refKey = `referral_join_${userId}`;
+        const alreadyCredited = await tx.coinTransaction.findFirst({
+          where: { userId, referenceId: refKey },
+        });
+        if (!alreadyCredited) {
+          await this.ledger.creditCoins(
+            tx,
+            userId,
+            referee,
+            'REFERRAL_REFEREE',
+            'Referral join bonus',
+            refKey,
+            userMap.get(userId.toString()),
+          );
+        }
+      }
+
+      if (referrerAmt > 0) {
+        const refBonusKey = `ref_bonus_${userId}`;
+        const alreadyCredited = await tx.coinTransaction.findFirst({
+          where: { userId: referrer.id, referenceId: refBonusKey },
+        });
+        if (!alreadyCredited) {
+          await this.ledger.creditCoins(
+            tx,
+            referrer.id,
+            referrerAmt,
+            'REFERRAL_REFERRER',
+            'Referral invite bonus',
+            refBonusKey,
+            userMap.get(referrer.id.toString()),
+          );
+        }
+      }
+
+      return {
+        applied: true,
+        invited_by: Number(referrer.id),
+        invite_code: code,
+        invitee_coins: referee,
+        referrer_coins: referrerAmt,
+      };
+    });
   }
 
   async availability(userId: bigint) {
@@ -166,54 +180,85 @@ export class UserService {
         ...(body.display_name !== undefined
           ? { displayName: body.display_name, name: body.display_name }
           : {}),
-        ...(body.avatar_url !== undefined ? { avatarUrl: body.avatar_url } : {}),
+        ...(body.avatar_url !== undefined
+          ? { avatarUrl: body.avatar_url }
+          : {}),
         ...(body.country !== undefined ? { country: body.country } : {}),
       },
     });
     return userForApi(user);
   }
 
+  async saveAvatar(filename: string, stream: any): Promise<string | null> {
+    try {
+      const dir = resolve(process.cwd(), 'uploads');
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      const cleanBase = basename(filename || 'avatar.jpg').replace(
+        /[^a-zA-Z0-9._-]/g,
+        '_',
+      );
+      const safe = `avatar_${Date.now()}_${cleanBase}`;
+      const dest = resolve(dir, safe);
+      if (!dest.startsWith(dir)) return null;
+      await pipeline(stream, createWriteStream(dest));
+      return `${PUBLIC_BASE}/uploads/${safe}`;
+    } catch {
+      return null;
+    }
+  }
+
   async updateProfile(
     userId: bigint,
-    body: {
+    body?: {
       name?: string;
       country?: string;
       bio?: string;
       gender?: string;
       dob?: string;
+      avatar_url?: string;
       show_online_status?: boolean | string;
       is_private?: boolean | string;
       audio_call_rate?: number | string;
       video_call_rate?: number | string;
     },
   ) {
+    const b = body || {};
     const bool = (v: unknown) =>
       v === true || v === 'true' || v === '1' || v === 1;
+
+    let dobDate: Date | undefined;
+    if (b.dob) {
+      const parsed = new Date(b.dob);
+      if (!isNaN(parsed.getTime())) {
+        dobDate = parsed;
+      }
+    }
 
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: {
-        ...(body.name !== undefined
-          ? { name: body.name, displayName: body.name }
+        ...(b.name !== undefined
+          ? { name: b.name, displayName: b.name }
           : {}),
-        ...(body.country !== undefined ? { country: body.country } : {}),
-        ...(body.bio !== undefined ? { bio: body.bio } : {}),
-        ...(body.gender !== undefined ? { gender: body.gender } : {}),
-        ...(body.dob !== undefined ? { dob: new Date(body.dob) } : {}),
-        ...(body.show_online_status !== undefined
-          ? { showOnlineStatus: bool(body.show_online_status) }
+        ...(b.country !== undefined ? { country: b.country } : {}),
+        ...(b.bio !== undefined ? { bio: b.bio } : {}),
+        ...(b.gender !== undefined ? { gender: b.gender } : {}),
+        ...(dobDate !== undefined ? { dob: dobDate } : {}),
+        ...(b.avatar_url !== undefined ? { avatarUrl: b.avatar_url } : {}),
+        ...(b.show_online_status !== undefined
+          ? { showOnlineStatus: bool(b.show_online_status) }
           : {}),
-        ...(body.is_private !== undefined
+        ...(b.is_private !== undefined
           ? {
-              isPrivate: bool(body.is_private),
-              privateAccount: bool(body.is_private),
+              isPrivate: bool(b.is_private),
+              privateAccount: bool(b.is_private),
             }
           : {}),
-        ...(body.audio_call_rate !== undefined
-          ? { audioCallRate: Number(body.audio_call_rate) }
+        ...(b.audio_call_rate !== undefined
+          ? { audioCallRate: Number(b.audio_call_rate) }
           : {}),
-        ...(body.video_call_rate !== undefined
-          ? { videoCallRate: Number(body.video_call_rate) }
+        ...(b.video_call_rate !== undefined
+          ? { videoCallRate: Number(b.video_call_rate) }
           : {}),
       },
     });

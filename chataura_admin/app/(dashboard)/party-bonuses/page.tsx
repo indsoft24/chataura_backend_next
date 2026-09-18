@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 type Settings = {
   id: number;
@@ -15,6 +16,7 @@ type Settings = {
 
 export default function PartyBonusesPage() {
   const router = useRouter();
+  const { token } = useAdminAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
@@ -26,10 +28,10 @@ export default function PartyBonusesPage() {
   const [videoPrice, setVideoPrice] = useState('40');
   const [starChatPrice, setStarChatPrice] = useState('5');
 
-  async function load(token: string) {
+  async function load(tok: string) {
     setLoading(true);
     try {
-      const json = await api<{ success: boolean; data?: { settings: Settings } }>('/admin/settings', token);
+      const json = await api<{ success: boolean; data?: { settings: Settings } }>('/admin/settings', tok);
       if (json.data?.settings) {
         const s = json.data.settings;
         setSpinCost(String(s.spin_cost ?? 50));
@@ -46,13 +48,10 @@ export default function PartyBonusesPage() {
   }
 
   useEffect(() => {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) {
-      router.replace('/login');
-      return;
+    if (token) {
+      void load(token);
     }
-    void load(token);
-  }, [router]);
+  }, [token]);
 
   async function save() {
     const token = localStorage.getItem('ca_admin_token');

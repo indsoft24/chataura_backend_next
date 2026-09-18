@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 type RoomTheme = {
   id: number;
@@ -14,6 +15,7 @@ type RoomTheme = {
 
 export default function RoomThemesPage() {
   const router = useRouter();
+  const { token } = useAdminAuth();
   const [themes, setThemes] = useState<RoomTheme[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -23,10 +25,10 @@ export default function RoomThemesPage() {
   const [imageUrl, setImageUrl] = useState('');
   const [error, setError] = useState('');
 
-  async function load(token: string) {
+  async function load(tok: string) {
     setLoading(true);
     try {
-      const json = await api<{ success: boolean; data?: { room_themes: RoomTheme[] } }>('/admin/room-themes', token);
+      const json = await api<{ success: boolean; data?: { room_themes: RoomTheme[] } }>('/admin/room-themes', tok);
       setThemes(json.data?.room_themes ?? []);
     } catch (e) {
       console.error(e);
@@ -36,13 +38,10 @@ export default function RoomThemesPage() {
   }
 
   useEffect(() => {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) {
-      router.replace('/login');
-      return;
+    if (token) {
+      void load(token);
     }
-    void load(token);
-  }, [router]);
+  }, [token]);
 
   async function create() {
     const token = localStorage.getItem('ca_admin_token');

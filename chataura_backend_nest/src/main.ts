@@ -48,7 +48,8 @@ async function bootstrap() {
   const config = app.get(ConfigService);
   const corsOrigin = config.get<string>('CORS_ORIGIN', '*');
 
-  app.setGlobalPrefix('api/v1');
+  const apiPrefix = config.get<string>('API_PREFIX', 'api/v2').replace(/^\/+|\/+$/g, '');
+  app.setGlobalPrefix(apiPrefix);
   app.enableCors({
     origin: corsOrigin === '*' ? true : corsOrigin.split(','),
     credentials: true,

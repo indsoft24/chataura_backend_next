@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -6,7 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { MediaKind } from '@prisma/client';
 import { createWriteStream, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { basename, join, resolve } from 'path';
 import { pipeline } from 'stream/promises';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
@@ -101,8 +102,7 @@ export class MediaService {
         error: { code: 'FILE_REQUIRED', message: 'file_url is required' },
       });
     }
-    const mediaType =
-      body.media_type ?? (kind === 'reel' ? 'video' : 'image');
+    const mediaType = body.media_type ?? (kind === 'reel' ? 'video' : 'image');
     const row = await this.prisma.mediaItem.create({
       data: {
         userId,
@@ -418,16 +418,54 @@ export class MediaService {
     filename: string,
     stream: NodeJS.ReadableStream,
   ): Promise<string> {
-    const dir = join(process.cwd(), 'uploads');
+    const dir = resolve(process.cwd(), 'uploads');
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    const safe = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-    const dest = join(dir, safe);
+    const cleanBase = basename(filename || 'upload').replace(
+      /[^a-zA-Z0-9._-]/g,
+      '_',
+    );
+    const safe = `${Date.now()}_${cleanBase}`;
+    const dest = resolve(dir, safe);
+    if (!dest.startsWith(dir)) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'INVALID_FILENAME', message: 'Path traversal detected' },
+      });
+    }
     await pipeline(stream, createWriteStream(dest));
     const publicBase = this.config.get<string>(
       'PUBLIC_BASE_URL',
       'http://localhost:3000',
     );
     return `${publicBase}/uploads/${safe}`;
+  }
+
+  /**
+   * Attempt to consume a multipart file from the incoming Fastify request.
+   * Returns the persisted file URL if a valid file was found, or `fallback` otherwise.
+   * Extracted from MediaController.maybeStore() to keep controllers free of
+   * stream-processing and MIME validation logic.
+   */
+  async storeFromRequest(
+    req: { file?: () => Promise<any> },
+    fallback?: string,
+  ): Promise<string | undefined> {
+    if (typeof req.file !== 'function') return fallback;
+    try {
+      const part = await req.file();
+      if (!part) return fallback;
+      const mime = (part.mimetype || '').toLowerCase();
+      const allowed =
+        mime.startsWith('image/') ||
+        mime.startsWith('video/') ||
+        mime === 'application/json' ||
+        mime === 'application/octet-stream' ||
+        mime.includes('lottie');
+      if (!mime || !allowed) return fallback;
+      return this.storeLocalFile(part.filename, part.file);
+    } catch {
+      return fallback;
+    }
   }
 
   banners() {

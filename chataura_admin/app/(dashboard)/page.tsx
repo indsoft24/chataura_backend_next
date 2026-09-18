@@ -4,13 +4,24 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 
+import { useAdminAuth } from '@/hooks/useAdminAuth';
+
 type Dash = {
   users: number;
   live_rooms: number;
   coin_burn_today: number;
   recharge_today: number;
+  revenue_today?: number;
+  revenue_this_week?: number;
+  coin_tx_count?: number;
+  gross_volume?: number;
+  net_volume?: number;
+  commission_total?: number;
+  gift_volume?: number;
+  admin_credits?: number;
   reports: number;
   pending_withdrawals: number;
+  recent_commissions?: { date: string; transactions: number; commission: number }[];
 };
 
 function StatCard({ title, value, subtext }: { title: string; value: string | number; subtext?: React.ReactNode }) {
@@ -42,15 +53,12 @@ function StatCard({ title, value, subtext }: { title: string; value: string | nu
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { token, loading } = useAdminAuth();
   const [data, setData] = useState<Dash | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) {
-      router.replace('/login');
-      return;
-    }
+    if (!token) return;
     void api<{ success: boolean; data?: Dash; error?: { message?: string } }>(
       '/admin/dashboard',
       token,
@@ -65,7 +73,7 @@ export default function DashboardPage() {
       console.error(err);
       setError('Network Error');
     });
-  }, [router]);
+  }, [token, router]);
 
   return (
     <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
@@ -74,56 +82,40 @@ export default function DashboardPage() {
           <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Dashboard</h1>
           <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>Live production analytics for operations, finance, and moderation.</p>
         </div>
-        
-        {/* Mock Date Picker */}
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
-          <div>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '4px' }}>Period</div>
-            <select style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', background: '#fff', fontSize: '0.9rem' }}>
-              <option>Weekly</option>
-            </select>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '4px' }}>From</div>
-            <input type="date" defaultValue="2026-09-14" style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', margin: 0 }} />
-          </div>
-          <div>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '4px' }}>To</div>
-            <input type="date" defaultValue="2026-09-16" style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', margin: 0 }} />
-          </div>
-          <button style={{ padding: '10px 16px', borderRadius: '8px', background: '#1c2536', color: '#fff', border: 'none', fontWeight: 600 }}>Apply</button>
-          <button style={{ padding: '10px 16px', borderRadius: '8px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', fontWeight: 600 }}>Reset</button>
-        </div>
       </div>
 
       {error ? <p className="err">{error}</p> : null}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '20px', marginBottom: '24px' }}>
         <div style={{ gridColumn: 'span 2' }}>
-          <StatCard title="REVENUE (TODAY)" value="8,785" />
+          <StatCard
+            title="REVENUE (TODAY)"
+            value={data ? `$${(data.revenue_today ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '...'}
+          />
         </div>
         <div style={{ gridColumn: 'span 2' }}>
-          <StatCard title="REVENUE (THIS WEEK)" value="87,830" />
+          <StatCard
+            title="REVENUE (THIS WEEK)"
+            value={data ? `$${(data.revenue_this_week ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '...'}
+          />
         </div>
         <div style={{ gridColumn: 'span 2' }}>
           <StatCard 
-            title="REVENUE (SELECTED)" 
-            value="87,830" 
-            subtext={<span style={{ color: '#ef4444' }}>-94.71% vs previous period</span>} 
+            title="COIN BURN (TODAY)" 
+            value={data ? (data.coin_burn_today ?? 0).toLocaleString() : '...'} 
           />
         </div>
         <div style={{ gridColumn: 'span 2' }}>
           <StatCard 
             title="TOTAL USERS" 
-            value={data?.users ?? '...'} 
-            subtext={<span style={{ color: '#10b981' }}>+76 in range</span>} 
+            value={data ? data.users.toLocaleString() : '...'} 
           />
         </div>
         <div style={{ gridColumn: 'span 2' }}>
-          <StatCard title="ACTIVE ROOMS" value={data?.live_rooms ?? '...'} />
+          <StatCard title="ACTIVE ROOMS" value={data ? data.live_rooms.toLocaleString() : '...'} />
         </div>
         <div style={{ gridColumn: 'span 2' }}>
-          <StatCard title="CALLS IN RANGE" value="0" />
+          <StatCard title="RECHARGE COINS (TODAY)" value={data ? (data.recharge_today ?? 0).toLocaleString() : '...'} />
         </div>
       </div>
 
@@ -131,7 +123,7 @@ export default function DashboardPage() {
         
         {/* Commission Trend Table */}
         <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb' }}>
-          <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 20px 0' }}>Commission trend by day</h2>
+          <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 20px 0' }}>Recent commission activity</h2>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
               <tr>
@@ -141,21 +133,21 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td style={{ padding: '16px 0', borderBottom: '1px solid #f3f4f6' }}>2026-09-14</td>
-                <td style={{ padding: '16px 0', borderBottom: '1px solid #f3f4f6' }}>236</td>
-                <td style={{ padding: '16px 0', borderBottom: '1px solid #f3f4f6', textAlign: 'right' }}>38,353</td>
-              </tr>
-              <tr>
-                <td style={{ padding: '16px 0', borderBottom: '1px solid #f3f4f6' }}>2026-09-15</td>
-                <td style={{ padding: '16px 0', borderBottom: '1px solid #f3f4f6' }}>230</td>
-                <td style={{ padding: '16px 0', borderBottom: '1px solid #f3f4f6', textAlign: 'right' }}>40,692</td>
-              </tr>
-              <tr>
-                <td style={{ padding: '16px 0' }}>2026-09-16</td>
-                <td style={{ padding: '16px 0' }}>81</td>
-                <td style={{ padding: '16px 0', textAlign: 'right' }}>8,785</td>
-              </tr>
+              {data?.recent_commissions && data.recent_commissions.length > 0 ? (
+                data.recent_commissions.map((item) => (
+                  <tr key={item.date}>
+                    <td style={{ padding: '16px 0', borderBottom: '1px solid #f3f4f6' }}>{item.date}</td>
+                    <td style={{ padding: '16px 0', borderBottom: '1px solid #f3f4f6' }}>{item.transactions.toLocaleString()}</td>
+                    <td style={{ padding: '16px 0', borderBottom: '1px solid #f3f4f6', textAlign: 'right' }}>{item.commission.toLocaleString()}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={3} style={{ padding: '24px 0', textAlign: 'center', color: '#9ca3af' }}>
+                    {data ? 'No recent transactions recorded' : 'Loading analytics...'}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -165,25 +157,22 @@ export default function DashboardPage() {
           <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 20px 0' }}>Platform flow snapshot</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#4b5563', fontSize: '0.9rem' }}>
-              <span>Coin tx count</span><strong style={{ color: '#111827' }}>547</strong>
+              <span>Coin tx count</span><strong style={{ color: '#111827' }}>{data ? (data.coin_tx_count ?? 0).toLocaleString() : '...'}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#4b5563', fontSize: '0.9rem' }}>
-              <span>Gross volume</span><strong style={{ color: '#111827' }}>4,732,493</strong>
+              <span>Gross volume</span><strong style={{ color: '#111827' }}>{data ? (data.gross_volume ?? 0).toLocaleString() : '...'}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#4b5563', fontSize: '0.9rem' }}>
-              <span>Net volume</span><strong style={{ color: '#111827' }}>5,641,979</strong>
+              <span>Net volume</span><strong style={{ color: '#111827' }}>{data ? (data.net_volume ?? 0).toLocaleString() : '...'}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#4b5563', fontSize: '0.9rem' }}>
-              <span>Commission</span><strong style={{ color: '#111827' }}>87,830</strong>
+              <span>Commission total</span><strong style={{ color: '#111827' }}>{data ? (data.commission_total ?? 0).toLocaleString() : '...'}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#4b5563', fontSize: '0.9rem' }}>
-              <span>Gift volume</span><strong style={{ color: '#111827' }}>175,746</strong>
+              <span>Gift volume</span><strong style={{ color: '#111827' }}>{data ? (data.gift_volume ?? 0).toLocaleString() : '...'}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#4b5563', fontSize: '0.9rem' }}>
-              <span>Call volume</span><strong style={{ color: '#111827' }}>0</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#4b5563', fontSize: '0.9rem' }}>
-              <span>Admin credits</span><strong style={{ color: '#111827' }}>4,556,667</strong>
+              <span>Admin credits</span><strong style={{ color: '#111827' }}>{data ? (data.admin_credits ?? 0).toLocaleString() : '...'}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#4b5563', fontSize: '0.9rem' }}>
               <span>Feedback items</span><strong style={{ color: '#111827' }}>{data?.reports ?? 0}</strong>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 type UserRow = {
   id: number;
@@ -15,17 +16,18 @@ type UserRow = {
 
 export default function UsersPage() {
   const router = useRouter();
+  const { token } = useAdminAuth();
   const [users, setUsers] = useState<UserRow[]>([]);
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(true);
 
-  async function load(token: string, query = '') {
+  async function load(tok: string, query = '') {
     setLoading(true);
     try {
       const json = await api<{
         success: boolean;
         data?: { users: UserRow[] };
-      }>(`/admin/users?q=${encodeURIComponent(query)}`, token);
+      }>(`/admin/users?q=${encodeURIComponent(query)}`, tok);
       setUsers(json.data?.users ?? []);
     } catch (e) {
       console.error(e);
@@ -35,13 +37,10 @@ export default function UsersPage() {
   }
 
   useEffect(() => {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) {
-      router.replace('/login');
-      return;
+    if (token) {
+      void load(token);
     }
-    void load(token);
-  }, [router]);
+  }, [token]);
 
   async function performAction(userId: number, action: string, body: Record<string, unknown> = {}) {
     const token = localStorage.getItem('ca_admin_token');

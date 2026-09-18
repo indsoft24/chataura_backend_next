@@ -5,7 +5,11 @@ import { ConfigService } from '@nestjs/config';
 export class AgoraService {
   constructor(private readonly config: ConfigService) {}
 
-  buildToken(channel: string, uid: number, publisher: boolean): {
+  buildToken(
+    channel: string,
+    uid: number,
+    publisher: boolean,
+  ): {
     agora_token: string;
     agora_uid: number;
     rtc_role: 'publisher' | 'audience';
@@ -50,6 +54,11 @@ export class AgoraService {
       expireTs,
       expireTs,
     );
-    return { agora_token: token, agora_uid: uid, rtc_role: rtcRole, expires_in: expiresIn };
+    return {
+      agora_token: token,
+      agora_uid: uid,
+      rtc_role: rtcRole,
+      expires_in: expiresIn,
+    };
   }
 }
