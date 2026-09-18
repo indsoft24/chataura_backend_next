@@ -36,6 +36,11 @@ export default function LoginPage() {
       router.push('/');
     } catch (err: any) {
       console.error(err);
+      // ApiError from lib/api (4xx/5xx) — show server message, not a fake "network" error
+      if (err?.name === 'ApiError' && err?.message) {
+        setError(err.message);
+        return;
+      }
       setError('Network error: Unable to reach the server. Please ensure the backend is running.');
     }
   }

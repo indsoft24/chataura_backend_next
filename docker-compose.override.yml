@@ -1,0 +1,22 @@
+# Local VPS hardening: do not expose Docker ports on the public interface.
+# Host nginx proxies to 127.0.0.1 only. Does not affect Laravel MySQL/Redis.
+services:
+  nginx:
+    ports: !override
+      - "127.0.0.1:8080:80"
+  nestjs-api:
+    ports: !override
+      - "127.0.0.1:3005:3000"
+    volumes:
+      - uploads_data:/app/uploads
+      - ./secrets/gcs-service-account.json:/run/secrets/gcs-service-account.json:ro
+      - ./secrets/firebase-adminsdk.json:/run/secrets/firebase-adminsdk.json:ro
+  admin-panel:
+    ports: !override
+      - "127.0.0.1:3100:3100"
+  postgres:
+    ports: !override
+      - "127.0.0.1:5433:5432"
+  redis:
+    ports: !override
+      - "127.0.0.1:6380:6379"

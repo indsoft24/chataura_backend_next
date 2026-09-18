@@ -55,6 +55,11 @@ for i in {1..20}; do
   sleep 2
 done
 
+# 4b. Apply Prisma migrations (empty Postgres otherwise breaks /auth/login)
+echo "--> Applying Prisma migrations inside chataura_api..."
+docker exec -u node -e DATABASE_URL='postgresql://chataura_user:'"${DB_PASSWORD:-chataura_dev}"'@postgres:5432/chataura_db?schema=public' \
+  chataura_api npx prisma migrate deploy
+
 # 5. Check Next.js Admin Panel response on port 3100
 echo "--> Verifying Admin Panel on http://127.0.0.1:3100/nextadmin/login..."
 ADMIN_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3100/nextadmin/login || true)

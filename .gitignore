@@ -66,3 +66,8 @@ uploads/*
 *.dump
 postgres_data/
 redis_data/
+
+# Service account keys & runtime secrets (never commit)
+secrets/
+!secrets/.gitkeep
+backups/*.env
