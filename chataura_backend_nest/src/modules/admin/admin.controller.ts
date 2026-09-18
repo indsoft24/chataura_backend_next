@@ -292,4 +292,207 @@ export class AdminController {
   updateSettings(@Body() body: Record<string, unknown>) {
     return this.catalog.updateSettings(body);
   }
+
+  // Countries
+  @Get('countries')
+  countries() {
+    return this.catalog.countries();
+  }
+
+  @Post('countries')
+  createCountry(@Body() body: { id: string; name: string; flag_emoji?: string; flag_url?: string }) {
+    return this.catalog.createCountry(body);
+  }
+
+  @Patch('countries/:id')
+  updateCountry(
+    @Param('id') id: string,
+    @Body() body: { name?: string; flag_emoji?: string; flag_url?: string; is_active?: boolean },
+  ) {
+    return this.catalog.updateCountry(id, body);
+  }
+
+  @Delete('countries/:id')
+  deleteCountry(@Param('id') id: string) {
+    return this.catalog.deleteCountry(id);
+  }
+
+  @Post('countries/:id/approve')
+  approveCountry(@Param('id') id: string) {
+    return this.catalog.approveCountry(id);
+  }
+
+  @Post('countries/:id/reject')
+  rejectCountry(@Param('id') id: string) {
+    return this.catalog.rejectCountry(id);
+  }
+
+  // Agencies
+  @Get('agencies')
+  agencies(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.admin.agencies(Number(page ?? 1), Number(limit ?? 20), status);
+  }
+
+  @Post('agencies/affiliations/:id/clear-cooldown')
+  clearAgencyCooldown(@Param('id') id: string) {
+    return this.admin.clearAgencyCooldown(BigInt(id));
+  }
+
+  // Star Accounts
+  @Get('star-accounts')
+  starAccounts() {
+    return this.admin.starAccounts();
+  }
+
+  @Post('star-accounts/:id/update')
+  updateStarAccount(
+    @Param('id') id: string,
+    @Body() body: { star_rank: number; star_bio_tag?: string },
+  ) {
+    return this.admin.updateStarAccount(BigInt(id), body);
+  }
+
+  @Post('star-accounts/:id/remove')
+  removeStarAccount(@Param('id') id: string) {
+    return this.admin.removeStarAccount(BigInt(id));
+  }
+
+  @Post('star-accounts/reorder')
+  reorderStarAccounts(@Body() body: { ranks: Array<{ user_id: number; star_rank: number }> }) {
+    return this.admin.reorderStarAccounts(body.ranks ?? []);
+  }
+
+  // Party Room Analytics
+  @Get('party-room-analytics')
+  partyRoomAnalytics() {
+    return this.admin.partyRoomAnalytics();
+  }
+
+  @Get('party-room-analytics/users/:id/sessions')
+  userPartyRoomSessions(@Param('id') id: string) {
+    return this.admin.userPartyRoomSessions(BigInt(id));
+  }
+
+  @Post('party-room-analytics/sessions/:id/suspend')
+  suspendPartyRoomSession(@Param('id') id: string) {
+    return this.admin.suspendPartyRoomSession(BigInt(id));
+  }
+
+  @Post('party-room-analytics/sessions/close-stale')
+  closeStalePartyRoomSessions() {
+    return this.admin.closeStalePartyRoomSessions();
+  }
+
+  // User Location Compliance
+  @Get('user-location-compliance')
+  userLocationCompliance(
+    @Query('q') q?: string,
+    @Query('country') country?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.admin.userLocationCompliance(q, country, Number(page ?? 1), Number(limit ?? 25));
+  }
+
+  @Get('user-location-compliance/export')
+  exportLocationComplianceCsv() {
+    return this.admin.exportLocationComplianceCsv();
+  }
+
+  // User Reports / Moderation
+  @Get('moderation/reports')
+  moderationReports(
+    @Query('status') status?: string,
+    @Query('q') q?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.admin.moderationReports(status, q, Number(page ?? 1), Number(limit ?? 25));
+  }
+
+  @Get('moderation/reports/:id')
+  moderationReportDetail(@Param('id') id: string) {
+    return this.admin.moderationReportDetail(BigInt(id));
+  }
+
+  @Post('moderation/reports/:id/resolve')
+  resolveModerationReport(@Param('id') id: string, @Body() body?: { notes?: string }) {
+    return this.admin.resolveModerationReport(BigInt(id), body?.notes);
+  }
+
+  @Post('moderation/reports/:id/dismiss')
+  dismissModerationReport(@Param('id') id: string) {
+    return this.admin.dismissModerationReport(BigInt(id));
+  }
+
+  @Post('moderation/reports/:id/reopen')
+  reopenModerationReport(@Param('id') id: string) {
+    return this.admin.reopenModerationReport(BigInt(id));
+  }
+
+  @Post('moderation/users/:id/clear-review')
+  clearUserReview(@Param('id') id: string) {
+    return this.admin.clearUserReview(BigInt(id));
+  }
+
+  // Media Posts & Reels
+  @Get('media/posts')
+  adminPosts(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('q') q?: string,
+  ) {
+    return this.admin.adminPosts(Number(page ?? 1), Number(limit ?? 20), q);
+  }
+
+  @Delete('media/posts/:id')
+  deleteMediaPost(@Param('id') id: string) {
+    return this.admin.deleteMediaPost(BigInt(id));
+  }
+
+  @Get('media/reels')
+  adminReels(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('q') q?: string,
+  ) {
+    return this.admin.adminReels(Number(page ?? 1), Number(limit ?? 20), q);
+  }
+
+  @Delete('media/reels/:id')
+  deleteMediaReel(@Param('id') id: string) {
+    return this.admin.deleteMediaReel(BigInt(id));
+  }
+
+  // Transactions
+  @Get('transactions')
+  adminTransactions(
+    @Query('source') source?: string,
+    @Query('status') status?: string,
+    @Query('q') q?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.admin.adminTransactions(source, status, q, Number(page ?? 1), Number(limit ?? 25));
+  }
+
+  @Get('transactions/fetch')
+  adminTransactionsFetch(
+    @Query('source') source?: string,
+    @Query('status') status?: string,
+    @Query('q') q?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.admin.adminTransactions(source, status, q, Number(page ?? 1), Number(limit ?? 25));
+  }
+
+  @Get('transactions/export')
+  exportTransactionsCsv() {
+    return this.admin.exportTransactionsCsv();
+  }
 }

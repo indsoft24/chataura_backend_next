@@ -6,26 +6,18 @@ import { usePathname, useRouter } from 'next/navigation';
 const MENU_GROUPS = [
   {
     title: '',
-    items: [{ name: 'Dashboard', href: '/' }]
-  },
-  {
-    title: 'ADMINISTRATION',
     items: [
-      { name: 'Users', href: '/users' },
+      { name: 'Dashboard', href: '/' },
+      { name: 'Settings', href: '/settings' },
       { name: 'Staff', href: '/staff' },
-      { name: 'Reports', href: '/reports' },
-      { name: 'Withdrawals', href: '/withdrawals' }
-    ]
-  },
-  {
-    title: 'SETTINGS',
-    items: [
-      { name: 'Staff Commissions', href: '/staff-commissions' }
+      { name: 'Staff Commissions', href: '/staff-commissions' },
     ]
   },
   {
     title: 'BONUSES',
-    items: [{ name: 'Party Room Bonuses', href: '/party-bonuses' }]
+    items: [
+      { name: 'Party Room Bonuses', href: '/party-bonuses' }
+    ]
   },
   {
     title: 'CATALOG',
@@ -39,6 +31,23 @@ const MENU_GROUPS = [
       { name: 'Entry Bars', href: '/entry-bars' },
       { name: 'Room Themes', href: '/room-themes' },
       { name: 'Banners', href: '/banners' },
+      { name: 'Countries', href: '/countries' },
+    ]
+  },
+  {
+    title: 'OPERATIONS',
+    items: [
+      { name: 'Users', href: '/users' },
+      { name: 'Agencies', href: '/agencies' },
+      { name: 'Star Accounts', href: '/star-accounts' },
+      { name: 'Withdrawals (legacy)', href: '/withdrawals' },
+      { name: 'Reports', href: '/reports' },
+      { name: 'Party Room Analytics', href: '/party-room-analytics' },
+      { name: 'User Location Report', href: '/user-location-compliance' },
+      { name: 'User reports', href: '/user-reports' },
+      { name: 'Posts', href: '/posts' },
+      { name: 'Reels', href: '/reels' },
+      { name: 'Transactions', href: '/transactions' },
     ]
   }
 ];

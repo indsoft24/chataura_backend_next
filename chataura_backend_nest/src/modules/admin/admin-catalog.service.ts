@@ -690,6 +690,7 @@ export class AdminCatalogService {
         data: { id: 1 },
       });
     }
+    const extra = (setting.extraSettings as Record<string, unknown>) ?? {};
     return {
       settings: {
         id: setting.id,
@@ -706,16 +707,54 @@ export class AdminCatalogService {
         star_chat_heartbeat_sec: setting.starChatHeartbeatSec,
         spin_cost: setting.spinCost,
         bonus_config: setting.bonusConfig,
+        // Laravel parity settings
+        gift_commission_percent: Number(setting.giftCommissionPct),
+        audio_call_commission_percent: extra.audio_call_commission_percent ?? 20,
+        video_call_commission_percent: extra.video_call_commission_percent ?? 20,
+        star_chat_commission_percent: Number(setting.starChatCommissionPct),
+        min_withdrawal: extra.min_withdrawal ?? 100,
+        max_withdrawal: extra.max_withdrawal ?? 50000,
+        inr_per_usd: extra.inr_per_usd ?? 83.5,
+        gems_per_rupee: extra.gems_per_rupee ?? 10,
+        gems_per_dollar: extra.gems_per_dollar ?? 835,
+        min_gems_convert: extra.min_gems_convert ?? 100,
+        min_inr_withdrawal: extra.min_inr_withdrawal ?? 100,
+        max_inr_withdrawal: extra.max_inr_withdrawal ?? 50000,
+        streak_enabled: extra.streak_enabled ?? true,
+        streak_day_1_coins: extra.streak_day_1_coins ?? 10,
+        streak_day_2_coins: extra.streak_day_2_coins ?? 20,
+        streak_day_3_coins: extra.streak_day_3_coins ?? 30,
+        streak_day_4_coins: extra.streak_day_4_coins ?? 40,
+        streak_day_5_coins: extra.streak_day_5_coins ?? 50,
+        streak_day_6_coins: extra.streak_day_6_coins ?? 60,
+        streak_day_7_coins: extra.streak_day_7_coins ?? 100,
+        referral_reward_referrer: extra.referral_reward_referrer ?? 50,
+        referral_reward_referee: extra.referral_reward_referee ?? 50,
+        referral_coin_conversion_rate: extra.referral_coin_conversion_rate ?? 1,
+        admob_enabled: extra.admob_enabled ?? false,
+        admob_ad_coins: extra.admob_ad_coins ?? 10,
+        admob_daily_ad_limit: extra.admob_daily_ad_limit ?? 5,
+        game_1_enabled: extra.game_1_enabled ?? true,
+        game_2_enabled: extra.game_2_enabled ?? true,
+        game_3_enabled: extra.game_3_enabled ?? true,
+        agency_cashback_enabled: extra.agency_cashback_enabled ?? true,
+        agency_cashback_threshold_coins: extra.agency_cashback_threshold_coins ?? 2000,
+        staff_commission_ceo_percent: extra.staff_commission_ceo_percent ?? 5,
+        staff_commission_manager_percent: extra.staff_commission_manager_percent ?? 3,
+        staff_commission_admin_percent: extra.staff_commission_admin_percent ?? 2,
+        room_gift_big_animation_threshold_coins: extra.room_gift_big_animation_threshold_coins ?? 5000,
+        room_gift_banner_duration_small_ms: extra.room_gift_banner_duration_small_ms ?? 3000,
+        room_gift_banner_duration_big_ms: extra.room_gift_banner_duration_big_ms ?? 6000,
       },
     };
   }
 
   async updateSettings(body: Record<string, unknown>) {
     const data: Prisma.AdminSettingUpdateInput = {};
-    if (body.gift_commission_pct !== undefined)
-      data.giftCommissionPct = Number(body.gift_commission_pct);
-    if (body.star_chat_commission_pct !== undefined)
-      data.starChatCommissionPct = Number(body.star_chat_commission_pct);
+    if (body.gift_commission_pct !== undefined || body.gift_commission_percent !== undefined)
+      data.giftCommissionPct = Number(body.gift_commission_pct ?? body.gift_commission_percent);
+    if (body.star_chat_commission_pct !== undefined || body.star_chat_commission_percent !== undefined)
+      data.starChatCommissionPct = Number(body.star_chat_commission_pct ?? body.star_chat_commission_percent);
     if (body.cashout_enabled !== undefined)
       data.cashoutEnabled = Boolean(body.cashout_enabled);
     if (body.earnings_purchase_enabled !== undefined)
@@ -734,24 +773,99 @@ export class AdminCatalogService {
     if (body.bonus_config !== undefined)
       data.bonusConfig = body.bonus_config as Prisma.InputJsonValue;
 
+    // Merge extra settings
+    const current = await this.prisma.adminSetting.findUnique({ where: { id: 1 } });
+    const existingExtra = (current?.extraSettings as Record<string, unknown>) ?? {};
+    data.extraSettings = {
+      ...existingExtra,
+      ...body,
+    } as Prisma.InputJsonValue;
+
     const setting = await this.prisma.adminSetting.upsert({
       where: { id: 1 },
       create: { id: 1, ...(data as Prisma.AdminSettingCreateInput) },
       update: data,
     });
+    return this.settings();
+  }
+
+  // ──────────────────────────────────────────────
+  // Countries
+  // ──────────────────────────────────────────────
+
+  async countries() {
+    const rows = await this.prisma.country.findMany({ orderBy: { name: 'asc' } });
     return {
-      settings: {
-        id: setting.id,
-        gems_per_coin: Number(setting.gemsPerCoin),
-        gift_commission_pct: Number(setting.giftCommissionPct),
-        star_chat_commission_pct: Number(setting.starChatCommissionPct),
-        cashout_enabled: setting.cashoutEnabled,
-        earnings_purchase_enabled: setting.earningsPurchaseEnabled,
-        spin_cost: setting.spinCost,
-        coin_to_xp_ratio: Number(setting.coinToXpRatio),
-        audio_call_price_per_min: setting.audioCallPricePerMin,
-        video_call_price_per_min: setting.videoCallPricePerMin,
-      },
+      countries: rows.map((c) => ({
+        id: c.id,
+        name: c.name,
+        flag_emoji: c.flagEmoji,
+        flag_url: c.flagUrl,
+        approval_status: c.approvalStatus,
+        is_active: c.isActive,
+      })),
+      pendingCount: rows.filter((c) => c.approvalStatus === 'pending').length,
     };
+  }
+
+  async createCountry(body: {
+    id: string;
+    name: string;
+    flag_emoji?: string;
+    flag_url?: string;
+  }) {
+    const c = await this.prisma.country.create({
+      data: {
+        id: body.id.trim().toUpperCase(),
+        name: body.name.trim(),
+        flagEmoji: body.flag_emoji ?? null,
+        flagUrl: body.flag_url ?? null,
+        approvalStatus: 'approved',
+        isActive: true,
+      },
+    });
+    return { country: c };
+  }
+
+  async updateCountry(
+    id: string,
+    body: {
+      name?: string;
+      flag_emoji?: string;
+      flag_url?: string;
+      is_active?: boolean;
+    },
+  ) {
+    const c = await this.prisma.country.update({
+      where: { id: id.toUpperCase() },
+      data: {
+        ...(body.name ? { name: body.name } : {}),
+        ...(body.flag_emoji !== undefined ? { flagEmoji: body.flag_emoji } : {}),
+        ...(body.flag_url !== undefined ? { flagUrl: body.flag_url } : {}),
+        ...(body.is_active !== undefined ? { isActive: body.is_active } : {}),
+      },
+    });
+    return { country: c };
+  }
+
+  async deleteCountry(id: string) {
+    await this.prisma.country.delete({ where: { id: id.toUpperCase() } });
+    return { message: 'Country deleted' };
+  }
+
+  async approveCountry(id: string) {
+    const c = await this.prisma.country.update({
+      where: { id: id.toUpperCase() },
+      data: { approvalStatus: 'approved' },
+    });
+    return { country: c };
+  }
+
+  async rejectCountry(id: string) {
+    const c = await this.prisma.country.update({
+      where: { id: id.toUpperCase() },
+      data: { approvalStatus: 'rejected' },
+    });
+    return { country: c };
   }
 }

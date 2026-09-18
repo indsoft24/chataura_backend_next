@@ -22,7 +22,7 @@ export function userForApi(user: User): Record<string, unknown> {
     email_verified_at: user.emailVerifiedAt?.toISOString() ?? null,
     level: user.level,
     exp: user.exp,
-    xp: user.xp ?? user.exp,
+    xp: user.xp !== null && user.xp !== undefined ? Number(user.xp) : user.exp,
     coins: Number(user.coinBalance),
     coin_balance: Number(user.coinBalance),
     wallet_balance: Number(user.walletBalance),

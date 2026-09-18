@@ -33,26 +33,27 @@ export class GamificationService {
   levelPayload(
     user: {
       level: number;
-      xp: number;
+      xp: number | bigint;
     },
     levelRow?: {
-      minXp: number;
-      maxXp: number;
+      minXp: number | bigint;
+      maxXp: number | bigint;
       label: string | null;
       badgeUrl: string | null;
       iconUrl: string | null;
     } | null,
     levelUp = false,
   ) {
-    const min = levelRow?.minXp ?? 0;
-    const max = levelRow?.maxXp ?? Math.max(user.xp, 1);
+    const userXp = Number(user.xp);
+    const min = Number(levelRow?.minXp ?? 0);
+    const max = Number(levelRow?.maxXp ?? Math.max(userXp, 1));
     const span = Math.max(max - min + 1, 1);
-    const pct = Math.min(100, Math.max(0, ((user.xp - min) / span) * 100));
+    const pct = Math.min(100, Math.max(0, ((userXp - min) / span) * 100));
     return {
       level: user.level,
       current_level: user.level,
-      xp: user.xp,
-      exp: user.xp,
+      xp: userXp,
+      exp: userXp,
       current_xp: user.xp,
       xp_progress_pct: Math.round(pct * 100) / 100,
       level_min_xp: min,
