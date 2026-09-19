@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
+import FileUploadInput from '@/app/components/FileUploadInput';
 
 type Country = {
   id: string;
@@ -300,18 +301,14 @@ export default function CountriesPage() {
                   style={modalInputStyle}
                 />
               </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 4 }}>
-                  Flag Image URL (Optional)
-                </label>
-                <input
-                  type="url"
-                  placeholder="https://.../flag.png"
-                  value={formUrl}
-                  onChange={(e) => setFormUrl(e.target.value)}
-                  style={modalInputStyle}
-                />
-              </div>
+              <FileUploadInput
+                label="Country Flag Graphic (.png, .svg, .webp)"
+                value={formUrl}
+                onChange={(url) => setFormUrl(url)}
+                accept="image/*"
+                placeholder="https://.../flag.png or upload image"
+                helpText="Upload a country flag image icon or enter a CDN flag link."
+              />
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
                 <button
                   type="button"

@@ -545,13 +545,33 @@ export class MediaService {
       const part = await req.file();
       if (!part) return fallback;
       const mime = (part.mimetype || '').toLowerCase();
+      const ext = (part.filename || '').split('.').pop()?.toLowerCase();
+      const allowedExts = [
+        'json',
+        'svga',
+        'svg',
+        'png',
+        'jpg',
+        'jpeg',
+        'gif',
+        'webp',
+        'mp3',
+        'mp4',
+        'webm',
+        'm4a',
+        'aac',
+      ];
       const allowed =
         mime.startsWith('image/') ||
         mime.startsWith('video/') ||
+        mime.startsWith('audio/') ||
         mime === 'application/json' ||
         mime === 'application/octet-stream' ||
-        mime.includes('lottie');
-      if (!mime || !allowed) return fallback;
+        mime === 'text/plain' ||
+        mime.includes('lottie') ||
+        mime.includes('svg') ||
+        (ext ? allowedExts.includes(ext) : false);
+      if (!allowed) return fallback;
       return this.storeLocalFile(part.filename, part.file);
     } catch {
       return fallback;

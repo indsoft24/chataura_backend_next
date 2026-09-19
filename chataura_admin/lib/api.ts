@@ -16,13 +16,16 @@ export async function api<T>(
   token: string | null,
   init?: RequestInit,
 ): Promise<T> {
+  const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData;
+  const headers: Record<string, string> = {
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...((init?.headers as Record<string, string>) ?? {}),
+  };
+
   const res = await fetch(`${API}${path}`, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
-    },
+    headers,
   });
 
   if (!res.ok) {
@@ -52,3 +55,25 @@ export async function api<T>(
 
   return res.json() as Promise<T>;
 }
+
+export async function uploadAdminFile(
+  file: File,
+  token: string | null,
+): Promise<string> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await api<{ success: boolean; url?: string; data?: { url?: string } }>(
+    '/admin/upload',
+    token,
+    {
+      method: 'POST',
+      body: formData,
+    },
+  );
+  const url = res.url || res.data?.url;
+  if (!url) {
+    throw new Error('Upload completed but no URL was returned');
+  }
+  return url;
+}
+

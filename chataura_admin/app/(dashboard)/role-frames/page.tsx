@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
+import FileUploadInput from '@/app/components/FileUploadInput';
 
 type Frame = {
   id: number;
@@ -27,6 +28,16 @@ export default function RoleFramesPage() {
   const [roleType, setRoleType] = useState('Admin Privilege');
   const [imageUrl, setImageUrl] = useState('');
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  // Edit Modal states
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingFrame, setEditingFrame] = useState<Frame | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editImageUrl, setEditImageUrl] = useState('');
+  const [editIsActive, setEditIsActive] = useState(true);
+  const [editError, setEditError] = useState('');
+  const [editSubmitting, setEditSubmitting] = useState(false);
 
   async function load(tok: string) {
     setLoading(true);
@@ -49,11 +60,17 @@ export default function RoleFramesPage() {
   async function create() {
     const token = localStorage.getItem('ca_admin_token');
     if (!token) return;
+    if (!name.trim()) {
+      setError('Role frame name is required');
+      return;
+    }
+    setSubmitting(true);
+    setError('');
     try {
       const json = await api<{ success: boolean; error?: { message?: string } }>('/admin/frames', token, {
         method: 'POST',
         body: JSON.stringify({
-          name: `${name} (${roleType})`,
+          name: `${name.trim()} (${roleType})`,
           category: 'role',
           level_required: 1,
           is_premium: true,
@@ -64,12 +81,51 @@ export default function RoleFramesPage() {
         setError(json.error?.message ?? 'Create failed');
         return;
       }
-      setError('');
       setName('');
       setImageUrl('');
       void load(token);
-    } catch (e) {
-      setError('Network Error');
+    } catch (e: any) {
+      setError(e?.message ?? 'Network Error');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function openEdit(frame: Frame) {
+    setEditingFrame(frame);
+    setEditName(frame.name);
+    setEditImageUrl(frame.image_url ?? '');
+    setEditIsActive(frame.is_active);
+    setEditError('');
+    setEditModalOpen(true);
+  }
+
+  async function saveEdit() {
+    if (!editingFrame) return;
+    const token = localStorage.getItem('ca_admin_token');
+    if (!token) return;
+    if (!editName.trim()) {
+      setEditError('Role frame name is required');
+      return;
+    }
+    setEditSubmitting(true);
+    setEditError('');
+    try {
+      await api(`/admin/frames/${editingFrame.id}`, token, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: editName.trim(),
+          image_url: editImageUrl.trim() || undefined,
+          is_active: editIsActive,
+        }),
+      });
+      setEditModalOpen(false);
+      setEditingFrame(null);
+      void load(token);
+    } catch (e: any) {
+      setEditError(e?.message ?? 'Failed to update role frame');
+    } finally {
+      setEditSubmitting(false);
     }
   }
 
@@ -102,59 +158,105 @@ export default function RoleFramesPage() {
   return (
     <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
       <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Role & VIP Frames</h1>
-        <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>Configure exclusive avatar frames awarded to Administrators, Star Creators, and Top Hosts.</p>
+        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Staff & Role Frames</h1>
+        <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>Special prestige frames exclusive to Admins, CEOs, Managers, and Agency Heads.</p>
       </div>
 
-      <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', marginBottom: '24px' }}>
-        <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 16px 0', color: '#111827' }}>Add New Role Frame</h2>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      {/* Creation Box */}
+      <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', marginBottom: '28px' }}>
+        <h2 style={{ fontSize: '1.15rem', fontWeight: 600, margin: '0 0 16px 0', color: '#111827' }}>Add New Role Frame</h2>
+        
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '16px' }}>
           <div>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 600 }}>Title</div>
-            <input placeholder="e.g. Master Host" value={name} onChange={(e) => setName(e.target.value)} style={{ width: '180px', margin: 0 }} />
+            <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Role Frame Name *</label>
+            <input
+              type="text"
+              placeholder="e.g. Commander Frame"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
+            />
           </div>
+
           <div>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 600 }}>Designated Role</div>
-            <select value={roleType} onChange={(e) => setRoleType(e.target.value)} style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', background: '#fff', fontSize: '0.95rem', margin: 0, height: '42px' }}>
+            <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Assigned Role</label>
+            <select
+              value={roleType}
+              onChange={(e) => setRoleType(e.target.value)}
+              style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem', backgroundColor: '#fff' }}
+            >
               <option value="Admin Privilege">Admin Privilege</option>
-              <option value="Star Host">Star Host</option>
-              <option value="Coin Seller">Coin Seller</option>
-              <option value="VIP Superhost">VIP Superhost</option>
+              <option value="CEO Privilege">CEO Privilege</option>
+              <option value="Manager Privilege">Manager Privilege</option>
+              <option value="Agency Head">Agency Head</option>
+              <option value="Host VIP">Host VIP</option>
             </select>
           </div>
-          <div style={{ flex: 1, minWidth: '220px' }}>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 600 }}>Frame Image URL</div>
-            <input placeholder="https://.../role_frame.png" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} style={{ margin: 0 }} />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'flex-end', height: '62px' }}>
-            <button type="button" onClick={() => void create()} style={{ width: 'auto', height: '42px' }}>
-              Create Role Frame
-            </button>
-          </div>
         </div>
-        {error && <p className="err" style={{ marginTop: '16px', marginBottom: 0, maxWidth: '400px' }}>{error}</p>}
+
+        <FileUploadInput
+          label="Role Frame Asset (.svga, .png, .webp)"
+          value={imageUrl}
+          onChange={(url) => setImageUrl(url)}
+          accept="image/*,.svga,.json"
+          placeholder="https://.../role_frame.svga or upload file"
+          helpText="Upload an animated SVGA or high-resolution PNG for staff prestige frames."
+        />
+
+        {error && <p style={{ color: '#b91c1c', fontSize: '0.85rem', marginBottom: '16px' }}>⚠️ {error}</p>}
+
+        <button
+          type="button"
+          onClick={() => void create()}
+          disabled={submitting}
+          style={{
+            padding: '10px 24px',
+            backgroundColor: '#4f46e5',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '6px',
+            fontWeight: 600,
+            fontSize: '0.9rem',
+            cursor: submitting ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {submitting ? 'Creating...' : '+ Create Role Frame'}
+        </button>
       </div>
 
+      {/* Grid */}
       {loading ? (
         <p style={{ color: '#6b7280' }}>Loading role frames...</p>
       ) : frames.length === 0 ? (
-        <p style={{ color: '#6b7280' }}>No role frames registered yet. Create one above!</p>
+        <p style={{ color: '#6b7280' }}>No role frames found. Create one above.</p>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '20px' }}>
           {frames.map((f) => (
-            <div key={f.id} style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>
-              <div style={{ width: '88px', height: '88px', borderRadius: '50%', background: '#fef3c7', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', border: '2px dashed #f59e0b' }}>
+            <div key={f.id} style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div style={{ width: '92px', height: '92px', borderRadius: '50%', background: '#0f172a', marginBottom: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', position: 'relative' }}>
                 {f.image_url ? (
                   <img src={f.image_url} alt={f.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                 ) : (
-                  <span style={{ fontSize: '2.5rem' }}>👑</span>
+                  <span style={{ fontSize: '2.5rem' }}>🛡️</span>
                 )}
               </div>
+
               <div style={{ fontWeight: 600, color: '#111827', fontSize: '1.05rem', marginBottom: '4px', textAlign: 'center' }}>{f.name}</div>
-              <span style={{ padding: '2px 8px', borderRadius: '4px', background: '#fee2e2', color: '#991b1b', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', marginBottom: '8px' }}>
-                Exclusive Role
-              </span>
-              <div style={{ display: 'flex', gap: '8px', marginTop: '12px', width: '100%' }}>
+              
+              <div style={{ margin: '4px 0 8px 0' }}>
+                <span style={{ fontSize: '0.72rem', backgroundColor: '#e0e7ff', color: '#3730a3', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>
+                  Prestige Role Frame
+                </span>
+              </div>
+
+              <div style={{ width: '100%', marginTop: '8px' }}>
+                <span style={{ display: 'block', textAlign: 'center', padding: '4px 0', borderRadius: '6px', background: f.is_active ? '#d1fae5' : '#fee2e2', color: f.is_active ? '#065f46' : '#991b1b', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>
+                  {f.is_active ? 'Active' : 'Disabled'}
+                </span>
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: 'flex', gap: '6px', marginTop: '12px', width: '100%' }}>
                 <button
                   type="button"
                   onClick={() => void toggleActive(f.id, f.is_active)}
@@ -162,16 +264,34 @@ export default function RoleFramesPage() {
                     flex: 1,
                     padding: '6px 0',
                     fontSize: '0.75rem',
-                    background: f.is_active ? '#d1fae5' : '#fee2e2',
-                    color: f.is_active ? '#065f46' : '#991b1b',
-                    border: 'none',
+                    background: '#f3f4f6',
+                    color: '#374151',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: 500,
+                  }}
+                >
+                  {f.is_active ? 'Disable' : 'Enable'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => openEdit(f)}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '0.75rem',
+                    background: '#e0e7ff',
+                    color: '#3730a3',
+                    border: '1px solid #c7d2fe',
                     borderRadius: '6px',
                     cursor: 'pointer',
                     fontWeight: 600,
                   }}
                 >
-                  {f.is_active ? 'Active' : 'Disabled'}
+                  ✏️ Edit
                 </button>
+
                 <button
                   type="button"
                   onClick={() => void deleteFrame(f.id)}
@@ -183,7 +303,7 @@ export default function RoleFramesPage() {
                     border: '1px solid #fca5a5',
                     borderRadius: '6px',
                     cursor: 'pointer',
-                    width: 'auto',
+                    fontWeight: 600,
                   }}
                 >
                   Delete
@@ -191,6 +311,117 @@ export default function RoleFramesPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {editModalOpen && editingFrame && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px',
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#fff',
+              borderRadius: '12px',
+              padding: '28px',
+              maxWidth: '560px',
+              width: '100%',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, color: '#111827' }}>
+                Edit Role Frame #{editingFrame.id}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setEditModalOpen(false)}
+                style={{ background: 'none', border: 'none', fontSize: '1.25rem', color: '#6b7280', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Role Frame Name *</label>
+              <input
+                type="text"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
+              />
+            </div>
+
+            <FileUploadInput
+              label="Role Frame Asset (.svga, .png, .webp)"
+              value={editImageUrl}
+              onChange={(url) => setEditImageUrl(url)}
+              accept="image/*,.svga,.json"
+              placeholder="https://.../role_frame.svga"
+            />
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+              <input
+                type="checkbox"
+                id="editRoleFrameActive"
+                checked={editIsActive}
+                onChange={(e) => setEditIsActive(e.target.checked)}
+                style={{ width: '16px', height: '16px' }}
+              />
+              <label htmlFor="editRoleFrameActive" style={{ fontSize: '0.9rem', color: '#374151', cursor: 'pointer', fontWeight: 500 }}>
+                Active & Enabled for Privileged Staff
+              </label>
+            </div>
+
+            {editError && <p style={{ color: '#b91c1c', fontSize: '0.85rem', marginBottom: '16px' }}>⚠️ {editError}</p>}
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setEditModalOpen(false)}
+                style={{
+                  padding: '9px 18px',
+                  backgroundColor: '#f3f4f6',
+                  color: '#374151',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '6px',
+                  fontWeight: 600,
+                  fontSize: '0.9rem',
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveEdit()}
+                disabled={editSubmitting}
+                style={{
+                  padding: '9px 22px',
+                  backgroundColor: '#4f46e5',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontWeight: 600,
+                  fontSize: '0.9rem',
+                  cursor: editSubmitting ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {editSubmitting ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </main>

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -7,8 +8,12 @@ import {
   Patch,
   Post,
   Query,
+  Req,
 } from '@nestjs/common';
+import { Throttle, seconds } from '@nestjs/throttler';
+import type { FastifyRequest } from 'fastify';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { MediaService } from '../media/media.service';
 import { AdminCatalogService } from './admin-catalog.service';
 import { AdminService } from './admin.service';
 import {
@@ -38,7 +43,28 @@ export class AdminController {
   constructor(
     private readonly admin: AdminService,
     private readonly catalog: AdminCatalogService,
+    private readonly media: MediaService,
   ) {}
+
+  @Throttle({ default: { limit: 60, ttl: seconds(60) } })
+  @Post('upload')
+  async upload(@Req() req: FastifyRequest) {
+    const url = await this.media.storeFromRequest(req as any);
+    if (!url) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'UPLOAD_FAILED',
+          message: 'No valid file uploaded or file format not supported',
+        },
+      });
+    }
+    return {
+      success: true,
+      url,
+      data: { url },
+    };
+  }
 
   @Get('dashboard')
   dashboard(
