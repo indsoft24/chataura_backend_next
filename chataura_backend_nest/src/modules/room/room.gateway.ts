@@ -9,6 +9,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { TokenService } from '../auth/token.service';
 import { RoomEvents } from './room.events';
+import { wsThrottler } from '../../common/utils/ws-throttler';
 
 @WebSocketGateway({ namespace: '/ws/rooms', cors: { origin: true } })
 export class RoomGateway implements OnGatewayConnection {
@@ -28,6 +29,11 @@ export class RoomGateway implements OnGatewayConnection {
   }
 
   handleConnection(client: Socket) {
+    if (wsThrottler.isRateLimited(client)) {
+      client.emit('error', 'Too many connection attempts. Please wait.');
+      client.disconnect(true);
+      return;
+    }
     const token =
       (client.handshake.auth?.token as string) ||
       (client.handshake.query?.token as string) ||

@@ -7,7 +7,10 @@ import {
   Patch,
   Post,
   Query,
+  Req,
 } from '@nestjs/common';
+import { Throttle, seconds } from '@nestjs/throttler';
+import type { FastifyRequest } from 'fastify';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { ChatService } from './chat.service';
@@ -39,6 +42,14 @@ export class ChatController {
     return this.chat.markRead(user.id, BigInt(id));
   }
 
+  @Post('conversations/read/bulk')
+  readBulk(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { conversation_ids?: Array<number | string> },
+  ) {
+    return this.chat.markReadBulk(user.id, body);
+  }
+
   @Delete('conversations/:id')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.chat.deleteConversation(user.id, BigInt(id));
@@ -59,6 +70,7 @@ export class ChatController {
     );
   }
 
+  @Throttle({ default: { limit: 60, ttl: seconds(60) } })
   @Post('messages/send')
   send(
     @CurrentUser() user: AuthUser,
@@ -78,9 +90,10 @@ export class ChatController {
     return this.chat.send(user.id, body);
   }
 
+  @Throttle({ default: { limit: 15, ttl: seconds(60) } })
   @Post('messages/upload-image')
-  uploadImage() {
-    return this.chat.uploadImageStub();
+  uploadImage(@Req() req: FastifyRequest) {
+    return this.chat.uploadImage(req);
   }
 
   @Post('messages/status')
@@ -134,6 +147,11 @@ export class ChatController {
     return this.chat.endSession(user.id, BigInt(id), 'user');
   }
 
+  @Get('contacts/friends')
+  friends(@CurrentUser() user: AuthUser) {
+    return this.chat.listFriends(user.id);
+  }
+
   @Get('contacts/groups')
   myGroups(@CurrentUser() user: AuthUser) {
     return this.chat.listGroups(user.id);
@@ -146,6 +164,11 @@ export class ChatController {
     body: { name: string; image?: string; members?: Array<number | string> },
   ) {
     return this.chat.createGroup(user.id, body);
+  }
+
+  @Get('groups/:groupId')
+  getGroup(@CurrentUser() user: AuthUser, @Param('groupId') groupId: string) {
+    return this.chat.getGroup(user.id, BigInt(groupId));
   }
 
   @Get('groups/:groupId/members')

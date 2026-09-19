@@ -7,6 +7,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron } from '@nestjs/schedule';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import Razorpay from 'razorpay';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -234,6 +235,18 @@ export class WalletService {
     }
 
     const balanceAfter = await this.prisma.$transaction(async (tx) => {
+      const claim = await tx.coinPurchaseTransaction.updateMany({
+        where: { id: purchase.id, status: 'pending' },
+        data: {
+          status: 'success',
+          razorpayPaymentId: body.razorpay_payment_id,
+          razorpaySignature: body.razorpay_signature,
+        },
+      });
+      if (claim.count === 0) {
+        const u = await tx.user.findUniqueOrThrow({ where: { id: userId } });
+        return u.walletBalance;
+      }
       const after = await this.ledger.creditCoins(
         tx,
         userId,
@@ -242,14 +255,6 @@ export class WalletService {
         'Coin recharge',
         body.razorpay_payment_id,
       );
-      await tx.coinPurchaseTransaction.update({
-        where: { id: purchase.id },
-        data: {
-          status: 'success',
-          razorpayPaymentId: body.razorpay_payment_id,
-          razorpaySignature: body.razorpay_signature,
-        },
-      });
       return after;
     });
 
@@ -864,5 +869,104 @@ export class WalletService {
       wallet_balance: balance,
       message: '1-1 audio and video calls are disabled',
     };
+  }
+
+  @Cron('*/1 * * * *')
+  async handleReconcileCron() {
+    try {
+      await this.reconcilePendingPayments();
+    } catch (e) {
+      this.logger.warn(`Payment reconcile cron error: ${String(e)}`);
+    }
+  }
+
+  async reconcilePendingPayments(olderThanMinutes = 2, limit = 50) {
+    if (!this.razorpay) {
+      return { checked: 0, success: 0, failed: 0 };
+    }
+
+    const threshold = new Date(Date.now() - olderThanMinutes * 60_000);
+    const pendingOrders = await this.prisma.coinPurchaseTransaction.findMany({
+      where: {
+        status: 'pending',
+        paymentSource: 'RAZORPAY',
+        createdAt: { lte: threshold },
+      },
+      orderBy: { id: 'asc' },
+      take: limit,
+    });
+
+    let checked = 0;
+    let success = 0;
+    let failed = 0;
+
+    for (const order of pendingOrders) {
+      checked++;
+      try {
+        if (!order.razorpayOrderId) continue;
+        const payments = await this.razorpay.orders.fetchPayments(
+          order.razorpayOrderId,
+        );
+        const items = (payments as any)?.items || [];
+        const captured = items.find((p: any) => p.status === 'captured');
+
+        if (captured) {
+          const paymentId = String(captured.id);
+          const dup = await this.prisma.coinPurchaseTransaction.findFirst({
+            where: {
+              razorpayPaymentId: paymentId,
+              status: 'success',
+            },
+          });
+          if (dup) {
+            await this.prisma.coinPurchaseTransaction.update({
+              where: { id: order.id },
+              data: { status: 'failed' },
+            });
+            continue;
+          }
+
+          await this.prisma.$transaction(async (tx) => {
+            const claim = await tx.coinPurchaseTransaction.updateMany({
+              where: { id: order.id, status: 'pending' },
+              data: {
+                status: 'success',
+                razorpayPaymentId: paymentId,
+              },
+            });
+            if (claim.count === 0) return;
+            await this.ledger.creditCoins(
+              tx,
+              order.userId,
+              order.coinsCredited,
+              'RECHARGE',
+              'Coin recharge (reconciled)',
+              paymentId,
+            );
+          });
+          success++;
+          this.logger.log(
+            `Reconciliation credited order ${order.razorpayOrderId} (${paymentId}) with ${order.coinsCredited} coins`,
+          );
+        } else {
+          const allFailed =
+            items.length > 0 &&
+            items.every((p: any) => ['failed', 'cancelled'].includes(p.status));
+          if (allFailed) {
+            await this.prisma.coinPurchaseTransaction.update({
+              where: { id: order.id },
+              data: { status: 'failed' },
+            });
+            failed++;
+          }
+        }
+      } catch (err: any) {
+        this.logger.warn(
+          `Reconciliation check failed for order ${order.razorpayOrderId}: ${String(err?.message || err)}`,
+        );
+      }
+    }
+
+    return { checked, success, failed };
   }
 }

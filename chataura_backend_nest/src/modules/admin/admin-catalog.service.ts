@@ -98,6 +98,7 @@ export class AdminCatalogService {
         name: g.name,
         coin_cost: g.coinCost,
         image_url: g.imageUrl,
+        animation_url: g.animationUrl,
         is_active: g.isActive,
       })),
     };
@@ -109,14 +110,20 @@ export class AdminCatalogService {
     coinCost?: number;
     image_url?: string;
     imageUrl?: string;
+    animation_url?: string;
+    animationUrl?: string;
+    video_url?: string;
   }) {
     const cost = body.coin_cost ?? body.coinCost ?? 0;
     const img = body.image_url ?? body.imageUrl ?? null;
+    const anim =
+      body.animation_url ?? body.animationUrl ?? body.video_url ?? null;
     const g = await this.prisma.gift.create({
       data: {
         name: body.name,
         coinCost: Number(cost),
         imageUrl: img,
+        animationUrl: anim,
       },
     });
     return {
@@ -124,6 +131,7 @@ export class AdminCatalogService {
       name: g.name,
       coin_cost: g.coinCost,
       image_url: g.imageUrl,
+      animation_url: g.animationUrl,
       is_active: g.isActive,
     };
   }
@@ -136,17 +144,23 @@ export class AdminCatalogService {
       coinCost?: number;
       image_url?: string;
       imageUrl?: string;
+      animation_url?: string;
+      animationUrl?: string;
+      video_url?: string;
       is_active?: boolean;
     },
   ) {
     const cost = body.coin_cost ?? body.coinCost;
     const img = body.image_url ?? body.imageUrl;
+    const anim =
+      body.animation_url ?? body.animationUrl ?? body.video_url;
     const g = await this.prisma.gift.update({
       where: { id },
       data: {
         ...(body.name !== undefined ? { name: body.name } : {}),
         ...(cost !== undefined ? { coinCost: Number(cost) } : {}),
         ...(img !== undefined ? { imageUrl: img } : {}),
+        ...(anim !== undefined ? { animationUrl: anim } : {}),
         ...(body.is_active !== undefined ? { isActive: body.is_active } : {}),
       },
     });
@@ -155,6 +169,7 @@ export class AdminCatalogService {
       name: g.name,
       coin_cost: g.coinCost,
       image_url: g.imageUrl,
+      animation_url: g.animationUrl,
       is_active: g.isActive,
     };
   }

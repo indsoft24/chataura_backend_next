@@ -431,11 +431,20 @@ export class GameService {
       orderBy: { id: 'desc' },
     });
     if (open) return open;
-    return this.prisma.greedyRound.create({
-      data: {
-        phase: 'betting',
-        bettingEndsAt: new Date(Date.now() + BETTING_SECONDS * 1000),
-      },
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('greedy_round_create'))`;
+      const checkAgain = await tx.greedyRound.findFirst({
+        where: { phase: { in: ['betting', 'drawing'] } },
+        orderBy: { id: 'desc' },
+      });
+      if (checkAgain) return checkAgain;
+      return tx.greedyRound.create({
+        data: {
+          phase: 'betting',
+          bettingEndsAt: new Date(Date.now() + BETTING_SECONDS * 1000),
+        },
+      });
     });
   }
 
@@ -445,11 +454,20 @@ export class GameService {
       orderBy: { id: 'desc' },
     });
     if (open) return open;
-    return this.prisma.lucky77Round.create({
-      data: {
-        phase: 'betting',
-        bettingEndsAt: new Date(Date.now() + BETTING_SECONDS * 1000),
-      },
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('lucky77_round_create'))`;
+      const checkAgain = await tx.lucky77Round.findFirst({
+        where: { phase: { in: ['betting', 'drawing'] } },
+        orderBy: { id: 'desc' },
+      });
+      if (checkAgain) return checkAgain;
+      return tx.lucky77Round.create({
+        data: {
+          phase: 'betting',
+          bettingEndsAt: new Date(Date.now() + BETTING_SECONDS * 1000),
+        },
+      });
     });
   }
 

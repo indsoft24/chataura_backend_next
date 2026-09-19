@@ -67,6 +67,29 @@ export class GamificationController {
     return this.game.selectEntryBar(user.id, BigInt(body.entry_bar_id));
   }
 
+  @Get('role-frames')
+  roleFrames() {
+    return this.game.roleFramesCatalog();
+  }
+
+  @Get('role-frames/mine')
+  myRoleFrames(@CurrentUser() user: AuthUser) {
+    return this.game.myRoleFrames(user.id);
+  }
+
+  @Post('role-frames/select')
+  selectRoleFrame(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { role_frame_id?: number | string },
+  ) {
+    return this.game.selectRoleFrame(user.id, body);
+  }
+
+  @Get('profile/upgrade-roadmap')
+  upgradeRoadmap(@CurrentUser() user: AuthUser) {
+    return this.game.upgradeRoadmap(user.id);
+  }
+
   @Get('spin/prizes')
   spinPrizes() {
     return this.bonusSpin.prizes();

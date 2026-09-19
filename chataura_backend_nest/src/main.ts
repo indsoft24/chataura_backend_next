@@ -22,7 +22,7 @@ import { ResponseTransformInterceptor } from './common/interceptors/response-tra
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ logger: true }),
+    new FastifyAdapter({ logger: true, trustProxy: true }),
     { bodyParser: false },
   );
   const fastify = app.getHttpAdapter().getInstance();

@@ -9,6 +9,6 @@
     "^.+\\.(t|j)s$": "ts-jest"
   },
   "transformIgnorePatterns": [
-    "/node_modules/(?!(@nestjs/config|uuid|ioredis|@prisma/adapter-pg|postgres)/)"
+    "/node_modules/(?!(@nestjs/config|@nestjs/schedule|uuid|ioredis|@prisma/adapter-pg|postgres)/)"
   ]
 }

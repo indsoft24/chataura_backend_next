@@ -38,7 +38,6 @@ const MENU_GROUPS = [
     title: 'OPERATIONS',
     items: [
       { name: 'Users', href: '/users' },
-      { name: 'Agencies', href: '/agencies' },
       { name: 'Star Accounts', href: '/star-accounts' },
       { name: 'Withdrawals (legacy)', href: '/withdrawals' },
       { name: 'Reports', href: '/reports' },

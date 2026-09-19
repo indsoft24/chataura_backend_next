@@ -172,7 +172,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         agoraChannelName: `room_${displayId}`,
         maxSeats,
         settings: body.settings ?? {
-          allow_video: true,
+          allow_video: false,
           allow_gifts: true,
           allow_games: true,
         },
@@ -301,44 +301,49 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       where: { id: userId },
     });
     const agoraUid = this.agoraUid(userId);
-    let role: RoomMemberRole = 'listener';
-    const liveHost = room.hostId
-      ? await this.prisma.roomMember.findFirst({
-          where: { roomId: room.id, userId: room.hostId, isActive: true },
-        })
-      : null;
-    if (room.hostId === userId) {
-      role = 'host';
-    } else if (room.coHostId === userId && liveHost) {
-      role = 'co_host';
-    } else if (!liveHost) {
-      role = 'host';
-      await this.prisma.room.update({
-        where: { id: room.id },
-        data: { hostId: userId, hostLastHeartbeatAt: new Date() },
-      });
-    }
+    const member = await this.prisma.$transaction(async (tx) => {
+      let role: RoomMemberRole = 'listener';
+      const liveHost = room.hostId
+        ? await tx.roomMember.findFirst({
+            where: { roomId: room.id, userId: room.hostId, isActive: true },
+          })
+        : null;
+      if (room.hostId === userId) {
+        role = 'host';
+      } else if (room.coHostId === userId && liveHost) {
+        role = 'co_host';
+      } else if (!liveHost) {
+        const updated = await tx.room.updateMany({
+          where: { id: room.id, OR: [{ hostId: null }, { hostId: room.hostId }] },
+          data: { hostId: userId, hostLastHeartbeatAt: new Date() },
+        });
+        if (updated.count > 0) {
+          role = 'host';
+        }
+      }
 
-    const member = await this.prisma.roomMember.upsert({
-      where: { roomId_userId: { roomId: room.id, userId } },
-      create: {
-        roomId: room.id,
-        userId,
-        role,
-        agoraUid,
-        isActive: true,
-        lastHeartbeatAt: new Date(),
-      },
-      update: {
-        isActive: true,
-        role,
-        agoraUid,
-        lastHeartbeatAt: new Date(),
-      },
-    });
-    await this.prisma.room.update({
-      where: { id: room.id },
-      data: { lastActivityAt: new Date() },
+      const m = await tx.roomMember.upsert({
+        where: { roomId_userId: { roomId: room.id, userId } },
+        create: {
+          roomId: room.id,
+          userId,
+          role,
+          agoraUid,
+          isActive: true,
+          lastHeartbeatAt: new Date(),
+        },
+        update: {
+          isActive: true,
+          role,
+          agoraUid,
+          lastHeartbeatAt: new Date(),
+        },
+      });
+      await tx.room.update({
+        where: { id: room.id },
+        data: { lastActivityAt: new Date() },
+      });
+      return m;
     });
 
     const publisher = ['host', 'co_host', 'speaker'].includes(member.role);
@@ -368,39 +373,46 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
   async leave(userId: bigint, id: string) {
     const room = await this.findRoom(id);
-    await this.prisma.roomMember.updateMany({
-      where: { roomId: room.id, userId },
-      data: { isActive: false, seatIndex: null, role: 'listener' },
-    });
-    await this.prisma.seat.updateMany({
-      where: { roomId: room.id, userId },
-      data: { userId: null, isMuted: false, mutedByUserId: null },
-    });
     let roomEnded = false;
-    if (room.hostId === userId) {
-      const successor = await this.pickHostSuccessor(room.id, userId);
-      if (successor) {
-        await this.prisma.room.update({
-          where: { id: room.id },
-          data: { hostId: successor, hostLastHeartbeatAt: new Date() },
-        });
-        await this.prisma.roomMember.updateMany({
-          where: { roomId: room.id, userId: successor },
-          data: { role: 'host' },
-        });
-      } else if (room.isPermanent) {
-        await this.prisma.room.update({
-          where: { id: room.id },
-          data: { hostId: null },
-        });
-      } else {
-        await this.prisma.room.update({
-          where: { id: room.id },
-          data: { isLive: false, endedAt: new Date(), hostId: null },
-        });
-        roomEnded = true;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.roomMember.updateMany({
+        where: { roomId: room.id, userId },
+        data: { isActive: false, seatIndex: null, role: 'listener' },
+      });
+      await tx.seat.updateMany({
+        where: { roomId: room.id, userId },
+        data: { userId: null, isMuted: false, mutedByUserId: null },
+      });
+      if (room.hostId === userId) {
+        const lockedRoom = await tx.$queryRaw<
+          Array<{ id: string; host_id: bigint | null; is_permanent: boolean }>
+        >`SELECT id, host_id, is_permanent FROM rooms WHERE id = ${room.id}::uuid FOR UPDATE`;
+        if (lockedRoom[0]?.host_id === userId) {
+          const successor = await this.pickHostSuccessor(room.id, userId, tx);
+          if (successor) {
+            await tx.room.update({
+              where: { id: room.id },
+              data: { hostId: successor, hostLastHeartbeatAt: new Date() },
+            });
+            await tx.roomMember.updateMany({
+              where: { roomId: room.id, userId: successor },
+              data: { role: 'host' },
+            });
+          } else if (room.isPermanent) {
+            await tx.room.update({
+              where: { id: room.id },
+              data: { hostId: null },
+            });
+          } else {
+            await tx.room.update({
+              where: { id: room.id },
+              data: { isLive: false, endedAt: new Date(), hostId: null },
+            });
+            roomEnded = true;
+          }
+        }
       }
-    }
+    });
     return {
       message: 'Left room',
       bonus_earned: [],
@@ -548,24 +560,34 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   async transferHost(actorId: bigint, id: string, targetId: bigint) {
     const room = await this.findRoom(id);
     this.assertHost(room, actorId);
-    await this.prisma.room.update({
-      where: { id: room.id },
-      data: {
-        hostId: targetId,
-        coHostId: room.coHostId === targetId ? null : room.coHostId,
-      },
-    });
-    await this.prisma.roomMember.updateMany({
-      where: { roomId: room.id, userId: targetId },
-      data: { role: 'host' },
-    });
-    if (room.hostId) {
-      await this.prisma.roomMember.updateMany({
-        where: { roomId: room.id, userId: room.hostId },
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<
+        Array<{ id: string; host_id: bigint | null }>
+      >`SELECT id, host_id FROM rooms WHERE id = ${room.id}::uuid FOR UPDATE`;
+      if (!locked[0] || locked[0].host_id !== actorId) {
+        throw new ForbiddenException({
+          success: false,
+          error: { code: 'FORBIDDEN', message: 'Host only' },
+        });
+      }
+      await tx.room.update({
+        where: { id: room.id },
+        data: {
+          hostId: targetId,
+          coHostId: room.coHostId === targetId ? null : room.coHostId,
+          hostLastHeartbeatAt: new Date(),
+        },
+      });
+      await tx.roomMember.updateMany({
+        where: { roomId: room.id, userId: targetId },
+        data: { role: 'host' },
+      });
+      await tx.roomMember.updateMany({
+        where: { roomId: room.id, userId: actorId },
         data: { role: 'speaker' },
       });
-    }
-    return { message: 'Host transferred' };
+      return { message: 'Host transferred' };
+    });
   }
 
   async seats(userId: bigint, id: string) {
@@ -774,6 +796,10 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     }
     if (sticker.coinCost > 0) {
       await this.prisma.$transaction(async (tx) => {
+        const already = await tx.userUnlockedSticker.findUnique({
+          where: { userId_stickerId: { userId, stickerId } },
+        });
+        if (already) return;
         try {
           await this.ledger.debitCoins(
             tx,
@@ -864,37 +890,37 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     role: RoomMemberRole,
   ) {
     await this.ensureSeats(room.id, undefined);
-    await this.prisma.seat.updateMany({
-      where: { roomId: room.id, userId },
-      data: { userId: null },
-    });
-    const seat = await this.prisma.seat.findUnique({
-      where: { roomId_seatIndex: { roomId: room.id, seatIndex } },
-    });
-    if (!seat) {
-      throw new NotFoundException({
-        success: false,
-        error: { code: 'NOT_FOUND', message: 'Seat not found' },
+    return this.prisma.$transaction(async (tx) => {
+      await tx.seat.updateMany({
+        where: { roomId: room.id, userId, seatIndex: { not: seatIndex } },
+        data: { userId: null, isMuted: false, mutedByUserId: null },
       });
-    }
-    if (seat.userId && seat.userId !== userId) {
-      throw new BadRequestException({
-        success: false,
-        error: { code: 'SEAT_TAKEN', message: 'Seat already taken' },
+
+      const claim = await tx.seat.updateMany({
+        where: {
+          roomId: room.id,
+          seatIndex,
+          OR: [{ userId: null }, { userId }],
+        },
+        data: {
+          userId,
+          lastHeartbeatAt: new Date(),
+          isMuted: false,
+          mutedByUserId: null,
+        },
       });
-    }
-    await this.prisma.seat.update({
-      where: { id: seat.id },
-      data: {
-        userId,
-        lastHeartbeatAt: new Date(),
-        isMuted: false,
-        mutedByUserId: null,
-      },
-    });
-    await this.prisma.roomMember.updateMany({
-      where: { roomId: room.id, userId },
-      data: { seatIndex, role: role === 'listener' ? 'speaker' : role },
+
+      if (claim.count === 0) {
+        throw new BadRequestException({
+          success: false,
+          error: { code: 'SEAT_TAKEN', message: 'Seat already taken' },
+        });
+      }
+
+      await tx.roomMember.updateMany({
+        where: { roomId: room.id, userId },
+        data: { seatIndex, role: role === 'listener' ? 'speaker' : role },
+      });
     });
   }
 
@@ -905,7 +931,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   ) {
     const seats = await this.prisma.seat.findMany({
       where: { roomId, seatIndex: { lt: maxSeats } },
-      include: { user: true },
+      include: { user: { include: { selectedFrame: true } } },
       orderBy: { seatIndex: 'asc' },
     });
     const member = await this.prisma.roomMember.findUnique({
@@ -931,6 +957,9 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         selected_frame_id: s.user?.selectedFrameId
           ? Number(s.user.selectedFrameId)
           : null,
+        selected_frame_url: s.user?.selectedFrame?.imageUrl ?? null,
+        selected_frame_url_lite: s.user?.selectedFrame?.imageUrl ?? null,
+        selected_frame_url_hq: s.user?.selectedFrame?.imageUrl ?? null,
         rtc_role: s.userId ? 'publisher' : null,
       })),
       max_seats: maxSeats,
@@ -971,11 +1000,11 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     for (const m of stale) {
       await this.prisma.roomMember.update({
         where: { id: m.id },
-        data: { role: 'listener', seatIndex: null },
+        data: { role: 'listener', seatIndex: null, isActive: false },
       });
       await this.prisma.seat.updateMany({
         where: { roomId: m.roomId, userId: m.userId },
-        data: { userId: null },
+        data: { userId: null, isMuted: false, mutedByUserId: null },
       });
     }
   }
@@ -1060,17 +1089,21 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private async pickHostSuccessor(roomId: string, exceptUserId: bigint) {
-    const room = await this.prisma.room.findUniqueOrThrow({
+  private async pickHostSuccessor(
+    roomId: string,
+    exceptUserId: bigint,
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
+  ) {
+    const room = await client.room.findUniqueOrThrow({
       where: { id: roomId },
     });
     if (room.coHostId && room.coHostId !== exceptUserId) {
-      const co = await this.prisma.roomMember.findFirst({
+      const co = await client.roomMember.findFirst({
         where: { roomId, userId: room.coHostId, isActive: true },
       });
       if (co) return room.coHostId;
     }
-    const next = await this.prisma.roomMember.findFirst({
+    const next = await client.roomMember.findFirst({
       where: {
         roomId,
         isActive: true,
@@ -1080,7 +1113,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       orderBy: { joinedAt: 'asc' },
     });
     if (next) return next.userId;
-    const any = await this.prisma.roomMember.findFirst({
+    const any = await client.roomMember.findFirst({
       where: { roomId, isActive: true, userId: { not: exceptUserId } },
       orderBy: { joinedAt: 'asc' },
     });

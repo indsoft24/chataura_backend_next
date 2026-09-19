@@ -8,6 +8,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { Throttle, seconds } from '@nestjs/throttler';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { RoomGiftingService } from './room-gifting.service';
@@ -112,6 +113,7 @@ export class RoomController {
     return this.rooms.leave(user.id, id);
   }
 
+  @Throttle({ default: { limit: 240, ttl: seconds(60) } })
   @Post('rooms/:id/heartbeat')
   heartbeat(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.rooms.heartbeat(user.id, id);
@@ -209,6 +211,7 @@ export class RoomController {
     );
   }
 
+  @Throttle({ default: { limit: 240, ttl: seconds(60) } })
   @Get('rooms/:id/seats')
   seats(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.rooms.seats(user.id, id);
@@ -277,6 +280,7 @@ export class RoomController {
     return this.gifting.giftTypes();
   }
 
+  @Throttle({ default: { limit: 30, ttl: seconds(60) } })
   @Post('rooms/:id/gifts/send')
   sendGift(
     @CurrentUser() user: AuthUser,
@@ -291,6 +295,7 @@ export class RoomController {
     return this.gifting.sendRoomGift(user.id, id, body);
   }
 
+  @Throttle({ default: { limit: 20, ttl: seconds(60) } })
   @Post('gifts/send-batch')
   sendBatch(
     @CurrentUser() user: AuthUser,
@@ -310,11 +315,13 @@ export class RoomController {
     return this.rooms.stickers(user.id);
   }
 
+  @Throttle({ default: { limit: 20, ttl: seconds(60) } })
   @Post('stickers/:id/purchase')
   purchaseSticker(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.rooms.purchaseSticker(user.id, BigInt(id));
   }
 
+  @Throttle({ default: { limit: 30, ttl: seconds(60) } })
   @Post('rooms/:id/stickers/send')
   sendSticker(
     @CurrentUser() user: AuthUser,

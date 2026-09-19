@@ -453,9 +453,39 @@ export class AdminController {
     return this.admin.adminPosts(Number(page ?? 1), Number(limit ?? 20), q);
   }
 
+  @Post('media/posts')
+  createMediaPost(
+    @Body()
+    body: {
+      user_id?: number | string;
+      username?: string;
+      email?: string;
+      file_url: string;
+      caption?: string;
+      thumbnail_url?: string;
+    },
+  ) {
+    return this.admin.createAdminMediaPost('post', body);
+  }
+
   @Delete('media/posts/:id')
   deleteMediaPost(@Param('id') id: string) {
     return this.admin.deleteMediaPost(BigInt(id));
+  }
+
+  @Post('media/reels')
+  createMediaReel(
+    @Body()
+    body: {
+      user_id?: number | string;
+      username?: string;
+      email?: string;
+      file_url: string;
+      caption?: string;
+      thumbnail_url?: string;
+    },
+  ) {
+    return this.admin.createAdminMediaPost('reel', body);
   }
 
   @Get('media/reels')

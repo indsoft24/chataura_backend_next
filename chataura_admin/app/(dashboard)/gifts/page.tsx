@@ -24,6 +24,7 @@ export default function GiftsPage() {
   const [name, setName] = useState('');
   const [coinCost, setCoinCost] = useState('50');
   const [imageUrl, setImageUrl] = useState('');
+  const [animationUrl, setAnimationUrl] = useState('');
   const [error, setError] = useState('');
 
   async function load(tok: string) {
@@ -55,6 +56,7 @@ export default function GiftsPage() {
           name,
           coin_cost: Number(coinCost),
           image_url: imageUrl.trim() || undefined,
+          animation_url: animationUrl.trim() || undefined,
         }),
       });
       if (!json.success) {
@@ -64,6 +66,7 @@ export default function GiftsPage() {
       setError('');
       setName('');
       setImageUrl('');
+      setAnimationUrl('');
       void load(token);
     } catch (e) {
       setError('Network Error');

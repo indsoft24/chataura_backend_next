@@ -62,6 +62,96 @@ export class MediaService {
     };
   }
 
+  async userMedia(
+    viewerId: bigint | undefined,
+    targetUserId: bigint,
+    page = 1,
+    limit = 20,
+  ) {
+    const targetUser = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+    });
+    if (!targetUser || targetUser.deletedAt || targetUser.accountStatus === 'deleted') {
+      throw new NotFoundException({
+        success: false,
+        error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+      });
+    }
+
+    if (viewerId && viewerId !== targetUserId) {
+      const blocked = await this.prisma.blockedUser.findFirst({
+        where: {
+          OR: [
+            { blockerId: viewerId, blockedId: targetUserId },
+            { blockerId: targetUserId, blockedId: viewerId },
+          ],
+        },
+      });
+      if (blocked) {
+        return {
+          success: true,
+          data: [],
+          current_page: page,
+          next_page_url: null,
+          has_more: false,
+          last_page: 1,
+          per_page: limit,
+        };
+      }
+
+      if (targetUser.isPrivate || targetUser.privateAccount) {
+        const isFollower = await this.prisma.userFollower.findFirst({
+          where: {
+            followerId: viewerId,
+            followingId: targetUserId,
+            status: 'accepted',
+          },
+        });
+        if (!isFollower) {
+          return {
+            success: true,
+            data: [],
+            current_page: page,
+            next_page_url: null,
+            has_more: false,
+            last_page: 1,
+            per_page: limit,
+          };
+        }
+      }
+    }
+
+    const take = Math.min(Math.max(limit, 1), 50);
+    const skip = (Math.max(page, 1) - 1) * take;
+    const where = {
+      userId: targetUserId,
+      isDeleted: false,
+    };
+    const [rows, total] = await Promise.all([
+      this.prisma.mediaItem.findMany({
+        where,
+        include: { user: true },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+      }),
+      this.prisma.mediaItem.count({ where }),
+    ]);
+    const lastPage = Math.max(1, Math.ceil(total / take));
+    const items = await Promise.all(
+      rows.map((r) => this.serializePost(r, viewerId)),
+    );
+    return {
+      success: true,
+      data: items,
+      current_page: page,
+      next_page_url: page < lastPage ? `?page=${page + 1}&limit=${take}` : null,
+      has_more: page < lastPage,
+      last_page: lastPage,
+      per_page: take,
+    };
+  }
+
   async show(userId: bigint | undefined, id: bigint) {
     const row = await this.prisma.mediaItem.findFirst({
       where: { id, isDeleted: false },

@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Throttle, seconds } from '@nestjs/throttler';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
@@ -24,6 +25,7 @@ export class WalletController {
     return this.wallet.packages(country);
   }
 
+  @Throttle({ default: { limit: 10, ttl: seconds(60) } })
   @Post('wallet/recharge/initiate')
   initiate(
     @CurrentUser() user: AuthUser,
@@ -33,6 +35,7 @@ export class WalletController {
     return this.wallet.initiateRecharge(user.id, body);
   }
 
+  @Throttle({ default: { limit: 10, ttl: seconds(60) } })
   @Post('create-payment')
   initiateLegacy(
     @CurrentUser() user: AuthUser,
@@ -42,6 +45,7 @@ export class WalletController {
     return this.wallet.initiateRecharge(user.id, body);
   }
 
+  @Throttle({ default: { limit: 10, ttl: seconds(60) } })
   @Post('verify-payment')
   verifyLegacy(
     @CurrentUser() user: AuthUser,
@@ -55,6 +59,7 @@ export class WalletController {
     return this.wallet.verifyRecharge(user.id, body);
   }
 
+  @Throttle({ default: { limit: 10, ttl: seconds(60) } })
   @Post('wallet/recharge/verify')
   verify(
     @CurrentUser() user: AuthUser,
@@ -68,6 +73,7 @@ export class WalletController {
     return this.wallet.verifyRecharge(user.id, body);
   }
 
+  @Throttle({ default: { limit: 10, ttl: seconds(60) } })
   @Post(['wallet/purchase-with-earnings', 'purchase-with-earnings'])
   purchaseWithEarnings(
     @CurrentUser() user: AuthUser,
@@ -77,6 +83,7 @@ export class WalletController {
     return this.wallet.purchaseWithEarnings(user.id, body);
   }
 
+  @Throttle({ default: { limit: 60, ttl: seconds(60) } })
   @Post('wallet/transfer')
   transfer(
     @CurrentUser() user: AuthUser,
@@ -90,6 +97,7 @@ export class WalletController {
     return this.wallet.transfer(user.id, body);
   }
 
+  @Throttle({ default: { limit: 5, ttl: seconds(60) } })
   @Post('wallet/referral/convert')
   convertReferral(@CurrentUser() user: AuthUser) {
     return this.wallet.convertReferral(user.id);
@@ -100,6 +108,7 @@ export class WalletController {
     return this.wallet.earningsConfig();
   }
 
+  @Throttle({ default: { limit: 10, ttl: seconds(60) } })
   @Post('wallet/gems/convert')
   convertGems(
     @CurrentUser() user: AuthUser,
@@ -113,7 +122,7 @@ export class WalletController {
     return this.wallet.gemConversions(user.id);
   }
 
-  @Get('wallet/transactions')
+  @Get(['wallet/transactions', 'users/me/transactions'])
   transactions(
     @CurrentUser() user: AuthUser,
     @Query('page') page?: string,
@@ -133,6 +142,7 @@ export class WalletController {
     return this.wallet.withdrawLimits();
   }
 
+  @Throttle({ default: { limit: 5, ttl: seconds(60) } })
   @Post('wallet/withdraw')
   withdraw() {
     return this.wallet.withdraw();
@@ -143,6 +153,7 @@ export class WalletController {
     return this.wallet.withdrawals(user.id);
   }
 
+  @Throttle({ default: { limit: 30, ttl: seconds(60) } })
   @Post('wallet/send-gift')
   sendGift(
     @CurrentUser() user: AuthUser,

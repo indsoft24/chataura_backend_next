@@ -482,23 +482,61 @@ export class AuthService {
     const referrerAmt = Number(
       this.config.get('REFERRAL_REWARD_REFERRER', '100'),
     );
-    if (referee > 0) {
-      await this.creditSpendable(
-        inviteeId,
-        referee,
-        'REFERRAL_REFEREE',
-        'Referral join bonus',
-      );
-    }
-    if (referrerAmt > 0) {
-      await this.creditSpendable(
-        referrerId,
-        referrerAmt,
-        'REFERRAL_REFERRER',
-        'Referral invite bonus',
-      );
-    }
-    return { invitee_coins: referee, referrer_coins: referrerAmt };
+    return this.prisma.$transaction(async (tx) => {
+      if (referee > 0) {
+        const refKey = `referral_join_${inviteeId}`;
+        const already = await tx.coinTransaction.findFirst({
+          where: { userId: inviteeId, referenceId: refKey },
+        });
+        if (!already) {
+          const u = await tx.user.update({
+            where: { id: inviteeId },
+            data: {
+              coinBalance: { increment: referee },
+              walletBalance: { increment: referee },
+            },
+          });
+          await tx.coinTransaction.create({
+            data: {
+              userId: inviteeId,
+              type: 'REFERRAL_REFEREE',
+              title: 'Referral join bonus',
+              coinAmount: BigInt(referee),
+              balanceAfter: u.walletBalance,
+              status: 'success',
+              referenceId: refKey,
+            },
+          });
+        }
+      }
+      if (referrerAmt > 0) {
+        const refBonusKey = `ref_bonus_${inviteeId}`;
+        const already = await tx.coinTransaction.findFirst({
+          where: { userId: referrerId, referenceId: refBonusKey },
+        });
+        if (!already) {
+          const u = await tx.user.update({
+            where: { id: referrerId },
+            data: {
+              coinBalance: { increment: referrerAmt },
+              walletBalance: { increment: referrerAmt },
+            },
+          });
+          await tx.coinTransaction.create({
+            data: {
+              userId: referrerId,
+              type: 'REFERRAL_REFERRER',
+              title: 'Referral invite bonus',
+              coinAmount: BigInt(referrerAmt),
+              balanceAfter: u.walletBalance,
+              status: 'success',
+              referenceId: refBonusKey,
+            },
+          });
+        }
+      }
+      return { invitee_coins: referee, referrer_coins: referrerAmt };
+    });
   }
 
   private async creditSpendable(

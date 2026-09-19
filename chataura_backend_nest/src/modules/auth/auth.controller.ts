@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, Post, Res } from '@nestjs/common';
+import { Throttle, seconds } from '@nestjs/throttler';
 import type { FastifyReply } from 'fastify';
 import { Public } from '../../common/decorators/public.decorator';
 import { SkipEmailVerified } from '../../common/decorators/skip-email-verified.decorator';
@@ -22,42 +23,49 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: seconds(60) } })
   @Post('register')
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: seconds(60) } })
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto);
   }
 
   @Public()
+  @Throttle({ default: { limit: 10, ttl: seconds(60) } })
   @Post('google')
   google(@Body() dto: GoogleLoginDto) {
     return this.auth.google(dto);
   }
 
   @Public()
+  @Throttle({ default: { limit: 15, ttl: seconds(60) } })
   @Post('refresh')
   refresh(@Body() dto: RefreshTokenDto) {
     return this.auth.refresh(dto);
   }
 
   @Public()
+  @Throttle({ default: { limit: 15, ttl: seconds(60) } })
   @Post('logout')
   logout(@Body() dto: RefreshTokenDto) {
     return this.auth.logout(dto);
   }
 
   @SkipEmailVerified()
+  @Throttle({ default: { limit: 3, ttl: seconds(60) } })
   @Post('send-email-otp')
   sendEmailOtp(@CurrentUser() user: AuthUser) {
     return this.auth.sendEmailOtp(user.id);
   }
 
   @SkipEmailVerified()
+  @Throttle({ default: { limit: 5, ttl: seconds(60) } })
   @Post('verify-email-otp')
   verifyEmailOtp(
     @CurrentUser() user: AuthUser,
@@ -67,6 +75,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 3, ttl: seconds(60) } })
   @Post('forgot-password')
   @HttpCode(200)
   async forgotPassword(
@@ -80,6 +89,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 3, ttl: seconds(60) } })
   @Post('reset-password')
   @HttpCode(200)
   async resetPassword(
@@ -92,6 +102,7 @@ export class AuthController {
     return res.status(Number(_status ?? 200)).send(body);
   }
 
+  @Throttle({ default: { limit: 3, ttl: seconds(60) } })
   @Post('change-password/request')
   async changePasswordRequest(
     @CurrentUser() user: AuthUser,
@@ -104,6 +115,7 @@ export class AuthController {
     return res.status(Number(_status ?? 200)).send(body);
   }
 
+  @Throttle({ default: { limit: 5, ttl: seconds(60) } })
   @Post('change-password/verify')
   async changePasswordVerify(
     @CurrentUser() user: AuthUser,

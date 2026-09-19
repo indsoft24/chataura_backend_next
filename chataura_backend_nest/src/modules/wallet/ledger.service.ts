@@ -138,19 +138,24 @@ export class LedgerService {
     if (amt <= 0n) throw new Error('debit amount must be positive');
     const locked = existingLock ?? (await this.lockUser(tx, userId));
     if (!locked) throw new Error('USER_NOT_FOUND');
-    if (locked.wallet_balance < amt) {
+    const after = locked.wallet_balance - amt;
+    if (locked.wallet_balance < amt || after < 0n) {
       throw Object.assign(new Error('INSUFFICIENT_BALANCE'), {
         code: 'INSUFFICIENT_BALANCE',
       });
     }
-    const after = locked.wallet_balance - amt;
-    await tx.user.update({
+    const updatedUser = await tx.user.update({
       where: { id: userId },
       data: {
         walletBalance: { decrement: amt },
         coinBalance: { decrement: amt },
       },
     });
+    if (updatedUser.walletBalance < 0n) {
+      throw Object.assign(new Error('INSUFFICIENT_BALANCE'), {
+        code: 'INSUFFICIENT_BALANCE',
+      });
+    }
     await this.writeLedger(tx, {
       userId,
       type,

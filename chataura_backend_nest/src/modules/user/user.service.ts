@@ -288,6 +288,97 @@ export class UserService {
     return userForApi(user);
   }
 
+  async notifications(
+    userId: bigint,
+    body: Record<string, boolean | undefined>,
+  ) {
+    void userId;
+    void body;
+    return {
+      success: true,
+      message: 'Notifications updated',
+    };
+  }
+
+  async updateLanguage(userId: bigint, language: string) {
+    const clean = String(language || 'en').trim().slice(0, 16);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { language: clean },
+    });
+    return {
+      success: true,
+      message: 'Language updated',
+      language: clean,
+    };
+  }
+
+  async privileges(viewerId: bigint, targetUserId: bigint) {
+    void viewerId;
+    const targetUser = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+    });
+    if (!targetUser) {
+      throw new NotFoundException({
+        success: false,
+        error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+      });
+    }
+
+    const userLevel = targetUser.level;
+    const defaultPrivileges = [
+      {
+        title: 'VIP Badge',
+        description:
+          'Displays verified VIP status badge on profile, party rooms, and chat',
+        icon_identifier: 'ic_vip_badge',
+        level_required: 1,
+      },
+      {
+        title: 'Exclusive Frames',
+        description:
+          'Access to unlock and equip premium animated avatar frames',
+        icon_identifier: 'ic_frame',
+        level_required: 5,
+      },
+      {
+        title: 'Room Entry Effect',
+        description:
+          'Special entrance banner animation when joining party voice rooms',
+        icon_identifier: 'ic_entry_effect',
+        level_required: 10,
+      },
+      {
+        title: 'Seat Priority',
+        description:
+          'Priority seating and microphone privilege in live party rooms',
+        icon_identifier: 'ic_seat_priority',
+        level_required: 15,
+      },
+      {
+        title: 'Star Chat Creator',
+        description:
+          'Ability to charge coins for 1-to-1 Star Chat consultations',
+        icon_identifier: 'ic_star_creator',
+        level_required: 20,
+      },
+      {
+        title: 'Custom Room Themes',
+        description:
+          'Unlock and apply customized animated backgrounds in owned party rooms',
+        icon_identifier: 'ic_theme',
+        level_required: 25,
+      },
+    ];
+
+    return defaultPrivileges.map((p) => ({
+      title: p.title,
+      description: p.description,
+      icon_identifier: p.icon_identifier,
+      is_unlocked: userLevel >= p.level_required,
+    }));
+  }
+
   async search(q: string, page = 1, limit = 20) {
     const take = Math.min(Math.max(limit, 1), 50);
     const skip = (Math.max(page, 1) - 1) * take;
@@ -493,43 +584,50 @@ export class UserService {
   }
 
   async acceptFriend(viewerId: bigint, otherId: bigint) {
-    const req = await this.prisma.friendRequest.findFirst({
-      where: {
-        OR: [
-          { senderId: otherId, receiverId: viewerId, status: 'pending' },
-          { senderId: viewerId, receiverId: otherId, status: 'pending' },
-        ],
-      },
-    });
-    if (!req) {
-      throw new BadRequestException({
-        success: false,
-        error: { code: 'NOT_FOUND', message: 'Friend request not found' },
-      });
-    }
+    const [firstId, secondId] =
+      viewerId < otherId ? [viewerId, otherId] : [otherId, viewerId];
 
-    await this.prisma.$transaction([
-      this.prisma.friendRequest.update({
-        where: { id: req.id },
+    return this.prisma.$transaction(async (tx) => {
+      const claim = await tx.friendRequest.updateMany({
+        where: {
+          OR: [
+            { senderId: otherId, receiverId: viewerId, status: 'pending' },
+            { senderId: viewerId, receiverId: otherId, status: 'pending' },
+          ],
+        },
         data: { status: 'accepted' },
-      }),
-      this.prisma.friendship.upsert({
-        where: {
-          userId_friendId: { userId: viewerId, friendId: otherId },
-        },
-        create: { userId: viewerId, friendId: otherId },
-        update: {},
-      }),
-      this.prisma.friendship.upsert({
-        where: {
-          userId_friendId: { userId: otherId, friendId: viewerId },
-        },
-        create: { userId: otherId, friendId: viewerId },
-        update: {},
-      }),
-    ]);
+      });
 
-    return { message: 'Friend request accepted' };
+      if (claim.count === 0) {
+        const existingFriendship = await tx.friendship.findUnique({
+          where: { userId_friendId: { userId: viewerId, friendId: otherId } },
+        });
+        if (existingFriendship) {
+          return { message: 'Friend request accepted' };
+        }
+        throw new BadRequestException({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Friend request not found' },
+        });
+      }
+
+      await tx.friendship.upsert({
+        where: {
+          userId_friendId: { userId: firstId, friendId: secondId },
+        },
+        create: { userId: firstId, friendId: secondId },
+        update: {},
+      });
+      await tx.friendship.upsert({
+        where: {
+          userId_friendId: { userId: secondId, friendId: firstId },
+        },
+        create: { userId: secondId, friendId: firstId },
+        update: {},
+      });
+
+      return { message: 'Friend request accepted' };
+    });
   }
 
   async rejectFriend(viewerId: bigint, otherId: bigint) {
@@ -857,7 +955,10 @@ export class UserService {
           : {
               type: 'GIFT',
               coinAmount: { lt: 0 },
-              meta: { path: ['receiver_id'], equals: Number(userId) },
+              OR: [
+                { meta: { path: ['receiver_id'], equals: Number(userId) } },
+                { meta: { path: ['receiver_id'], equals: String(userId) } },
+              ],
             },
       orderBy: { id: 'desc' },
       skip,

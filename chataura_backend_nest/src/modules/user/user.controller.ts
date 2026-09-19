@@ -115,6 +115,25 @@ export class UserController {
     return this.users.privacy(user.id, body);
   }
 
+  @Post('user/notifications')
+  notifications(
+    @CurrentUser() user: AuthUser,
+    @Body() body: Record<string, boolean | undefined>,
+  ) {
+    return this.users.notifications(user.id, body);
+  }
+
+  @Post('user/update-language')
+  updateLanguage(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { language?: string; lang?: string },
+  ) {
+    return this.users.updateLanguage(
+      user.id,
+      body.language ?? body.lang ?? 'en',
+    );
+  }
+
   @Get('users/search')
   search(
     @Query('q') q?: string,
@@ -234,6 +253,11 @@ export class UserController {
       Number(page ?? 1),
       Number(limit ?? 20),
     );
+  }
+
+  @Get(['users/:id/privileges', 'user/:id/privileges'])
+  privileges(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.users.privileges(user.id, BigInt(id));
   }
 
   // ---- follow / friend / block ----

@@ -7,6 +7,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { TokenService } from '../auth/token.service';
 import { ChatEvents } from './chat.events';
+import { wsThrottler } from '../../common/utils/ws-throttler';
 
 @WebSocketGateway({ namespace: '/ws/chat', cors: { origin: true } })
 export class ChatGateway implements OnGatewayConnection {
@@ -20,9 +21,17 @@ export class ChatGateway implements OnGatewayConnection {
     this.events.emitReceive = (userId, payload) => {
       this.server?.to(`user:${userId}`).emit('message:receive', payload);
     };
+    this.events.emitRead = (userId, payload) => {
+      this.server?.to(`user:${userId}`).emit('message:read', payload);
+    };
   }
 
   handleConnection(client: Socket) {
+    if (wsThrottler.isRateLimited(client)) {
+      client.emit('error', 'Too many connection attempts. Please wait.');
+      client.disconnect(true);
+      return;
+    }
     const token =
       (client.handshake.auth?.token as string) ||
       (client.handshake.query?.token as string) ||

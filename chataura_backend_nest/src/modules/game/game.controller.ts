@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Throttle, seconds } from '@nestjs/throttler';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { GameService } from './game.service';
@@ -7,11 +8,13 @@ import { GameService } from './game.service';
 export class GameController {
   constructor(private readonly games: GameService) {}
 
+  @Throttle({ default: { limit: 240, ttl: seconds(60) } })
   @Get('greedy/state')
   greedyState(@CurrentUser() user: AuthUser) {
     return this.games.greedyState(user.id);
   }
 
+  @Throttle({ default: { limit: 30, ttl: seconds(60) } })
   @Post('greedy/bet')
   greedyBet(
     @CurrentUser() user: AuthUser,
@@ -20,6 +23,7 @@ export class GameController {
     return this.games.greedyBet(user.id, body.item, Number(body.amount));
   }
 
+  @Throttle({ default: { limit: 30, ttl: seconds(60) } })
   @Post('greedy/quick-bet')
   greedyQuick(
     @CurrentUser() user: AuthUser,
@@ -32,6 +36,7 @@ export class GameController {
     );
   }
 
+  @Throttle({ default: { limit: 120, ttl: seconds(60) } })
   @Get('greedy/result')
   greedyResult(
     @CurrentUser() user: AuthUser,
@@ -50,11 +55,13 @@ export class GameController {
     return this.games.greedyLeaderboard(20);
   }
 
+  @Throttle({ default: { limit: 240, ttl: seconds(60) } })
   @Get('lucky77/state')
   luckyState(@CurrentUser() user: AuthUser) {
     return this.games.luckyState(user.id);
   }
 
+  @Throttle({ default: { limit: 30, ttl: seconds(60) } })
   @Post('lucky77/bet')
   luckyBet(
     @CurrentUser() user: AuthUser,
@@ -63,6 +70,7 @@ export class GameController {
     return this.games.luckyBet(user.id, body.option, Number(body.amount));
   }
 
+  @Throttle({ default: { limit: 120, ttl: seconds(60) } })
   @Get('lucky77/result')
   luckyResult(
     @CurrentUser() user: AuthUser,

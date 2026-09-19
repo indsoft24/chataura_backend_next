@@ -12,6 +12,8 @@ type StaffRow = {
   role?: string;
   account_status?: string;
   business?: {
+    users_brought?: number;
+    users_brought_today?: number;
     rooms_hosted_today: number;
     gift_coins_today: number;
     recharge_coins_today: number;
@@ -131,6 +133,7 @@ export default function StaffPage() {
                 <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb' }}>ID</th>
                 <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb' }}>Staff Name</th>
                 <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb' }}>Role</th>
+                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'right' }}>Users Brought</th>
                 <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'right' }}>Rooms Hosted (Today)</th>
                 <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'right' }}>Gift Volume (Today)</th>
                 <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'right' }}>Actions</th>
@@ -138,9 +141,9 @@ export default function StaffPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#6b7280' }}>Loading staff...</td></tr>
+                <tr><td colSpan={7} style={{ padding: '24px', textAlign: 'center', color: '#6b7280' }}>Loading staff...</td></tr>
               ) : staff.length === 0 ? (
-                <tr><td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#6b7280' }}>No administrative or seller staff found.</td></tr>
+                <tr><td colSpan={7} style={{ padding: '24px', textAlign: 'center', color: '#6b7280' }}>No administrative or seller staff found.</td></tr>
               ) : (
                 staff.map((s) => (
                   <tr key={s.id}>
@@ -161,6 +164,9 @@ export default function StaffPage() {
                       }}>
                         {s.role === 'admin' ? 'Administrator' : 'Coin Seller'}
                       </span>
+                    </td>
+                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'right', fontWeight: 600, color: '#2563eb' }}>
+                      👥 {s.business?.users_brought ?? 0}
                     </td>
                     <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'right', fontWeight: 600, color: '#4b5563' }}>
                       {s.business?.rooms_hosted_today ?? 0}

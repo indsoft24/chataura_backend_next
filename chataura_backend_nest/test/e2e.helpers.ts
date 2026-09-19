@@ -92,9 +92,11 @@ export async function registerVerified(
 ): Promise<AuthedUser> {
   const email = opts?.email ?? uniqueGmail();
   const password = opts?.password ?? 'secret12';
+  const clientIp = `10.77.${Math.floor(seq / 250)}.${(seq % 250) + 1}`;
   const register = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/register',
+    headers: { 'x-forwarded-for': clientIp },
     payload: {
       email,
       password,
@@ -114,7 +116,7 @@ export async function registerVerified(
   const otpRes = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/send-email-otp',
-    headers: authHeader(token),
+    headers: { ...authHeader(token), 'x-forwarded-for': clientIp },
     payload: {},
   });
   const otpBody = parse<{ dev_otp?: string }>(otpRes.payload);
@@ -125,7 +127,7 @@ export async function registerVerified(
   await app.inject({
     method: 'POST',
     url: '/api/v1/auth/verify-email-otp',
-    headers: authHeader(token),
+    headers: { ...authHeader(token), 'x-forwarded-for': clientIp },
     payload: { otp },
   });
   return {

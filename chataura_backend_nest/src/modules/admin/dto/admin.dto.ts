@@ -81,6 +81,18 @@ export class CreateGiftDto {
   @IsOptional()
   @IsString()
   imageUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  animation_url?: string;
+
+  @IsOptional()
+  @IsString()
+  animationUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  video_url?: string;
 }
 
 export class UpdateGiftDto {
@@ -105,6 +117,18 @@ export class UpdateGiftDto {
   @IsOptional()
   @IsString()
   imageUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  animation_url?: string;
+
+  @IsOptional()
+  @IsString()
+  animationUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  video_url?: string;
 
   @IsOptional()
   @IsBoolean()

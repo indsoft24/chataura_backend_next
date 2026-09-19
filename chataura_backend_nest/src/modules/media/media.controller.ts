@@ -9,6 +9,7 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
+import { Throttle, seconds } from '@nestjs/throttler';
 import type { FastifyRequest } from 'fastify';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
@@ -77,6 +78,21 @@ export class MediaController {
     );
   }
 
+  @Get(['users/:id/media', 'user/:id/media'])
+  userMedia(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.media.userMedia(
+      user.id,
+      BigInt(id),
+      Number(page ?? 1),
+      Number(limit ?? 20),
+    );
+  }
+
   @Get('posts/:id')
   post(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.media.show(user.id, BigInt(id));
@@ -87,6 +103,7 @@ export class MediaController {
     return this.media.show(user.id, BigInt(id));
   }
 
+  @Throttle({ default: { limit: 10, ttl: seconds(60) } })
   @Post('posts/upload')
   async uploadPost(
     @CurrentUser() user: AuthUser,
@@ -102,6 +119,7 @@ export class MediaController {
     return this.media.create(user.id, 'post', { ...body, file_url: fileUrl });
   }
 
+  @Throttle({ default: { limit: 10, ttl: seconds(60) } })
   @Post('reels/upload')
   async uploadReel(
     @CurrentUser() user: AuthUser,
@@ -125,6 +143,7 @@ export class MediaController {
     });
   }
 
+  @Throttle({ default: { limit: 10, ttl: seconds(60) } })
   @Post('upload')
   async upload(
     @Req() req: FastifyRequest,
@@ -136,6 +155,7 @@ export class MediaController {
     return this.media.signedUpload(body.filename, body.content_type);
   }
 
+  @Throttle({ default: { limit: 15, ttl: seconds(60) } })
   @Post('upload/signed-url')
   signed(@Body() body: { filename?: string; content_type?: string }) {
     return this.media.signedUpload(body.filename, body.content_type);

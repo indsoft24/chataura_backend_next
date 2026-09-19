@@ -7,8 +7,14 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
+import { createWriteStream, existsSync, mkdirSync } from 'fs';
+import { resolve } from 'path';
+import { pipeline } from 'stream/promises';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { FcmService } from '../../common/fcm/fcm.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { ChatEvents } from './chat.events';
 
@@ -21,6 +27,8 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
     private readonly events: ChatEvents,
+    private readonly config: ConfigService,
+    private readonly fcm: FcmService,
   ) {}
 
   onModuleInit() {
@@ -121,43 +129,49 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
         error: { code: 'INVALID', message: 'Cannot chat with yourself' },
       });
     }
-    const mine = await this.prisma.conversationParticipant.findMany({
-      where: { userId },
-      include: { conversation: { include: { participants: true } } },
-    });
-    const existing = mine.find(
-      (p) =>
-        p.conversation.type === 'private' &&
-        p.conversation.participants.some((x) => x.userId === otherId) &&
-        p.conversation.participants.length === 2,
-    );
-    if (existing) {
-      const other = await this.prisma.user.findUniqueOrThrow({
+    const [minId, maxId] =
+      userId < otherId ? [userId, otherId] : [otherId, userId];
+    const lockKey = `chat_convo_${minId}_${maxId}`;
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+      const mine = await tx.conversationParticipant.findMany({
+        where: { userId },
+        include: { conversation: { include: { participants: true } } },
+      });
+      const existing = mine.find(
+        (p) =>
+          p.conversation.type === 'private' &&
+          p.conversation.participants.some((x) => x.userId === otherId) &&
+          p.conversation.participants.length === 2,
+      );
+      if (existing) {
+        const other = await tx.user.findUniqueOrThrow({
+          where: { id: otherId },
+        });
+        return {
+          conversation_id: Number(existing.conversationId),
+          name: other.displayName ?? other.name,
+          image_url: other.avatarUrl,
+        };
+      }
+      const other = await tx.user.findUniqueOrThrow({
         where: { id: otherId },
       });
+      const convo = await tx.conversation.create({
+        data: {
+          type: 'private',
+          name: other.displayName ?? other.name,
+          participants: {
+            create: [{ userId }, { userId: otherId }],
+          },
+        },
+      });
       return {
-        conversation_id: Number(existing.conversationId),
+        conversation_id: Number(convo.id),
         name: other.displayName ?? other.name,
         image_url: other.avatarUrl,
       };
-    }
-    const other = await this.prisma.user.findUniqueOrThrow({
-      where: { id: otherId },
     });
-    const convo = await this.prisma.conversation.create({
-      data: {
-        type: 'private',
-        name: other.displayName ?? other.name,
-        participants: {
-          create: [{ userId }, { userId: otherId }],
-        },
-      },
-    });
-    return {
-      conversation_id: Number(convo.id),
-      name: other.displayName ?? other.name,
-      image_url: other.avatarUrl,
-    };
   }
 
   async markRead(userId: bigint, conversationId: bigint) {
@@ -168,6 +182,26 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       },
       data: { lastReadAt: new Date() },
     });
+    await this.prisma.message.updateMany({
+      where: {
+        conversationId,
+        senderId: { not: userId },
+        status: { not: 'read' },
+      },
+      data: { status: 'read' },
+    });
+    const participants = await this.prisma.conversationParticipant.findMany({
+      where: { conversationId, userId: { not: userId } },
+      select: { userId: true },
+    });
+    const readPayload = {
+      conversation_id: Number(conversationId),
+      read_by_user_id: Number(userId),
+      read_at: new Date().toISOString(),
+    };
+    for (const p of participants) {
+      this.events.emitRead(p.userId.toString(), readPayload);
+    }
     return { ok: true };
   }
 
@@ -261,8 +295,76 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     });
     for (const o of others) {
       this.events.emitReceive(o.userId.toString(), payload);
+      void this.fcm
+        .sendDirectChatMessageNotification({
+          recipientUserId: o.userId,
+          conversationId: Number(conversationId),
+          senderId: Number(userId),
+          senderName: sender.displayName ?? sender.name ?? 'User',
+          messageText: text ?? '',
+          messageType: type,
+        })
+        .catch(() => {});
     }
     return payload;
+  }
+
+  async listFriends(userId: bigint) {
+    const blocks = await this.prisma.blockedUser.findMany({
+      where: {
+        OR: [{ blockerId: userId }, { blockedId: userId }],
+      },
+    });
+    const blockedIds = new Set<bigint>();
+    for (const b of blocks) {
+      blockedIds.add(b.blockerId === userId ? b.blockedId : b.blockerId);
+    }
+
+    const friendships = await this.prisma.friendship.findMany({
+      where: {
+        userId,
+        friendId: { notIn: Array.from(blockedIds) },
+      },
+      include: {
+        friend: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const directParts = await this.prisma.conversationParticipant.findMany({
+      where: {
+        userId,
+        conversation: { type: 'direct' },
+      },
+      include: {
+        conversation: {
+          include: {
+            participants: true,
+          },
+        },
+      },
+    });
+
+    const convMap = new Map<string, number>();
+    for (const dp of directParts) {
+      const other = dp.conversation.participants.find((p) => p.userId !== userId);
+      if (other) {
+        convMap.set(other.userId.toString(), Number(dp.conversationId));
+      }
+    }
+
+    return friendships.map((f) => ({
+      id: Number(f.friend.id),
+      name: f.friend.displayName ?? f.friend.name ?? 'User',
+      avatar_url: f.friend.avatarUrl,
+      is_online: Boolean(f.friend.isOnline),
+      last_seen_at: f.friend.lastSeenAt ? f.friend.lastSeenAt.toISOString() : null,
+      conversation_id: convMap.get(f.friend.id.toString()) ?? null,
+      selected_frame_id: f.friend.selectedFrameId
+        ? Number(f.friend.selectedFrameId)
+        : null,
+      is_owner: false,
+    }));
   }
 
   async listGroups(userId: bigint) {
@@ -281,6 +383,22 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       conversation_id: Number(p.conversationId),
       owner_id: Number(p.conversation.participants[0]?.userId ?? userId),
     }));
+  }
+
+  async getGroup(userId: bigint, groupId: bigint) {
+    await this.requireParticipant(userId, groupId);
+    const convo = await this.prisma.conversation.findUniqueOrThrow({
+      where: { id: groupId },
+      include: { participants: true },
+    });
+    return {
+      id: Number(convo.id),
+      name: convo.name ?? 'Group',
+      image_url: convo.imageUrl,
+      member_count: convo.participants.length,
+      conversation_id: Number(convo.id),
+      owner_id: Number(convo.participants[0]?.userId ?? userId),
+    };
   }
 
   async createGroup(
@@ -411,9 +529,96 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  uploadImageStub() {
+  async uploadImage(req: any) {
+    if (!req || typeof req.file !== 'function') {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'FILE_REQUIRED',
+          message: 'Multipart image file is required',
+        },
+      });
+    }
+    const part = await req.file();
+    if (!part) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'FILE_REQUIRED', message: 'No file uploaded' },
+      });
+    }
+    const mime = (part.mimetype || '').toLowerCase();
+    const allowed = [
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'image/gif',
+      'image/jpg',
+    ];
+    if (!mime.startsWith('image/') && !allowed.includes(mime)) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'INVALID_MIME', message: 'Only image files are allowed' },
+      });
+    }
+
+    const dir = resolve(process.cwd(), 'uploads', 'chat');
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+    const ext = part.filename?.split('.').pop() || 'jpg';
+    const cleanExt = ext.replace(/[^a-zA-Z0-9]/g, '');
+    const filename = `chat_${Date.now()}_${randomUUID()}.${cleanExt || 'jpg'}`;
+    const dest = resolve(dir, filename);
+    if (!dest.startsWith(dir)) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'INVALID_FILENAME', message: 'Path traversal detected' },
+      });
+    }
+
+    await pipeline(part.file, createWriteStream(dest));
+    const publicBase = this.config
+      .get<string>('PUBLIC_BASE_URL', 'http://localhost:3000')
+      .replace(/\/+$/, '');
+
     return {
-      url: `https://cdn.chataura.local/chat/${Date.now()}.jpg`,
+      url: `${publicBase}/uploads/chat/${filename}`,
+    };
+  }
+
+  async markReadBulk(
+    userId: bigint,
+    body: { conversation_ids?: Array<number | string> },
+  ) {
+    const rawIds = body?.conversation_ids ?? [];
+    const validIds = rawIds
+      .map((id) => {
+        try {
+          return BigInt(id);
+        } catch {
+          return null;
+        }
+      })
+      .filter((id): id is bigint => id !== null && id > 0n);
+
+    if (validIds.length === 0) {
+      return { success: true, updated_count: 0 };
+    }
+
+    const now = new Date();
+    const result = await this.prisma.conversationParticipant.updateMany({
+      where: {
+        userId,
+        conversationId: { in: validIds },
+      },
+      data: {
+        lastReadAt: now,
+      },
+    });
+
+    return {
+      success: true,
+      updated_count: result.count,
+      last_read_at: now.toISOString(),
     };
   }
 
@@ -512,20 +717,24 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
         },
       });
     }
-    const existing = await this.prisma.starChatSession.findFirst({
-      where: { conversationId, status: 'active' },
-    });
-    if (existing) return this.serializeSession(existing);
     const settings = await this.settings();
-    const session = await this.prisma.starChatSession.create({
-      data: {
-        conversationId,
-        payerId: userId,
-        starUserId: BigInt(preview.star_user_id),
-        pricePerMin: settings.starChatPricePerMin,
-        commissionPercent: settings.starChatCommissionPct,
-        payerHeartbeatAt: new Date(),
-      },
+    const lockKey = `star_chat_start_${conversationId}`;
+    const session = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+      const existing = await tx.starChatSession.findFirst({
+        where: { conversationId, status: 'active' },
+      });
+      if (existing) return existing;
+      return tx.starChatSession.create({
+        data: {
+          conversationId,
+          payerId: userId,
+          starUserId: BigInt(preview.star_user_id!),
+          pricePerMin: settings.starChatPricePerMin,
+          commissionPercent: settings.starChatCommissionPct,
+          payerHeartbeatAt: new Date(),
+        },
+      });
     });
     return this.serializeSession(session);
   }

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { userForApi } from '../user/user.serializer';
 
@@ -493,7 +493,7 @@ export class AdminService {
     const today = this.startOfDay();
     const items = await Promise.all(
       rows.map(async (u) => {
-        const [roomsHosted, giftsSent, recharges] = await Promise.all([
+        const [roomsHosted, giftsSent, recharges, usersBrought, usersBroughtToday] = await Promise.all([
           this.prisma.room.count({
             where: { hostId: u.id, createdAt: { gte: today } },
           }),
@@ -513,10 +513,18 @@ export class AdminService {
             },
             _sum: { coinsCredited: true },
           }),
+          this.prisma.user.count({
+            where: { invitedBy: u.id, deletedAt: null },
+          }),
+          this.prisma.user.count({
+            where: { invitedBy: u.id, createdAt: { gte: today }, deletedAt: null },
+          }),
         ]);
         return {
           ...userForApi(u),
           business: {
+            users_brought: usersBrought,
+            users_brought_today: usersBroughtToday,
             rooms_hosted_today: roomsHosted,
             gift_coins_today: Math.abs(Number(giftsSent._sum.coinAmount ?? 0n)),
             recharge_coins_today: recharges._sum.coinsCredited ?? 0,
@@ -550,19 +558,37 @@ export class AdminService {
   }
 
   async approveWithdrawal(id: bigint) {
-    const w = await this.prisma.withdrawalRequest.update({
-      where: { id },
+    const claim = await this.prisma.withdrawalRequest.updateMany({
+      where: { id, status: 'pending' },
       data: { status: 'approved' },
     });
-    return { id: Number(w.id), status: w.status };
+    if (claim.count === 0) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'WITHDRAWAL_NOT_PENDING',
+          message: 'Withdrawal is not pending or already processed',
+        },
+      });
+    }
+    return { id: Number(id), status: 'approved' };
   }
 
   async rejectWithdrawal(id: bigint, reason?: string) {
-    const w = await this.prisma.withdrawalRequest.update({
-      where: { id },
+    const claim = await this.prisma.withdrawalRequest.updateMany({
+      where: { id, status: 'pending' },
       data: { status: 'rejected', note: reason ?? 'Rejected by admin' },
     });
-    return { id: Number(w.id), status: w.status };
+    if (claim.count === 0) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'WITHDRAWAL_NOT_PENDING',
+          message: 'Withdrawal is not pending or already processed',
+        },
+      });
+    }
+    return { id: Number(id), status: 'rejected' };
   }
 
   // ──────────────────────────────────────────────
@@ -999,7 +1025,7 @@ export class AdminService {
 
   async adminPosts(page = 1, limit = 20, q = '') {
     const skip = (page - 1) * limit;
-    const where: any = { kind: 'post' };
+    const where: any = { kind: 'post', isDeleted: false };
     if (q) {
       where.OR = [
         { caption: { contains: q, mode: 'insensitive' } },
@@ -1028,6 +1054,7 @@ export class AdminService {
         thumbnail_url: p.thumbnailUrl ?? p.fileUrl,
         likes_count: p._count.likes,
         comments_count: p._count.comments,
+        is_deleted: p.isDeleted,
         created_at: p.createdAt.toISOString(),
         user: {
           id: Number(p.user.id),
@@ -1040,13 +1067,81 @@ export class AdminService {
   }
 
   async deleteMediaPost(id: bigint) {
-    await this.prisma.mediaItem.delete({ where: { id } });
-    return { message: 'Post deleted' };
+    await this.prisma.mediaItem.update({
+      where: { id },
+      data: { isDeleted: true },
+    });
+    return { message: 'Post deactivated' };
+  }
+
+  async createAdminMediaPost(
+    kind: 'post' | 'reel',
+    body: {
+      user_id?: number | string;
+      username?: string;
+      email?: string;
+      file_url: string;
+      caption?: string;
+      thumbnail_url?: string;
+    },
+  ) {
+    let targetUser = null;
+    if (body.user_id) {
+      targetUser = await this.prisma.user.findUnique({
+        where: { id: BigInt(body.user_id) },
+      });
+    } else if (body.email) {
+      targetUser = await this.prisma.user.findUnique({
+        where: { email: body.email.trim().toLowerCase() },
+      });
+    } else if (body.username) {
+      targetUser = await this.prisma.user.findFirst({
+        where: {
+          OR: [
+            { name: { equals: body.username.trim(), mode: 'insensitive' } },
+            { displayName: { equals: body.username.trim(), mode: 'insensitive' } },
+          ],
+        },
+      });
+    }
+    if (!targetUser) {
+      throw new NotFoundException({
+        success: false,
+        error: { code: 'USER_NOT_FOUND', message: 'Target user not found' },
+      });
+    }
+
+    const row = await this.prisma.mediaItem.create({
+      data: {
+        userId: targetUser.id,
+        kind,
+        mediaType: kind === 'reel' ? 'video' : 'image',
+        fileUrl: body.file_url,
+        thumbnailUrl: body.thumbnail_url ?? null,
+        caption: body.caption ?? null,
+        isDeleted: false,
+      },
+      include: {
+        user: { select: { id: true, name: true, displayName: true, avatarUrl: true } },
+      },
+    });
+
+    return {
+      id: Number(row.id),
+      kind: row.kind,
+      file_url: row.fileUrl,
+      caption: row.caption,
+      user: {
+        id: Number(row.user.id),
+        name: row.user.displayName ?? row.user.name,
+        avatar_url: row.user.avatarUrl,
+      },
+    };
   }
 
   async adminReels(page = 1, limit = 20, q = '') {
     const skip = (page - 1) * limit;
-    const where: any = { kind: 'reel' };
+    const where: any = { kind: 'reel', isDeleted: false };
     if (q) {
       where.OR = [
         { caption: { contains: q, mode: 'insensitive' } },

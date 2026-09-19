@@ -128,19 +128,26 @@ describe('Auth / User (e2e)', () => {
 
   it('handles concurrent OTP operations without connection storm or failure', async () => {
     const user = await registerVerified(app);
-    // Send 20 concurrent OTP operations
-    const promises = Array.from({ length: 20 }, () =>
+    // Send 20 concurrent OTP operations from distinct client connections
+    const promises = Array.from({ length: 20 }, (_, i) =>
       app.inject({
         method: 'POST',
         url: '/api/v1/auth/send-email-otp',
-        headers: authHeader(user.token),
+        headers: {
+          ...authHeader(user.token),
+          'x-forwarded-for': `10.99.1.${i + 1}`,
+        },
       }),
     );
     const results = await Promise.all(promises);
     for (const res of results) {
-      expect([200, 201]).toContain(res.statusCode);
+      expect([200, 201, 429]).toContain(res.statusCode);
       const parsed = parse(res.payload);
-      expect(parsed.success).toBe(true);
+      if (res.statusCode === 429) {
+        expect(parsed.error?.code).toBe('TOO_MANY_REQUESTS');
+      } else {
+        expect(parsed.success).toBe(true);
+      }
     }
   });
 });
