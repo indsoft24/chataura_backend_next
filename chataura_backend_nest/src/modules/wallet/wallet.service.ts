@@ -839,16 +839,32 @@ export class WalletService {
   }
 
   async listGifts() {
-    const gifts = await this.prisma.gift.findMany({
+    let gifts = await this.prisma.gift.findMany({
       where: { isActive: true },
       orderBy: { id: 'asc' },
     });
-    return gifts.map((g) => ({
-      id: Number(g.id),
-      name: g.name,
-      coin_cost: g.coinCost,
-      image_url: g.imageUrl,
-    }));
+    if (gifts.length === 0) {
+      await this.prisma.gift.createMany({
+        data: [
+          { name: 'Rose', coinCost: 10, imageUrl: 'https://media.giphy.com/media/w78ifyfLK7q8308f0k/200w.gif' },
+          { name: 'Heart', coinCost: 50, imageUrl: 'https://media.giphy.com/media/l4FGzFhVty9Q0cyxq/200w.gif' },
+          { name: 'Diamond', coinCost: 100, imageUrl: 'https://media.giphy.com/media/FiR4O9bYEPkBi/200w.gif' },
+          { name: 'Crown', coinCost: 500, imageUrl: 'https://media.giphy.com/media/26FPLMDDN5fJCir0A/200w.gif' },
+        ],
+      });
+      gifts = await this.prisma.gift.findMany({
+        where: { isActive: true },
+        orderBy: { id: 'asc' },
+      });
+    }
+    return {
+      gifts: gifts.map((g) => ({
+        id: Number(g.id),
+        name: g.name,
+        coin_cost: g.coinCost,
+        image_url: g.imageUrl,
+      })),
+    };
   }
 
   async canCall(userId: bigint, receiverId: bigint, callType: string) {

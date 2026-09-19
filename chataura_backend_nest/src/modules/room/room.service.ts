@@ -775,24 +775,61 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   }
 
   async stickers(userId?: bigint | null) {
-    const rows = await this.prisma.sticker.findMany({
+    let rows = await this.prisma.sticker.findMany({
       where: { isActive: true },
       orderBy: { id: 'asc' },
     });
+    if (rows.length === 0) {
+      await this.prisma.sticker.createMany({
+        data: [
+          { name: 'Wave', coinCost: 0, imageUrl: 'https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/200w.gif' },
+          { name: 'Heart', coinCost: 0, imageUrl: 'https://media.giphy.com/media/l4FGzFhVty9Q0cyxq/200w.gif' },
+          { name: 'Fire', coinCost: 50, imageUrl: 'https://media.giphy.com/media/3o72F8t9TDi2xVnxOE/200w.gif' },
+          { name: 'Clap', coinCost: 0, imageUrl: 'https://media.giphy.com/media/artj92V8o75VPL7AeQ/200w.gif' },
+          { name: 'Crown', coinCost: 100, imageUrl: 'https://media.giphy.com/media/26FPLMDDN5fJCir0A/200w.gif' },
+          { name: 'Cool', coinCost: 20, imageUrl: 'https://media.giphy.com/media/d31w24psGYeekCZy/200w.gif' },
+          { name: 'Party', coinCost: 30, imageUrl: 'https://media.giphy.com/media/artj92V8o75VPL7AeQ/200w.gif' },
+          { name: 'Kiss', coinCost: 50, imageUrl: 'https://media.giphy.com/media/Eiaj048pggjySP0sQz/200w.gif' },
+        ],
+      });
+      rows = await this.prisma.sticker.findMany({
+        where: { isActive: true },
+        orderBy: { id: 'asc' },
+      });
+    }
     const owned = userId
       ? await this.prisma.userUnlockedSticker.findMany({
           where: { userId },
         })
       : [];
     const ownedIds = new Set(owned.map((o) => o.stickerId.toString()));
-    return rows.map((s) => ({
-      id: Number(s.id),
-      name: s.name,
-      coin_cost: s.coinCost,
-      image_url: s.imageUrl,
-      animation_url: s.animationUrl,
-      owned: s.coinCost === 0 || ownedIds.has(s.id.toString()),
-    }));
+
+    const defaultStickerUrls: Record<string, string> = {
+      wave: 'https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/200w.gif',
+      heart: 'https://media.giphy.com/media/l4FGzFhVty9Q0cyxq/200w.gif',
+      fire: 'https://media.giphy.com/media/3o72F8t9TDi2xVnxOE/200w.gif',
+      clap: 'https://media.giphy.com/media/artj92V8o75VPL7AeQ/200w.gif',
+      crown: 'https://media.giphy.com/media/26FPLMDDN5fJCir0A/200w.gif',
+      cool: 'https://media.giphy.com/media/d31w24psGYeekCZy/200w.gif',
+      party: 'https://media.giphy.com/media/artj92V8o75VPL7AeQ/200w.gif',
+      kiss: 'https://media.giphy.com/media/Eiaj048pggjySP0sQz/200w.gif',
+    };
+
+    return {
+      stickers: rows.map((s) => {
+        const key = s.name.toLowerCase().trim();
+        const fallback = defaultStickerUrls[key] ?? 'https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/200w.gif';
+        const img = s.imageUrl || fallback;
+        return {
+          id: Number(s.id),
+          name: s.name,
+          coin_cost: s.coinCost,
+          image_url: img,
+          animation_url: s.animationUrl || img,
+          owned: s.coinCost === 0 || ownedIds.has(s.id.toString()),
+        };
+      }),
+    };
   }
 
   async purchaseSticker(userId: bigint, stickerId: bigint) {

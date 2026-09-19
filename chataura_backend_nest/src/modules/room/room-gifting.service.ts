@@ -17,18 +17,56 @@ export class RoomGiftingService {
   ) {}
 
   async giftTypes() {
-    const gifts = await this.prisma.gift.findMany({
+    let gifts = await this.prisma.gift.findMany({
       where: { isActive: true },
       orderBy: { id: 'asc' },
     });
-    return gifts.map((g) => ({
-      id: Number(g.id),
-      name: g.name,
-      coin_cost: g.coinCost,
-      coin_price: g.coinCost,
-      image_url: g.imageUrl,
-      animation_url: g.animationUrl,
-    }));
+
+    if (gifts.length === 0) {
+      await this.prisma.gift.createMany({
+        data: [
+          { name: 'Rose', coinCost: 10, imageUrl: 'https://media.giphy.com/media/w78ifyfLK7q8308f0k/200w.gif' },
+          { name: 'Heart', coinCost: 50, imageUrl: 'https://media.giphy.com/media/l4FGzFhVty9Q0cyxq/200w.gif' },
+          { name: 'Diamond', coinCost: 100, imageUrl: 'https://media.giphy.com/media/FiR4O9bYEPkBi/200w.gif' },
+          { name: 'Crown', coinCost: 500, imageUrl: 'https://media.giphy.com/media/26FPLMDDN5fJCir0A/200w.gif' },
+          { name: 'Rocket', coinCost: 1000, imageUrl: 'https://media.giphy.com/media/mi6DsSSNKDbUY/200w.gif' },
+          { name: 'Luxury Car', coinCost: 2000, imageUrl: 'https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/200w.gif' },
+          { name: 'Castle', coinCost: 5000, imageUrl: 'https://media.giphy.com/media/artj92V8o75VPL7AeQ/200w.gif' },
+          { name: 'Superstar', coinCost: 10000, imageUrl: 'https://media.giphy.com/media/26tPplGWjN0xLybiU/200w.gif' },
+        ],
+      });
+      gifts = await this.prisma.gift.findMany({
+        where: { isActive: true },
+        orderBy: { id: 'asc' },
+      });
+    }
+
+    const defaultGiftUrls: Record<string, string> = {
+      rose: 'https://media.giphy.com/media/w78ifyfLK7q8308f0k/200w.gif',
+      heart: 'https://media.giphy.com/media/l4FGzFhVty9Q0cyxq/200w.gif',
+      diamond: 'https://media.giphy.com/media/FiR4O9bYEPkBi/200w.gif',
+      crown: 'https://media.giphy.com/media/26FPLMDDN5fJCir0A/200w.gif',
+      rocket: 'https://media.giphy.com/media/mi6DsSSNKDbUY/200w.gif',
+      'luxury car': 'https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/200w.gif',
+      castle: 'https://media.giphy.com/media/artj92V8o75VPL7AeQ/200w.gif',
+      superstar: 'https://media.giphy.com/media/26tPplGWjN0xLybiU/200w.gif',
+    };
+
+    return {
+      gifts: gifts.map((g) => {
+        const key = g.name.toLowerCase().trim();
+        const fallback = defaultGiftUrls[key] ?? 'https://media.giphy.com/media/w78ifyfLK7q8308f0k/200w.gif';
+        const img = g.imageUrl || fallback;
+        return {
+          id: Number(g.id),
+          name: g.name,
+          coin_cost: g.coinCost,
+          coin_price: g.coinCost,
+          image_url: img,
+          animation_url: g.animationUrl || img,
+        };
+      }),
+    };
   }
 
   async sendRoomGift(

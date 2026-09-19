@@ -479,7 +479,7 @@ describe('Production Concurrency & Thread-Safety (e2e)', () => {
       expect(ledger.length).toBe(1);
 
       const u = await prisma.user.findUniqueOrThrow({ where: { id: BigInt(user.id) } });
-      expect(Number(u.walletBalance)).toBe(500 + 50 - frame.coinCost);
+      expect(Number(u.walletBalance)).toBe(500 + 50 - Number(frame.coinCost ?? 0));
     });
   });
 });

@@ -155,36 +155,113 @@ export class GamificationService {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
     });
-    const all = await this.prisma.frame.findMany({
+    let all = await this.prisma.frame.findMany({
       where: { isActive: true },
       orderBy: [{ levelRequired: 'asc' }, { id: 'asc' }],
     });
+
+    if (all.length === 0) {
+      const defaultFrames = [
+        { name: 'Cosmic Wings', slug: 'cosmic_galaxy_wings_cutout', coinCost: 1500, levelRequired: 1, category: 'avatar' },
+        { name: 'Royal Gold Crest', slug: 'royal_gold_crest_gemini_cutout', coinCost: 1200, levelRequired: 2, category: 'avatar' },
+        { name: 'Flame Phoenix', slug: 'flame_phoenix_wreath_cutout', coinCost: 1500, levelRequired: 3, category: 'avatar' },
+        { name: 'Golden Twin Dragons', slug: 'golden_twin_dragons_cutout', coinCost: 2000, levelRequired: 4, category: 'avatar' },
+        { name: 'Mythic Griffin', slug: 'mythic_griffin_purple_cutout', coinCost: 1500, levelRequired: 5, category: 'avatar' },
+        { name: 'Sapphire Ice Wings', slug: 'sapphire_ice_wings_cutout', coinCost: 1000, levelRequired: 6, category: 'avatar' },
+        { name: 'Dragon Slayer', slug: 'dragon_slayer_crest_cutout', coinCost: 1000, levelRequired: 7, category: 'avatar' },
+        { name: 'Holy Angel Wings', slug: 'angel_wings_holy_cutout', coinCost: 1200, levelRequired: 8, category: 'avatar' },
+        { name: 'Fire Dragon', slug: 'fire_dragon_ouroboros_cutout', coinCost: 1000, levelRequired: 9, category: 'avatar' },
+        { name: 'Glacial Dragon', slug: 'ice_glacial_dragon_cutout', coinCost: 1000, levelRequired: 10, category: 'avatar' },
+        { name: 'Emerald Jade Dragon', slug: 'emerald_jade_dragon_cutout', coinCost: 1000, levelRequired: 11, category: 'avatar' },
+        { name: 'Demon Knight', slug: 'skull_demon_knight_cutout', coinCost: 900, levelRequired: 12, category: 'avatar' },
+        { name: 'Peacock Cobra', slug: 'peacock_cobra_crest_cutout', coinCost: 1200, levelRequired: 13, category: 'avatar' },
+        { name: 'Peacock CEO', slug: 'peacock_ceo_text_cutout', coinCost: 1500, levelRequired: 14, category: 'avatar' },
+        { name: 'Amethyst Crown', slug: 'violet_amethyst_crown_cutout', coinCost: 600, levelRequired: 15, category: 'avatar' },
+        { name: 'Royal Laurel', slug: 'emerald_royal_laurel_cutout', coinCost: 600, levelRequired: 16, category: 'avatar' },
+        { name: 'Celestial Saturn', slug: 'celestial_saturn_ring_cutout', coinCost: 750, levelRequired: 17, category: 'avatar' },
+        { name: 'Neon Devil', slug: 'neon_devil_horns_tail_cutout', coinCost: 700, levelRequired: 18, category: 'avatar' },
+        { name: 'Gold Mic', slug: 'host_gold_mic_cutout', coinCost: 800, levelRequired: 19, category: 'avatar' },
+        { name: 'Kawaii Cat Paw', slug: 'kawaii_cat_paw_cutout', coinCost: 400, levelRequired: 20, category: 'avatar' },
+        { name: 'RGB Headset', slug: 'gamer_rgb_headset_cutout', coinCost: 500, levelRequired: 21, category: 'avatar' },
+        { name: 'Sakura Blossom', slug: 'pink_sakura_blossom_cutout', coinCost: 450, levelRequired: 22, category: 'avatar' },
+      ];
+      await this.prisma.frame.createMany({
+        data: defaultFrames.map((f) => ({
+          name: f.name,
+          slug: f.slug,
+          coinCost: f.coinCost,
+          levelRequired: f.levelRequired,
+          category: f.category,
+          animationKey: f.slug,
+          imageUrl: f.slug,
+        })),
+        skipDuplicates: true,
+      });
+      all = await this.prisma.frame.findMany({
+        where: { isActive: true },
+        orderBy: [{ levelRequired: 'asc' }, { id: 'asc' }],
+      });
+    }
+
     const unlocked = await this.prisma.userUnlockedFrame.findMany({
       where: { userId },
     });
     const unlockedIds = new Set(unlocked.map((u) => u.frameId.toString()));
 
-    const mapFrame = (f: (typeof all)[0]) => ({
-      id: Number(f.id),
-      name: f.name,
-      slug: f.slug,
-      category: f.category,
-      level_required: f.levelRequired,
-      coin_cost: f.coinCost,
-      price_coins: f.coinCost,
-      is_premium: f.isPremium,
-      image_url: f.imageUrl,
-      animation_key: f.animationKey,
-      unlocked:
-        unlockedIds.has(f.id.toString()) || f.levelRequired <= user.level,
-      is_selected: user.selectedFrameId === f.id,
-    });
+    const masterAssets = [
+      'cosmic_galaxy_wings_cutout',
+      'royal_gold_crest_gemini_cutout',
+      'flame_phoenix_wreath_cutout',
+      'golden_twin_dragons_cutout',
+      'mythic_griffin_purple_cutout',
+      'sapphire_ice_wings_cutout',
+      'dragon_slayer_crest_cutout',
+      'angel_wings_holy_cutout',
+      'fire_dragon_ouroboros_cutout',
+      'ice_glacial_dragon_cutout',
+      'emerald_jade_dragon_cutout',
+      'skull_demon_knight_cutout',
+      'peacock_cobra_crest_cutout',
+      'peacock_ceo_text_cutout',
+      'violet_amethyst_crown_cutout',
+      'emerald_royal_laurel_cutout',
+      'celestial_saturn_ring_cutout',
+      'neon_devil_horns_tail_cutout',
+      'host_gold_mic_cutout',
+      'kawaii_cat_paw_cutout',
+      'gamer_rgb_headset_cutout',
+      'pink_sakura_blossom_cutout',
+    ];
+
+    const mapFrame = (f: (typeof all)[0], idx: number) => {
+      const fallbackAsset = masterAssets[idx % masterAssets.length];
+      const assetKey = f.animationKey || f.slug || fallbackAsset;
+      const displayUrl = f.imageUrl || assetKey;
+      return {
+        id: Number(f.id),
+        name: f.name,
+        slug: f.slug || assetKey,
+        category: f.category,
+        level_required: f.levelRequired,
+        coin_cost: f.coinCost ?? 0,
+        price_coins: f.coinCost ?? 0,
+        is_premium: f.isPremium,
+        image_url: displayUrl,
+        animation_key: assetKey,
+        animation_url: displayUrl,
+        animation_url_lite: displayUrl,
+        preview_url: displayUrl,
+        unlocked:
+          unlockedIds.has(f.id.toString()) || f.levelRequired <= user.level,
+        is_selected: user.selectedFrameId === f.id,
+      };
+    };
 
     return {
       selected_frame: (() => {
         if (!user.selectedFrameId) return null;
-        const f = all.find((x) => x.id === user.selectedFrameId);
-        return f ? mapFrame(f) : null;
+        const fIdx = all.findIndex((x) => x.id === user.selectedFrameId);
+        return fIdx >= 0 ? mapFrame(all[fIdx], fIdx) : null;
       })(),
       unlocked_frames: all
         .filter(
