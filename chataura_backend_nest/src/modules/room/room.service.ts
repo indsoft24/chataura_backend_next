@@ -1237,7 +1237,14 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       members_count: room._count?.members ?? 0,
       agency_linked: false,
       agency_cashback: null,
-      gift_animation: true,
+      gift_animation: {
+        big_threshold_coins: 5000,
+        banner_duration_small_ms: 3000,
+        banner_duration_big_ms: 6000,
+        banner_duration_coin_divisor: 0,
+        banner_duration_min_ms: 1500,
+        banner_duration_max_ms: 6000,
+      },
       owner: room.owner
         ? {
             id: Number(room.owner.id),
