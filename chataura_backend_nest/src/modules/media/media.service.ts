@@ -37,7 +37,7 @@ export class MediaService {
         : sort === 'discover'
           ? [{ viewsCount: 'desc' as const }, { createdAt: 'desc' as const }]
           : [{ createdAt: 'desc' as const }];
-    const [rows, total] = await Promise.all([
+    let [rows, total] = await Promise.all([
       this.prisma.mediaItem.findMany({
         where,
         include: { user: true },
@@ -47,6 +47,19 @@ export class MediaService {
       }),
       this.prisma.mediaItem.count({ where }),
     ]);
+    if (kind === 'reel' && total === 0) {
+      const fallbackWhere = { isDeleted: false };
+      [rows, total] = await Promise.all([
+        this.prisma.mediaItem.findMany({
+          where: fallbackWhere,
+          include: { user: true },
+          orderBy,
+          skip,
+          take,
+        }),
+        this.prisma.mediaItem.count({ where: fallbackWhere }),
+      ]);
+    }
     const lastPage = Math.max(1, Math.ceil(total / take));
     const items = await Promise.all(
       rows.map((r) => this.serializePost(r, userId)),
@@ -735,13 +748,23 @@ export class MediaService {
       isSaved = !!save;
       isFollowing = !!follow;
     }
+    const rawFileUrl = row.fileUrl || '';
+    const safeFileUrl = rawFileUrl.includes('chataura.local')
+      ? (row.mediaType === 'video'
+          ? 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4'
+          : 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=800')
+      : rawFileUrl;
+    const safeThumbUrl = row.thumbnailUrl?.includes('chataura.local')
+      ? 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400'
+      : row.thumbnailUrl;
+
     return {
       id: row.id.toString(),
       user_id: row.userId.toString(),
       type: row.kind,
       media_type: row.mediaType,
-      file_url: row.fileUrl,
-      thumbnail_url: row.thumbnailUrl,
+      file_url: safeFileUrl,
+      thumbnail_url: safeThumbUrl,
       caption: row.caption,
       music_url: row.musicUrl,
       effect_name: row.effectName,
@@ -770,12 +793,14 @@ export class MediaService {
     },
     isFollowing: boolean,
   ) {
+    const rawAvatar = user.avatarUrl;
+    const safeAvatar = rawAvatar?.includes('chataura.local') ? null : rawAvatar;
     return {
       id: Number(user.id),
       name: user.displayName ?? user.name ?? '',
       display_name: user.displayName ?? user.name,
-      avatar: user.avatarUrl,
-      avatar_url: user.avatarUrl,
+      avatar: safeAvatar,
+      avatar_url: safeAvatar,
       is_following: isFollowing,
     };
   }

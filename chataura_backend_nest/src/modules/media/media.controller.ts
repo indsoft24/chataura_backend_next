@@ -20,42 +20,45 @@ import { MediaService } from './media.service';
 export class MediaController {
   constructor(private readonly media: MediaService) {}
 
+  @Public()
   @Get('posts/feed')
   postsFeed(
-    @CurrentUser() user: AuthUser,
+    @CurrentUser() user: AuthUser | undefined,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     return this.media.feed(
-      user.id,
+      user?.id,
       'post',
       Number(page ?? 1),
       Number(limit ?? 20),
     );
   }
 
+  @Public()
   @Get('reels/feed')
   reelsFeed(
-    @CurrentUser() user: AuthUser,
+    @CurrentUser() user: AuthUser | undefined,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     return this.media.feed(
-      user.id,
+      user?.id,
       'reel',
       Number(page ?? 1),
       Number(limit ?? 20),
     );
   }
 
+  @Public()
   @Get('reels/trending')
   trending(
-    @CurrentUser() user: AuthUser,
+    @CurrentUser() user: AuthUser | undefined,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     return this.media.feed(
-      user.id,
+      user?.id,
       'reel',
       Number(page ?? 1),
       Number(limit ?? 20),
@@ -63,14 +66,15 @@ export class MediaController {
     );
   }
 
+  @Public()
   @Get('reels/discover')
   discover(
-    @CurrentUser() user: AuthUser,
+    @CurrentUser() user: AuthUser | undefined,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     return this.media.feed(
-      user.id,
+      user?.id,
       'reel',
       Number(page ?? 1),
       Number(limit ?? 20),
@@ -78,29 +82,32 @@ export class MediaController {
     );
   }
 
+  @Public()
   @Get(['users/:id/media', 'user/:id/media'])
   userMedia(
-    @CurrentUser() user: AuthUser,
+    @CurrentUser() user: AuthUser | undefined,
     @Param('id') id: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     return this.media.userMedia(
-      user.id,
+      user?.id,
       BigInt(id),
       Number(page ?? 1),
       Number(limit ?? 20),
     );
   }
 
+  @Public()
   @Get('posts/:id')
-  post(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.media.show(user.id, BigInt(id));
+  post(@CurrentUser() user: AuthUser | undefined, @Param('id') id: string) {
+    return this.media.show(user?.id, BigInt(id));
   }
 
+  @Public()
   @Get('reels/:id')
-  reel(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.media.show(user.id, BigInt(id));
+  reel(@CurrentUser() user: AuthUser | undefined, @Param('id') id: string) {
+    return this.media.show(user?.id, BigInt(id));
   }
 
   @Throttle({ default: { limit: 10, ttl: seconds(60) } })
@@ -209,30 +216,32 @@ export class MediaController {
     return this.media.comment(user.id, BigInt(id), body.comment);
   }
 
+  @Public()
   @Get('posts/:id/comments')
   postComments(
-    @CurrentUser() user: AuthUser,
+    @CurrentUser() user: AuthUser | undefined,
     @Param('id') id: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     return this.media.comments(
-      user.id,
+      user?.id,
       BigInt(id),
       Number(page ?? 1),
       Number(limit ?? 20),
     );
   }
 
+  @Public()
   @Get('reels/:id/comments')
   reelComments(
-    @CurrentUser() user: AuthUser,
+    @CurrentUser() user: AuthUser | undefined,
     @Param('id') id: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     return this.media.comments(
-      user.id,
+      user?.id,
       BigInt(id),
       Number(page ?? 1),
       Number(limit ?? 20),

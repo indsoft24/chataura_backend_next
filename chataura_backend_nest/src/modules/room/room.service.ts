@@ -590,7 +590,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async seats(userId: bigint, id: string) {
+  async seats(userId: bigint | null | undefined, id: string) {
     const room = await this.findRoom(id);
     await this.ensureSeats(room.id, room.maxSeats);
     return this.seatsSnapshot(room.id, userId, room.maxSeats);
@@ -765,14 +765,16 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     return { ...snap, message: 'Seat removed' };
   }
 
-  async stickers(userId: bigint) {
+  async stickers(userId?: bigint | null) {
     const rows = await this.prisma.sticker.findMany({
       where: { isActive: true },
       orderBy: { id: 'asc' },
     });
-    const owned = await this.prisma.userUnlockedSticker.findMany({
-      where: { userId },
-    });
+    const owned = userId
+      ? await this.prisma.userUnlockedSticker.findMany({
+          where: { userId },
+        })
+      : [];
     const ownedIds = new Set(owned.map((o) => o.stickerId.toString()));
     return rows.map((s) => ({
       id: Number(s.id),
@@ -926,7 +928,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
   private async seatsSnapshot(
     roomId: string,
-    viewerId: bigint,
+    viewerId: bigint | null | undefined,
     maxSeats: number,
   ) {
     const seats = await this.prisma.seat.findMany({
@@ -934,10 +936,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       include: { user: { include: { selectedFrame: true } } },
       orderBy: { seatIndex: 'asc' },
     });
-    const member = await this.prisma.roomMember.findUnique({
-      where: { roomId_userId: { roomId, userId: viewerId } },
-    });
-    const seated = seats.find((s) => s.userId === viewerId);
+    const member = viewerId
+      ? await this.prisma.roomMember.findUnique({
+          where: { roomId_userId: { roomId, userId: viewerId } },
+        })
+      : null;
+    const seated = viewerId ? seats.find((s) => s.userId === viewerId) : undefined;
     const role = member?.role ?? 'listener';
     const rtc =
       seated || ['host', 'co_host', 'speaker'].includes(role)

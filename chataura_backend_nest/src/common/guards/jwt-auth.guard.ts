@@ -24,9 +24,6 @@ export class JwtAuthGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    if (isPublic) {
-      return true;
-    }
 
     const request = context.switchToHttp().getRequest<{
       headers: Record<string, string | undefined>;
@@ -34,6 +31,7 @@ export class JwtAuthGuard implements CanActivate {
     }>();
     const auth = request.headers['authorization'];
     if (!auth?.startsWith('Bearer ')) {
+      if (isPublic) return true;
       throw new UnauthorizedException({
         success: false,
         error: { code: 'UNAUTHORIZED', message: 'Unauthorized' },
@@ -43,6 +41,7 @@ export class JwtAuthGuard implements CanActivate {
     const token = auth.slice('Bearer '.length).trim();
     const payload = this.tokens.verifyAccessToken(token);
     if (!payload?.sub) {
+      if (isPublic) return true;
       throw new UnauthorizedException({
         success: false,
         error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' },
@@ -52,12 +51,14 @@ export class JwtAuthGuard implements CanActivate {
     const userId = BigInt(payload.sub);
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user || user.deletedAt || user.accountStatus === 'deleted') {
+      if (isPublic) return true;
       throw new UnauthorizedException({
         success: false,
         error: { code: 'UNAUTHORIZED', message: 'User not found' },
       });
     }
     if (user.isSuspended || user.accountStatus === 'suspended') {
+      if (isPublic) return true;
       throw new ForbiddenException({
         success: false,
         error: {

@@ -382,16 +382,23 @@ export class UserService {
   async search(q: string, page = 1, limit = 20) {
     const take = Math.min(Math.max(limit, 1), 50);
     const skip = (Math.max(page, 1) - 1) * take;
+    const trimmed = (q ?? '').trim();
+    const orConditions: Prisma.UserWhereInput[] = [
+      { name: { contains: trimmed, mode: 'insensitive' } },
+      { displayName: { contains: trimmed, mode: 'insensitive' } },
+      { email: { contains: trimmed, mode: 'insensitive' } },
+      { inviteCode: { equals: trimmed, mode: 'insensitive' } },
+    ];
+    if (/^\d+$/.test(trimmed)) {
+      try {
+        orConditions.push({ id: BigInt(trimmed) });
+      } catch {}
+    }
     const users = await this.prisma.user.findMany({
       where: {
         accountStatus: 'active',
         deletedAt: null,
-        OR: [
-          { name: { contains: q, mode: 'insensitive' } },
-          { displayName: { contains: q, mode: 'insensitive' } },
-          { email: { contains: q, mode: 'insensitive' } },
-          { inviteCode: { equals: q, mode: 'insensitive' } },
-        ],
+        OR: orConditions,
       },
       skip,
       take,

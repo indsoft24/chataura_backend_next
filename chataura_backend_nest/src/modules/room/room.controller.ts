@@ -11,6 +11,7 @@ import {
 import { Throttle, seconds } from '@nestjs/throttler';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { RoomGiftingService } from './room-gifting.service';
 import { RoomService } from './room.service';
 
@@ -21,9 +22,10 @@ export class RoomController {
     private readonly gifting: RoomGiftingService,
   ) {}
 
+  @Public()
   @Get('rooms')
   list(
-    @CurrentUser() user: AuthUser,
+    @CurrentUser() user?: AuthUser,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('sort') sort?: string,
@@ -40,7 +42,7 @@ export class RoomController {
       owner_id: ownerId,
       following,
       friends,
-      viewerId: user.id,
+      viewerId: user?.id,
     });
   }
 
@@ -53,11 +55,13 @@ export class RoomController {
     return this.rooms.mine(user.id, Number(page ?? 1), Number(limit ?? 50));
   }
 
+  @Public()
   @Get('rooms/themes')
   themes() {
     return this.rooms.themes();
   }
 
+  @Public()
   @Get('rooms/:id')
   show(@Param('id') id: string) {
     return this.rooms.show(id);
@@ -128,6 +132,7 @@ export class RoomController {
     return this.rooms.token(user.id, id, uid);
   }
 
+  @Public()
   @Get('rooms/:id/users')
   users(@Param('id') id: string) {
     return this.rooms.users(id);
@@ -211,10 +216,11 @@ export class RoomController {
     );
   }
 
+  @Public()
   @Throttle({ default: { limit: 240, ttl: seconds(60) } })
   @Get('rooms/:id/seats')
-  seats(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.rooms.seats(user.id, id);
+  seats(@CurrentUser() user: AuthUser | undefined, @Param('id') id: string) {
+    return this.rooms.seats(user?.id ?? null, id);
   }
 
   @Post('rooms/:id/seats/:seatIndex/take')
@@ -275,6 +281,7 @@ export class RoomController {
     return this.gifting.giftStats(user.id, id);
   }
 
+  @Public()
   @Get('gift-types')
   giftTypes() {
     return this.gifting.giftTypes();
@@ -310,9 +317,10 @@ export class RoomController {
     return this.gifting.sendBatchGift(user.id, body);
   }
 
+  @Public()
   @Get('stickers')
-  stickers(@CurrentUser() user: AuthUser) {
-    return this.rooms.stickers(user.id);
+  stickers(@CurrentUser() user?: AuthUser) {
+    return this.rooms.stickers(user?.id ?? null);
   }
 
   @Throttle({ default: { limit: 20, ttl: seconds(60) } })

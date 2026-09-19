@@ -134,6 +134,7 @@ export class UserController {
     );
   }
 
+  @Public()
   @Get('users/search')
   search(
     @Query('q') q?: string,
@@ -148,16 +149,19 @@ export class UserController {
     );
   }
 
+  @Public()
   @Get('users/star-accounts')
   starAccounts(@Query('page') page?: string, @Query('limit') limit?: string) {
     return this.users.starAccounts(Number(page ?? 1), Number(limit ?? 20));
   }
 
+  @Public()
   @Get('users/star-accounts/:userId')
   starAccount(@Param('userId') userId: string) {
     return this.users.starAccount(BigInt(userId));
   }
 
+  @Public()
   @Get('users/report-reasons')
   reportReasons() {
     return this.users.reportReasons();
@@ -177,6 +181,7 @@ export class UserController {
     );
   }
 
+  @Public()
   @Get('users/:id/gifts')
   giftsReceived(
     @Param('id') id: string,
@@ -192,6 +197,7 @@ export class UserController {
     );
   }
 
+  @Public()
   @Get('users/:id/gifts/sent')
   giftsSent(
     @Param('id') id: string,
@@ -206,16 +212,25 @@ export class UserController {
     );
   }
 
+  @Public()
   @Get('users/:id')
-  showUser(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.users.show(user.id, BigInt(id));
+  showUser(
+    @CurrentUser() user: AuthUser | undefined,
+    @Param('id') id: string,
+  ) {
+    return this.users.show(user?.id ?? null, BigInt(id));
   }
 
+  @Public()
   @Get('user/:id')
-  showUserLegacy(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.users.show(user.id, BigInt(id));
+  showUserLegacy(
+    @CurrentUser() user: AuthUser | undefined,
+    @Param('id') id: string,
+  ) {
+    return this.users.show(user?.id ?? null, BigInt(id));
   }
 
+  @Public()
   @Get('users/:id/followers')
   followers(
     @Param('id') id: string,
@@ -229,6 +244,7 @@ export class UserController {
     );
   }
 
+  @Public()
   @Get('users/:id/following')
   following(
     @Param('id') id: string,
@@ -242,6 +258,7 @@ export class UserController {
     );
   }
 
+  @Public()
   @Get('users/:id/friends')
   friendsForUser(
     @Param('id') id: string,
