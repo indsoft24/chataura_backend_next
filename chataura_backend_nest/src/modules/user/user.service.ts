@@ -6,6 +6,7 @@ import {
 import { createWriteStream, existsSync, mkdirSync } from 'fs';
 import { basename, resolve } from 'path';
 import { pipeline } from 'stream/promises';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { profileForApi, userForApi } from './user.serializer';

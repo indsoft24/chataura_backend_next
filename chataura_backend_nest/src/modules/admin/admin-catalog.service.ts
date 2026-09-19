@@ -760,6 +760,7 @@ export class AdminCatalogService {
         room_gift_big_animation_threshold_coins: extra.room_gift_big_animation_threshold_coins ?? 5000,
         room_gift_banner_duration_small_ms: extra.room_gift_banner_duration_small_ms ?? 3000,
         room_gift_banner_duration_big_ms: extra.room_gift_banner_duration_big_ms ?? 6000,
+        room_video_enabled: extra.room_video_enabled !== false,
       },
     };
   }

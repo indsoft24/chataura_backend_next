@@ -101,7 +101,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       skip: (page - 1) * take,
       take,
     });
-    return rooms.map((r) => this.serializeRoom(r));
+    const globalVideo = await this.isGlobalVideoEnabled();
+    return rooms.map((r) => this.serializeRoom(r, globalVideo));
   }
 
   async mine(userId: bigint, page = 1, limit = 50) {
@@ -119,7 +120,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       take,
       orderBy: { createdAt: 'desc' },
     });
-    return rooms.map((r) => this.serializeRoom(r));
+    const globalVideo = await this.isGlobalVideoEnabled();
+    return rooms.map((r) => this.serializeRoom(r, globalVideo));
   }
 
   async themes() {
@@ -137,7 +139,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
   async show(id: string) {
     const room = await this.findRoom(id, true);
-    return this.serializeRoom(room);
+    const globalVideo = await this.isGlobalVideoEnabled();
+    return this.serializeRoom(room, globalVideo);
   }
 
   async create(
@@ -163,6 +166,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   ) {
     const maxSeats = Math.min(Math.max(Number(body.max_seats ?? 8), 1), 20);
     const displayId = await this.uniqueDisplayId();
+    const globalVideo = await this.isGlobalVideoEnabled();
+    const isAudioOnly = body.settings?.allow_video === false;
     const room = await this.prisma.room.create({
       data: {
         title: body.title,
@@ -171,10 +176,11 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         hostId: userId,
         agoraChannelName: `room_${displayId}`,
         maxSeats,
-        settings: body.settings ?? {
-          allow_video: false,
-          allow_gifts: true,
-          allow_games: true,
+        settings: {
+          allow_video: globalVideo && !isAudioOnly,
+          audio_only: isAudioOnly,
+          allow_gifts: body.settings?.allow_gifts ?? true,
+          allow_games: body.settings?.allow_games ?? true,
         },
         coverImageUrl: body.cover_image_url ?? null,
         description: body.description ?? null,
@@ -197,7 +203,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       },
     });
     await this.ensureSeats(room.id, maxSeats);
-    return this.serializeRoom(room);
+    return this.serializeRoom(room, globalVideo);
   }
 
   async update(userId: bigint, id: string, body: Record<string, unknown>) {
@@ -231,7 +237,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
           _count: { select: { members: { where: { isActive: true } } } },
         },
       });
-      return this.serializeRoom(updated);
+      const globalVideo = await this.isGlobalVideoEnabled();
+      return this.serializeRoom(updated, globalVideo);
     }
     const updated = await this.prisma.room.update({
       where: { id: room.id },
@@ -256,7 +263,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         _count: { select: { members: { where: { isActive: true } } } },
       },
     });
-    return this.serializeRoom(updated);
+    const globalVideo = await this.isGlobalVideoEnabled();
+    return this.serializeRoom(updated, globalVideo);
   }
 
   async remove(userId: bigint, id: string) {
@@ -353,8 +361,9 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       publisher,
     );
     const fresh = await this.findRoom(room.id, true);
+    const globalVideo = await this.isGlobalVideoEnabled();
     return {
-      room: this.serializeRoom(fresh),
+      room: this.serializeRoom(fresh, globalVideo),
       member: this.serializeMember(member, user),
       ...token,
       media_defaults: { mic_on: false, camera_on: false },
@@ -1188,32 +1197,51 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private serializeRoom(room: {
-    id: string;
-    displayId: string;
-    title: string;
-    ownerId: bigint;
-    hostId: bigint | null;
-    coHostId: bigint | null;
-    agoraChannelName: string;
-    maxSeats: number;
-    isLive: boolean;
-    isPermanent: boolean;
-    coverImageUrl: string | null;
-    description: string | null;
-    tags: Prisma.JsonValue;
-    settings: Prisma.JsonValue;
-    countryCode: string | null;
-    allowedCountry: string | null;
-    allowedGender: string | null;
-    minAge: number | null;
-    maxAge: number | null;
-    owner?: UserLite | null;
-    host?: UserLite | null;
-    coHost?: UserLite | null;
-    theme?: { id: bigint; name: string; imageUrl: string | null } | null;
-    _count?: { members: number };
-  }) {
+  private async isGlobalVideoEnabled(): Promise<boolean> {
+    try {
+      const setting = await this.prisma.adminSetting.findUnique({
+        where: { id: 1 },
+        select: { extraSettings: true },
+      });
+      const extra = (setting?.extraSettings as Record<string, unknown>) ?? {};
+      return extra.room_video_enabled !== false;
+    } catch {
+      return true;
+    }
+  }
+
+  private serializeRoom(
+    room: {
+      id: string;
+      displayId: string;
+      title: string;
+      ownerId: bigint;
+      hostId: bigint | null;
+      coHostId: bigint | null;
+      agoraChannelName: string;
+      maxSeats: number;
+      isLive: boolean;
+      isPermanent: boolean;
+      coverImageUrl: string | null;
+      description: string | null;
+      tags: Prisma.JsonValue;
+      settings: Prisma.JsonValue;
+      countryCode: string | null;
+      allowedCountry: string | null;
+      allowedGender: string | null;
+      minAge: number | null;
+      maxAge: number | null;
+      owner?: UserLite | null;
+      host?: UserLite | null;
+      coHost?: UserLite | null;
+      theme?: { id: bigint; name: string; imageUrl: string | null } | null;
+      _count?: { members: number };
+    },
+    globalVideoEnabled = true,
+  ) {
+    const rawSettings = (room.settings as Record<string, unknown>) ?? {};
+    const allowVideo = globalVideoEnabled && rawSettings.audio_only !== true;
+
     return {
       id: room.id,
       display_id: room.displayId,
@@ -1228,10 +1256,11 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       cover_image_url: room.coverImageUrl,
       description: room.description,
       tags: room.tags ?? [],
-      settings: room.settings ?? {
-        allow_video: true,
-        allow_gifts: true,
-        allow_games: true,
+      settings: {
+        allow_video: allowVideo,
+        audio_only: rawSettings.audio_only === true,
+        allow_gifts: rawSettings.allow_gifts !== false,
+        allow_games: rawSettings.allow_games !== false,
       },
       country_code: room.countryCode,
       allowed_country: room.allowedCountry,

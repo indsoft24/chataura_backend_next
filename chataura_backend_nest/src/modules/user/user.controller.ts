@@ -14,6 +14,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { SkipEmailVerified } from '../../common/decorators/skip-email-verified.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { UserService } from './user.service';
 
 function targetId(body: Record<string, unknown>, ...keys: string[]): bigint {

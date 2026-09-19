@@ -9,7 +9,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [activeTab, setActiveTab] = useState<'commissions' | 'withdrawals' | 'streaks' | 'games' | 'staff' | 'animations'>('commissions');
+  const [activeTab, setActiveTab] = useState<'commissions' | 'withdrawals' | 'streaks' | 'games' | 'staff' | 'animations' | 'rooms'>('commissions');
 
   // Form fields
   const [form, setForm] = useState<Record<string, any>>({
@@ -54,6 +54,7 @@ export default function SettingsPage() {
     room_gift_big_animation_threshold_coins: 5000,
     room_gift_banner_duration_small_ms: 3000,
     room_gift_banner_duration_big_ms: 6000,
+    room_video_enabled: true,
   });
 
   useEffect(() => {
@@ -106,6 +107,7 @@ export default function SettingsPage() {
     { id: 'games', label: 'Games & Ads' },
     { id: 'staff', label: 'Staff Defaults' },
     { id: 'animations', label: 'Gift Animations' },
+    { id: 'rooms', label: 'Rooms & Video' },
   ] as const;
 
   return (
@@ -580,6 +582,82 @@ export default function SettingsPage() {
                   onChange={(e) => handleChange('room_gift_banner_duration_big_ms', Number(e.target.value))}
                   style={inputStyle}
                 />
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'rooms' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: '720px' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '20px 24px',
+                  backgroundColor: '#f9fafb',
+                  borderRadius: 12,
+                  border: '1px solid #e5e7eb',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '1rem', fontWeight: 600, color: '#111827', marginBottom: 4 }}>
+                    Party Room Video & Camera Streaming
+                  </div>
+                  <div style={{ fontSize: '0.875rem', color: '#6b7280', maxWidth: '520px', lineHeight: 1.4 }}>
+                    Global master switch. When turned ON, seated hosts and broadcasters can publish camera video streams in party rooms. When turned OFF, video controls are disabled across all rooms platform-wide.
+                  </div>
+                </div>
+                <label style={{ position: 'relative', display: 'inline-block', width: 48, height: 26, cursor: 'pointer', flexShrink: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={form.room_video_enabled !== false}
+                    onChange={(e) => handleChange('room_video_enabled', e.target.checked)}
+                    style={{ opacity: 0, width: 0, height: 0 }}
+                  />
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      backgroundColor: form.room_video_enabled !== false ? '#4f46e5' : '#d1d5db',
+                      borderRadius: 26,
+                      transition: '0.2s',
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: 'absolute',
+                        height: 20,
+                        width: 20,
+                        left: form.room_video_enabled !== false ? 25 : 3,
+                        bottom: 3,
+                        backgroundColor: '#fff',
+                        borderRadius: '50%',
+                        transition: '0.2s',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+                      }}
+                    />
+                  </span>
+                </label>
+              </div>
+
+              <div
+                style={{
+                  padding: '16px 20px',
+                  backgroundColor: '#eff6ff',
+                  borderRadius: 10,
+                  border: '1px solid #bfdbfe',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 12,
+                }}
+              >
+                <div style={{ color: '#2563eb', fontSize: '1.2rem', lineHeight: 1 }}>ℹ️</div>
+                <div style={{ fontSize: '0.85rem', color: '#1e40af', lineHeight: 1.5 }}>
+                  <strong>Instant platform enforcement:</strong> Toggling this switch instantly enables or disables camera capability for all active and new rooms across the Android client without requiring an app update or database migration.
+                </div>
               </div>
             </div>
           )}
