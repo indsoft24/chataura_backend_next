@@ -22,6 +22,7 @@ import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { AgencyModule } from './modules/agency/agency.module';
 import { GamificationModule } from './modules/gamification/gamification.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { RelationshipModule } from './modules/relationship/relationship.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { AdminModule } from './modules/admin/admin.module';
     MediaModule,
     AgencyModule,
     GamificationModule,
+    RelationshipModule,
     AdminModule,
   ],
   controllers: [HealthController],

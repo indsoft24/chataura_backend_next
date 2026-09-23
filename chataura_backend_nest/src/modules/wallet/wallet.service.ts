@@ -13,6 +13,7 @@ import Razorpay from 'razorpay';
 import { catalogClientFields } from '../../common/utils/catalog-media';
 import { normalizeGiftCategory } from '../../common/utils/gift-category';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { RelationshipEngineService } from '../relationship/relationship-engine.service';
 import { LedgerService } from './ledger.service';
 
 @Injectable()
@@ -24,6 +25,7 @@ export class WalletService {
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
     private readonly config: ConfigService,
+    private readonly relationships: RelationshipEngineService,
   ) {
     const keyId = this.config.get<string>('RAZORPAY_KEY_ID');
     const keySecret = this.config.get<string>('RAZORPAY_KEY_SECRET');
@@ -741,7 +743,11 @@ export class WalletService {
 
   async sendGift(
     senderId: bigint,
-    body: { gift_id: number | string; receiver_id: number | string },
+    body: {
+      gift_id: number | string;
+      receiver_id: number | string;
+      quantity?: number;
+    },
   ) {
     if (!body?.gift_id || !body?.receiver_id) {
       throw new BadRequestException({
@@ -762,9 +768,10 @@ export class WalletService {
       });
     }
     const receiverId = BigInt(body.receiver_id);
+    const quantity = Math.min(Math.max(Number(body.quantity ?? 1), 1), 100);
     const settings = await this.getSettings();
     const commissionPct = Number(settings.giftCommissionPct) / 100;
-    const cost = BigInt(gift.coinCost);
+    const cost = BigInt(gift.coinCost * quantity);
     const commission = BigInt(Math.floor(Number(cost) * commissionPct));
     const netGems = cost - commission;
 
@@ -782,19 +789,21 @@ export class WalletService {
             },
           });
         }
+        const ref = `gift_${gift.id}_to_${receiverId}_${senderId}_${Date.now()}`;
         const { after } = await this.ledger.debitCoins(
           tx,
           senderId,
           cost,
           'GIFT',
           `Gift: ${gift.name}`,
-          `gift_${gift.id}_to_${receiverId}_${Date.now()}`,
+          ref,
           sender,
           {
             source: 'gift',
             currency: 'coins',
             gift_id: Number(gift.id),
             receiver_id: Number(receiverId),
+            quantity,
           },
           'gift',
         );
@@ -816,9 +825,23 @@ export class WalletService {
           },
         });
 
+        const relationship = await this.relationships.applyContribution(tx, {
+          senderId,
+          receiverId,
+          giftId: gift.id,
+          giftCategory: gift.category,
+          giftCoinCost: gift.coinCost,
+          quantity,
+          giftTransactionId: ref,
+          source: 'dm',
+          roomId: null,
+        });
+
         return {
+          transaction_id: ref,
           gift_id: Number(gift.id),
           coin_cost: Number(cost),
+          coin_amount: Number(cost),
           sender_balance_after: Number(after),
           receiver_gems_after: Number(recv.gems + netGems),
           balances: {
@@ -828,6 +851,7 @@ export class WalletService {
                 .gems,
             ),
           },
+          relationship,
         };
       } catch (e) {
         if ((e as { code?: string }).code === 'INSUFFICIENT_BALANCE') {

@@ -8,6 +8,7 @@ import { catalogClientFields } from '../../common/utils/catalog-media';
 import { normalizeGiftCategory } from '../../common/utils/gift-category';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
+import { RelationshipEngineService } from '../relationship/relationship-engine.service';
 import { RoomEvents } from './room.events';
 
 @Injectable()
@@ -16,6 +17,7 @@ export class RoomGiftingService {
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
     private readonly events: RoomEvents,
+    private readonly relationships: RelationshipEngineService,
   ) {}
 
   async giftTypes() {
@@ -142,8 +144,19 @@ export class RoomGiftingService {
             totalEarnedCoins: { increment: netGems },
           },
         });
+        const relationship = await this.relationships.applyContribution(tx, {
+          senderId,
+          receiverId,
+          giftId: gift.id,
+          giftCategory: gift.category,
+          giftCoinCost: gift.coinCost,
+          quantity,
+          giftTransactionId: ref,
+          source: 'room',
+          roomId: room.id,
+        });
         return {
-          transaction_id: `RG_${Date.now()}`,
+          transaction_id: ref,
           coin_amount: Number(cost),
           commission_amount: Number(commission),
           net_amount: Number(netGems),
@@ -155,6 +168,7 @@ export class RoomGiftingService {
             referral_balance: Number(senderLocked.referral_balance),
           },
           agency_cashback: null,
+          relationship,
         };
       } catch (e) {
         if ((e as { code?: string }).code === 'INSUFFICIENT_BALANCE') {
@@ -287,6 +301,9 @@ export class RoomGiftingService {
         let currentSender = sender;
         let finalBalance = currentSender.wallet_balance;
         const txIds: string[] = [];
+        const relationships: Awaited<
+          ReturnType<RelationshipEngineService['applyContribution']>
+        >[] = [];
 
         for (const rid of receiverIds) {
           const giftRef = `room_${room.id}_gift_${gift.id}_${senderId}_${rid}_${Date.now()}`;
@@ -319,7 +336,19 @@ export class RoomGiftingService {
               totalEarnedCoins: { increment: perNetGems },
             },
           });
-          txIds.push(`RG_${Date.now()}_${rid}`);
+          const relationship = await this.relationships.applyContribution(tx, {
+            senderId,
+            receiverId: rid,
+            giftId: gift.id,
+            giftCategory: gift.category,
+            giftCoinCost: gift.coinCost,
+            quantity,
+            giftTransactionId: giftRef,
+            source: 'room',
+            roomId: room.id,
+          });
+          txIds.push(giftRef);
+          relationships.push(relationship);
         }
 
         return {
@@ -329,6 +358,7 @@ export class RoomGiftingService {
           receiver_count: receiverIds.length,
           sender_balance_after: Number(finalBalance),
           agency_cashback: null,
+          relationships,
         };
       } catch (e) {
         if ((e as { code?: string }).code === 'INSUFFICIENT_BALANCE') {

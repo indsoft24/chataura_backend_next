@@ -1063,3 +1063,125 @@ model UserRoomPresenceSession {
   @@map("user_room_presence_sessions")
 }
 
+
+// ─── Relationship Engine (generic CP/BCP/…) ─────────────────────────────
+
+model RelationshipType {
+  id                         String   @id @default(uuid()) @db.Uuid
+  code                       String   @unique @db.VarChar(32)
+  name                       String   @db.VarChar(64)
+  description                String?  @db.Text
+  enabled                    Boolean  @default(true)
+  sortOrder                  Int      @default(0) @map("sort_order")
+  exclusivityMode            String   @default("none") @map("exclusivity_mode") @db.VarChar(32)
+  formationRule              String   @default("first_qualifying_gift") @map("formation_rule") @db.VarChar(48)
+  requiresAccept             Boolean  @default(false) @map("requires_accept")
+  bidirectionalScoring       Boolean  @default(true) @map("bidirectional_scoring")
+  quantityMultipliesPoints   Boolean  @default(true) @map("quantity_multiplies_points")
+  levelsEnabled              Boolean  @default(false) @map("levels_enabled")
+  dmGiftsCount               Boolean  @default(true) @map("dm_gifts_count")
+  roomGiftsCount             Boolean  @default(true) @map("room_gifts_count")
+  visual                     Json?
+  leaderboard                Json?
+  rank1Rewards               Json?    @map("rank1_rewards")
+  createdAt                  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  giftRules     RelationshipGiftRule[]
+  relationships UserRelationship[]
+  levelThresholds RelationshipLevelThreshold[]
+
+  @@index([enabled, sortOrder])
+  @@map("relationship_types")
+}
+
+model RelationshipGiftRule {
+  id                 String   @id @default(uuid()) @db.Uuid
+  giftId             BigInt   @map("gift_id")
+  relationshipTypeId String   @map("relationship_type_id") @db.Uuid
+  pointValue         Int      @map("point_value")
+  enabled            Boolean  @default(true)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  relationshipType RelationshipType @relation(fields: [relationshipTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([giftId, relationshipTypeId])
+  @@index([giftId, enabled])
+  @@map("relationship_gift_rules")
+}
+
+model UserRelationship {
+  id                 String   @id @default(uuid()) @db.Uuid
+  relationshipTypeId String   @map("relationship_type_id") @db.Uuid
+  userLowId          BigInt   @map("user_low_id")
+  userHighId         BigInt   @map("user_high_id")
+  initiatorId        BigInt?  @map("initiator_id")
+  status             String   @default("active") @db.VarChar(16)
+  totalScore         BigInt   @default(0) @map("total_score")
+  level              Int?
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  relationshipType RelationshipType            @relation(fields: [relationshipTypeId], references: [id], onDelete: Cascade)
+  ledger           RelationshipScoreLedger[]
+  periodScores     RelationshipPeriodScore[]
+
+  @@unique([relationshipTypeId, userLowId, userHighId])
+  @@index([userLowId])
+  @@index([userHighId])
+  @@index([relationshipTypeId, totalScore])
+  @@map("user_relationships")
+}
+
+model RelationshipScoreLedger {
+  id                 String   @id @default(uuid()) @db.Uuid
+  relationshipId     String   @map("relationship_id") @db.Uuid
+  giftTransactionId  String   @unique @map("gift_transaction_id") @db.VarChar(191)
+  senderId           BigInt   @map("sender_id")
+  receiverId         BigInt   @map("receiver_id")
+  giftId             BigInt   @map("gift_id")
+  quantity           Int      @default(1)
+  pointValue         Int      @map("point_value")
+  contribution       BigInt
+  source             String   @db.VarChar(16)
+  roomId             String?  @map("room_id") @db.VarChar(64)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  relationship UserRelationship @relation(fields: [relationshipId], references: [id], onDelete: Cascade)
+
+  @@index([relationshipId, createdAt])
+  @@map("relationship_score_ledger")
+}
+
+model RelationshipPeriodScore {
+  id             String   @id @default(uuid()) @db.Uuid
+  relationshipId String   @map("relationship_id") @db.Uuid
+  periodType     String   @map("period_type") @db.VarChar(16)
+  periodKey      String   @map("period_key") @db.VarChar(32)
+  /// Empty string = global board; otherwise room UUID
+  roomKey        String   @default("") @map("room_key") @db.VarChar(64)
+  score          BigInt   @default(0)
+  rank           Int?
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  relationship UserRelationship @relation(fields: [relationshipId], references: [id], onDelete: Cascade)
+
+  @@unique([relationshipId, periodType, periodKey, roomKey])
+  @@index([periodType, periodKey, roomKey, score])
+  @@map("relationship_period_scores")
+}
+
+model RelationshipLevelThreshold {
+  id                 String   @id @default(uuid()) @db.Uuid
+  relationshipTypeId String   @map("relationship_type_id") @db.Uuid
+  level              Int
+  minScore           BigInt   @map("min_score")
+  rewards            Json?
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  relationshipType RelationshipType @relation(fields: [relationshipTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([relationshipTypeId, level])
+  @@map("relationship_level_thresholds")
+}

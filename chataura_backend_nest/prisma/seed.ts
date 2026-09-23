@@ -252,6 +252,86 @@ async function main() {
   }
 
   console.log('Seed complete (through Phase 5)');
+
+  // Relationship engine defaults (CP / BCP)
+  const cpVisual = {
+    color_primary: '#FF4D8D',
+    color_accent: '#F5C542',
+    motif: 'twin_hearts',
+  };
+  const bcpVisual = {
+    color_primary: '#00E5FF',
+    color_accent: '#F5C542',
+    motif: 'linked_stars',
+  };
+  for (const d of [
+    {
+      code: 'cp',
+      name: 'CP',
+      description: 'Couple relationship',
+      sortOrder: 1,
+      visual: cpVisual,
+    },
+    {
+      code: 'bcp',
+      name: 'BCP',
+      description: 'Best Couple relationship',
+      sortOrder: 2,
+      visual: bcpVisual,
+    },
+  ]) {
+    await prisma.relationshipType.upsert({
+      where: { code: d.code },
+      create: {
+        code: d.code,
+        name: d.name,
+        description: d.description,
+        enabled: true,
+        sortOrder: d.sortOrder,
+        exclusivityMode: 'none',
+        formationRule: 'first_qualifying_gift',
+        requiresAccept: false,
+        bidirectionalScoring: true,
+        quantityMultipliesPoints: true,
+        levelsEnabled: false,
+        dmGiftsCount: true,
+        roomGiftsCount: true,
+        visual: d.visual,
+        leaderboard: {
+          periods: ['daily', 'weekly', 'monthly', 'all_time'],
+          scopes: ['global', 'room'],
+        },
+        rank1Rewards: { xp_bonus: 100, badge: true },
+      },
+      update: { enabled: true, name: d.name },
+    });
+  }
+  const types = await prisma.relationshipType.findMany();
+  const byCode = new Map(types.map((t) => [t.code, t]));
+  const gifts = await prisma.gift.findMany({ where: { isActive: true } });
+  for (const g of gifts) {
+    const cat = String(g.category ?? '')
+      .trim()
+      .toLowerCase();
+    const type = byCode.get(cat);
+    if (!type) continue;
+    await prisma.relationshipGiftRule.upsert({
+      where: {
+        giftId_relationshipTypeId: {
+          giftId: g.id,
+          relationshipTypeId: type.id,
+        },
+      },
+      create: {
+        giftId: g.id,
+        relationshipTypeId: type.id,
+        pointValue: g.coinCost,
+        enabled: true,
+      },
+      update: { enabled: true },
+    });
+  }
+  console.log('Relationship types seeded (cp/bcp)');
 }
 
 main()

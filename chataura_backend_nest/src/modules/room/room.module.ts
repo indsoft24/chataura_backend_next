@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { WalletModule } from '../wallet/wallet.module';
 import { AuthModule } from '../auth/auth.module';
+import { RelationshipModule } from '../relationship/relationship.module';
 import { AgoraService } from './agora.service';
 import { RoomController } from './room.controller';
 import { RoomEvents } from './room.events';
@@ -11,7 +12,7 @@ import { RocketLaunchService } from './rocket-launch.service';
 import { RoomService } from './room.service';
 
 @Module({
-  imports: [WalletModule, AuthModule],
+  imports: [WalletModule, AuthModule, RelationshipModule],
   controllers: [RoomController],
   providers: [
     RoomService,

@@ -25,6 +25,7 @@ const MENU_GROUPS = [
       { name: 'Packages', href: '/packages' },
       { name: 'Levels', href: '/levels' },
       { name: 'Gifts', href: '/gifts' },
+      { name: 'Relationships', href: '/relationships' },
       { name: 'Stickers', href: '/stickers' },
       { name: 'Frames', href: '/frames' },
       { name: 'Role Frames', href: '/role-frames' },
