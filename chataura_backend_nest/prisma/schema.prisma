@@ -106,6 +106,9 @@ model User {
   roomsHosted         Room[]          @relation("RoomHost")
   roomsCohosted       Room[]          @relation("RoomCoHost")
   roomMemberships     RoomMember[]
+  rocketAdminSeats    RoomRocketAdmin[]
+  rocketLaunches      RocketLaunch[]        @relation("RocketLauncher")
+  rocketRewards       RocketReward[]
   seatsOccupied       Seat[]
   roomBlocks          RoomBlock[]
   greedyBets          GreedyBet[]
@@ -524,8 +527,10 @@ model Room {
   host    User?      @relation("RoomHost", fields: [hostId], references: [id])
   coHost  User?      @relation("RoomCoHost", fields: [coHostId], references: [id])
   theme   RoomTheme? @relation(fields: [themeId], references: [id])
-  members     RoomMember[]
-  seats       Seat[]
+  members        RoomMember[]
+  rocketAdmins   RoomRocketAdmin[]
+  rocketLaunches RocketLaunch[]
+  seats          Seat[]
   blocks      RoomBlock[]
   affiliations AgencyAffiliation[]
   presenceSessions UserRoomPresenceSession[]
@@ -552,6 +557,54 @@ model RoomMember {
   @@unique([roomId, userId])
   @@index([roomId, isActive])
   @@map("room_members")
+}
+
+model RoomRocketAdmin {
+  id        BigInt   @id @default(autoincrement())
+  roomId    String   @map("room_id") @db.Uuid
+  userId    BigInt   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@map("room_rocket_admins")
+}
+
+model RocketLaunch {
+  id          String   @id @default(uuid()) @db.Uuid
+  roomId      String   @map("room_id") @db.Uuid
+  launcherId  BigInt   @map("launcher_id")
+  price       Int
+  coinPool    Int      @map("coin_pool")
+  joinedCount Int      @map("joined_count")
+  winnerCount Int      @map("winner_count")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  room     Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  launcher User           @relation("RocketLauncher", fields: [launcherId], references: [id])
+  rewards  RocketReward[]
+
+  @@index([roomId, createdAt])
+  @@map("rocket_launches")
+}
+
+model RocketReward {
+  id        BigInt  @id @default(autoincrement())
+  launchId  String  @map("launch_id") @db.Uuid
+  userId    BigInt  @map("user_id")
+  coins     Int
+  xp        Int
+  frameId   BigInt? @map("frame_id")
+  frameName String? @map("frame_name") @db.VarChar(128)
+  frameDays Int?    @map("frame_days")
+
+  launch RocketLaunch @relation(fields: [launchId], references: [id], onDelete: Cascade)
+  user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([launchId])
+  @@map("rocket_rewards")
 }
 
 model Seat {

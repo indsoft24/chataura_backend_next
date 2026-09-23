@@ -13,6 +13,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { RoomGiftingService } from './room-gifting.service';
+import { RocketLaunchService } from './rocket-launch.service';
 import { RoomService } from './room.service';
 
 @Controller()
@@ -20,6 +21,7 @@ export class RoomController {
   constructor(
     private readonly rooms: RoomService,
     private readonly gifting: RoomGiftingService,
+    private readonly rockets: RocketLaunchService,
   ) {}
 
   @Public()
@@ -285,6 +287,43 @@ export class RoomController {
   @Get('gift-types')
   giftTypes() {
     return this.gifting.giftTypes();
+  }
+
+  @Get('rooms/:id/rocket')
+  rocketState(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.rockets.state(user.id, id);
+  }
+
+  @Post('rooms/:id/rocket/admins')
+  addRocketAdmin(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { user_id: number | string },
+  ) {
+    return this.rockets.addAdmin(user.id, id, BigInt(body.user_id));
+  }
+
+  @Delete('rooms/:id/rocket/admins/:userId')
+  removeRocketAdmin(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.rockets.removeAdmin(user.id, id, BigInt(userId));
+  }
+
+  @Throttle({ default: { limit: 6, ttl: seconds(60) } })
+  @Post('rooms/:id/rocket/launch')
+  launchRocket(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.rockets.launch(user.id, id);
+  }
+
+  @Get('rooms/:id/rocket/launches/:launchId')
+  rocketLaunch(
+    @Param('id') id: string,
+    @Param('launchId') launchId: string,
+  ) {
+    return this.rockets.getLaunch(id, launchId);
   }
 
   @Throttle({ default: { limit: 30, ttl: seconds(60) } })

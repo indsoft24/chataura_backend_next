@@ -7,6 +7,7 @@ import { RoomEvents } from './room.events';
 import { RoomGateway } from './room.gateway';
 import { PresenceService } from './presence.service';
 import { RoomGiftingService } from './room-gifting.service';
+import { RocketLaunchService } from './rocket-launch.service';
 import { RoomService } from './room.service';
 
 @Module({
@@ -16,6 +17,7 @@ import { RoomService } from './room.service';
     RoomService,
     PresenceService,
     RoomGiftingService,
+    RocketLaunchService,
     AgoraService,
     RoomEvents,
     RoomGateway,

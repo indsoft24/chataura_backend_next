@@ -26,6 +26,9 @@ export class RoomGateway implements OnGatewayConnection {
     this.events.emitGiftOverlay = (roomId, payload) => {
       this.server?.to(`room:${roomId}`).emit('room:gift_overlay', payload);
     };
+    this.events.emitRocketLaunch = (roomId, payload) => {
+      this.server?.to(`room:${roomId}`).emit('room:rocket_launch', payload);
+    };
   }
 
   handleConnection(client: Socket) {
