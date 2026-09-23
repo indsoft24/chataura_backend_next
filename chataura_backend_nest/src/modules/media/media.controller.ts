@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -19,6 +20,15 @@ import { MediaService } from './media.service';
 @Controller()
 export class MediaController {
   constructor(private readonly media: MediaService) {}
+
+  private uploadPayload(url: string) {
+    return {
+      url,
+      file_url: url,
+      path: url,
+      data: { url, file_url: url },
+    };
+  }
 
   @Public()
   @Get('posts/feed')
@@ -116,14 +126,24 @@ export class MediaController {
     @CurrentUser() user: AuthUser,
     @Req() req: FastifyRequest,
     @Body()
-    body: {
+    body?: {
       file_url?: string;
       caption?: string;
       media_type?: string;
     },
   ) {
-    const fileUrl = await this.media.storeFromRequest(req, body.file_url);
-    return this.media.create(user.id, 'post', { ...body, file_url: fileUrl });
+    const safe = body ?? {};
+    const fileUrl = await this.media.storeFromRequest(req, safe.file_url);
+    if (!fileUrl) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'UPLOAD_FAILED',
+          message: 'No valid file uploaded or file format not supported',
+        },
+      });
+    }
+    return this.media.create(user.id, 'post', { ...safe, file_url: fileUrl });
   }
 
   @Throttle({ default: { limit: 10, ttl: seconds(60) } })
@@ -132,7 +152,7 @@ export class MediaController {
     @CurrentUser() user: AuthUser,
     @Req() req: FastifyRequest,
     @Body()
-    body: {
+    body?: {
       file_url?: string;
       caption?: string;
       music_url?: string;
@@ -142,24 +162,52 @@ export class MediaController {
       is_camera_recorded?: boolean;
     },
   ) {
-    const fileUrl = await this.media.storeFromRequest(req, body.file_url);
+    const safe = body ?? {};
+    const fileUrl = await this.media.storeFromRequest(req, safe.file_url);
+    if (!fileUrl) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'UPLOAD_FAILED',
+          message: 'No valid file uploaded or file format not supported',
+        },
+      });
+    }
     return this.media.create(user.id, 'reel', {
-      ...body,
+      ...safe,
       file_url: fileUrl,
       media_type: 'video',
     });
   }
 
+  /**
+   * Generic multipart/image upload used by room cover, avatars, etc.
+   * Accepts multipart file OR JSON { file_url } / signed-url request fields.
+   */
   @Throttle({ default: { limit: 10, ttl: seconds(60) } })
   @Post('upload')
   async upload(
     @Req() req: FastifyRequest,
     @Body()
-    body: { filename?: string; content_type?: string; file_url?: string },
+    body?: { filename?: string; content_type?: string; file_url?: string },
   ) {
-    const stored = await this.media.storeFromRequest(req, body.file_url);
-    if (stored) return { url: stored };
-    return this.media.signedUpload(body.filename, body.content_type);
+    const safe = body ?? {};
+    const stored = await this.media.storeFromRequest(req, safe.file_url);
+    if (stored) return this.uploadPayload(stored);
+
+    const contentType = String(req.headers['content-type'] || '').toLowerCase();
+    if (contentType.includes('multipart/form-data')) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'UPLOAD_FAILED',
+          message: 'No valid file uploaded or file format not supported',
+        },
+      });
+    }
+
+    // JSON clients that want a signed URL (no file attached).
+    return this.media.signedUpload(safe.filename, safe.content_type);
   }
 
   @Throttle({ default: { limit: 15, ttl: seconds(60) } })

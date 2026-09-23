@@ -223,3 +223,38 @@ export function presentFrameMedia(
     composite: normalizeFrameComposite(compositeMode),
   };
 }
+
+export type FrameAsset = {
+  imageUrl: string | null;
+  animationUrl: string | null;
+  compositeMode: string | null;
+};
+
+/** Fields the app uses to draw a frame around any avatar. */
+export function selectedFrameClientFields(
+  frame: FrameAsset | null | undefined,
+) {
+  if (!frame) {
+    return {
+      selected_frame_url: null,
+      selected_frame_url_lite: null,
+      selected_frame_url_hq: null,
+      selected_frame_animation_url: null,
+      selected_frame_media_type: null,
+      selected_frame_composite: null,
+    };
+  }
+  const media = presentFrameMedia(
+    frame.imageUrl,
+    frame.animationUrl,
+    frame.compositeMode,
+  );
+  return {
+    selected_frame_url: media.preview_url,
+    selected_frame_url_lite: media.animation_url_lite,
+    selected_frame_url_hq: media.preview_url,
+    selected_frame_animation_url: media.animation_url,
+    selected_frame_media_type: media.media_type,
+    selected_frame_composite: media.composite,
+  };
+}

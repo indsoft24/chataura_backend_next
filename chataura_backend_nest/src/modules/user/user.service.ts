@@ -14,6 +14,7 @@ import {
   ensureLaravelLevelBands,
 } from '../gamification/level-bands';
 import { profileForApi, userForApi } from './user.serializer';
+import { selectedFrameClientFields } from '../../common/utils/catalog-media';
 
 const PUBLIC_BASE =
   process.env.PUBLIC_BASE_URL?.replace(/\/$/, '') ?? 'http://localhost:3000';
@@ -211,15 +212,17 @@ export class UserService {
   async me(userId: bigint) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
+      include: { selectedFrame: true },
     });
     const counts = await this.countsFor(userId);
-    return { ...userForApi(user), ...counts };
+    return { ...userForApi(user, user.selectedFrame), ...counts };
   }
 
   async profile(userId: bigint) {
     const bands = await ensureLaravelLevelBands(this.prisma);
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
+      include: { selectedFrame: true },
     });
     const counts = await this.rawCounts(userId);
     const band = bandForXp(Number(user.xp), bands);
@@ -241,8 +244,9 @@ export class UserService {
           : {}),
         ...(body.country !== undefined ? { country: body.country } : {}),
       },
+      include: { selectedFrame: true },
     });
-    return userForApi(user);
+    return userForApi(user, user.selectedFrame);
   }
 
   async saveAvatar(filename: string, stream: any): Promise<string | null> {
@@ -340,8 +344,9 @@ export class UserService {
           ? { showOnlineStatus: body.show_online_status }
           : {}),
       },
+      include: { selectedFrame: true },
     });
-    return userForApi(user);
+    return userForApi(user, user.selectedFrame);
   }
 
   async notifications(
@@ -459,13 +464,15 @@ export class UserService {
       skip,
       take,
       orderBy: { id: 'desc' },
+      include: { selectedFrame: true },
     });
-    return users.map(userForApi);
+    return users.map((user) => userForApi(user, user.selectedFrame));
   }
 
   async show(viewerId: bigint | null, targetId: bigint) {
     const user = await this.prisma.user.findFirst({
       where: { id: targetId, deletedAt: null },
+      include: { selectedFrame: true },
     });
     if (!user) {
       throw new NotFoundException({
@@ -544,7 +551,7 @@ export class UserService {
       viewerId !== targetId;
 
     return {
-      ...userForApi(user),
+      ...userForApi(user, user.selectedFrame),
       friends_count: privateLimited ? 0 : counts.friends,
       followers_count: privateLimited ? 0 : counts.followers,
       following_count: privateLimited ? 0 : counts.following,
@@ -761,11 +768,11 @@ export class UserService {
     const skip = (Math.max(page, 1) - 1) * take;
     const rows = await this.prisma.userFollower.findMany({
       where: { followingId: userId, status: 'accepted' },
-      include: { follower: true },
+      include: { follower: { include: { selectedFrame: true } } },
       skip,
       take,
     });
-    return rows.map((r) => userForApi(r.follower));
+    return rows.map((r) => userForApi(r.follower, r.follower.selectedFrame));
   }
 
   async following(userId: bigint, page = 1, limit = 20) {
@@ -773,11 +780,11 @@ export class UserService {
     const skip = (Math.max(page, 1) - 1) * take;
     const rows = await this.prisma.userFollower.findMany({
       where: { followerId: userId, status: 'accepted' },
-      include: { following: true },
+      include: { following: { include: { selectedFrame: true } } },
       skip,
       take,
     });
-    return rows.map((r) => userForApi(r.following));
+    return rows.map((r) => userForApi(r.following, r.following.selectedFrame));
   }
 
   async friends(userId: bigint, page = 1, limit = 20) {
@@ -785,7 +792,7 @@ export class UserService {
     const skip = (Math.max(page, 1) - 1) * take;
     const rows = await this.prisma.friendship.findMany({
       where: { userId },
-      include: { friend: true },
+      include: { friend: { include: { selectedFrame: true } } },
       skip,
       take,
     });
@@ -798,6 +805,7 @@ export class UserService {
       selected_frame_id: r.friend.selectedFrameId
         ? Number(r.friend.selectedFrameId)
         : null,
+      ...selectedFrameClientFields(r.friend.selectedFrame),
     }));
   }
 
@@ -889,6 +897,7 @@ export class UserService {
     const skip = (Math.max(page, 1) - 1) * take;
     const users = await this.prisma.user.findMany({
       where: { isStarAccount: true, accountStatus: 'active', deletedAt: null },
+      include: { selectedFrame: true },
       orderBy: [{ starRank: 'asc' }, { id: 'desc' }],
       skip,
       take,
@@ -901,6 +910,7 @@ export class UserService {
       is_online: u.isOnline,
       country: u.country,
       selected_frame_id: u.selectedFrameId ? Number(u.selectedFrameId) : null,
+      ...selectedFrameClientFields(u.selectedFrame),
       star_rank: u.starRank,
       star_bio_tag: u.starBioTag,
       audio_call_rate: u.audioCallRate,
@@ -911,6 +921,7 @@ export class UserService {
   async starAccount(userId: bigint) {
     const u = await this.prisma.user.findFirst({
       where: { id: userId, isStarAccount: true, deletedAt: null },
+      include: { selectedFrame: true },
     });
     if (!u) {
       throw new NotFoundException({
@@ -926,6 +937,7 @@ export class UserService {
       is_online: u.isOnline,
       country: u.country,
       selected_frame_id: u.selectedFrameId ? Number(u.selectedFrameId) : null,
+      ...selectedFrameClientFields(u.selectedFrame),
       star_rank: u.starRank,
       star_bio_tag: u.starBioTag,
       audio_call_rate: u.audioCallRate,

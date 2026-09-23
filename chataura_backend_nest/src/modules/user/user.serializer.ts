@@ -1,7 +1,15 @@
 import { User } from '@prisma/client';
+import {
+  selectedFrameClientFields,
+  type FrameAsset,
+} from '../../common/utils/catalog-media';
 
 /** Serialize User for Android-compatible API payloads. */
-export function userForApi(user: User): Record<string, unknown> {
+export function userForApi(
+  user: User,
+  frame?: FrameAsset | null,
+): Record<string, unknown> {
+  const selected = frame ?? null;
   return {
     id: Number(user.id),
     user_id: Number(user.id),
@@ -44,12 +52,13 @@ export function userForApi(user: User): Record<string, unknown> {
     selected_frame_id: user.selectedFrameId
       ? Number(user.selectedFrameId)
       : null,
+    ...selectedFrameClientFields(selected),
     created_at: user.createdAt.toISOString(),
   };
 }
 
 export function profileForApi(
-  user: User,
+  user: User & { selectedFrame?: FrameAsset | null },
   counts: {
     friends: number;
     followers: number;
@@ -67,7 +76,7 @@ export function profileForApi(
   const wallet = Number(user.walletBalance);
   const xp = Number(user.xp);
   return {
-    ...userForApi(user),
+    ...userForApi(user, user.selectedFrame),
     coins: wallet,
     friends_count: counts.friends,
     followers_count: counts.followers,

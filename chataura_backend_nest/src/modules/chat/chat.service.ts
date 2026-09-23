@@ -13,6 +13,7 @@ import { createWriteStream, existsSync, mkdirSync } from 'fs';
 import { resolve } from 'path';
 import { pipeline } from 'stream/promises';
 import { randomUUID } from 'crypto';
+import { selectedFrameClientFields } from '../../common/utils/catalog-media';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { FcmService } from '../../common/fcm/fcm.service';
 import { LedgerService } from '../wallet/ledger.service';
@@ -50,7 +51,9 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       include: {
         conversation: {
           include: {
-            participants: { include: { user: true } },
+            participants: {
+              include: { user: { include: { selectedFrame: true } } },
+            },
             messages: { orderBy: { createdAt: 'desc' }, take: 1 },
           },
         },
@@ -111,12 +114,17 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
               selected_frame_id: other.selectedFrameId
                 ? Number(other.selectedFrameId)
                 : null,
+              ...selectedFrameClientFields(other.selectedFrame),
             }
           : null,
         members: c.participants.map((m) => ({
           id: Number(m.user.id),
           name: m.user.displayName ?? m.user.name,
           avatar_url: m.user.avatarUrl,
+          selected_frame_id: m.user.selectedFrameId
+            ? Number(m.user.selectedFrameId)
+            : null,
+          ...selectedFrameClientFields(m.user.selectedFrame),
         })),
       };
     });
@@ -326,7 +334,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
         friendId: { notIn: Array.from(blockedIds) },
       },
       include: {
-        friend: true,
+        friend: { include: { selectedFrame: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -363,6 +371,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       selected_frame_id: f.friend.selectedFrameId
         ? Number(f.friend.selectedFrameId)
         : null,
+      ...selectedFrameClientFields(f.friend.selectedFrame),
       is_owner: false,
     }));
   }

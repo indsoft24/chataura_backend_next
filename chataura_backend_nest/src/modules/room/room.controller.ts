@@ -82,6 +82,11 @@ export class RoomController {
         allow_games?: boolean;
       };
       cover_image_url?: string;
+      image?: string;
+      image_url?: string;
+      cover?: string;
+      thumbnail?: string;
+      room_image?: string;
       description?: string;
       tags?: string[];
       allowed_gender?: string;

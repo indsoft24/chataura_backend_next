@@ -11,6 +11,8 @@ import { Prisma, RoomMemberRole } from '@prisma/client';
 import {
   catalogClientFields,
   presentFrameMedia,
+  selectedFrameClientFields,
+  type FrameAsset,
 } from '../../common/utils/catalog-media';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
@@ -21,6 +23,8 @@ import { RoomEvents } from './room.events';
 const STALE_MS = 90_000;
 const KICK_SECONDS = 600;
 
+const personWithFrame = { include: { selectedFrame: true } } as const;
+
 type UserLite = {
   id: bigint;
   name: string | null;
@@ -28,7 +32,26 @@ type UserLite = {
   avatarUrl: string | null;
   level: number;
   selectedFrameId: bigint | null;
+  selectedFrame?: FrameAsset | null;
 };
+
+function coverUrlFromBody(body: {
+  cover_image_url?: unknown;
+  image?: unknown;
+  image_url?: unknown;
+  cover?: unknown;
+  thumbnail?: unknown;
+  room_image?: unknown;
+}): string | undefined {
+  const raw =
+    body.cover_image_url ??
+    body.image_url ??
+    body.image ??
+    body.cover ??
+    body.thumbnail ??
+    body.room_image;
+  return typeof raw === 'string' ? raw : undefined;
+}
 
 @Injectable()
 export class RoomService implements OnModuleInit, OnModuleDestroy {
@@ -67,12 +90,33 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   }) {
     const take = Math.min(Math.max(Number(query.limit ?? 20), 1), 100);
     const page = Math.max(Number(query.page ?? 1), 1);
-    const where: Prisma.RoomWhereInput = { isLive: true };
+    const freshCutoff = new Date(Date.now() - STALE_MS);
+    // Non-permanent rooms need a fresh host heartbeat or at least one fresh
+    // active member. Permanent rooms stay listed while isLive.
+    const where: Prisma.RoomWhereInput = {
+      isLive: true,
+      OR: [
+        { isPermanent: true },
+        { hostLastHeartbeatAt: { gte: freshCutoff } },
+        {
+          members: {
+            some: {
+              isActive: true,
+              lastHeartbeatAt: { gte: freshCutoff },
+            },
+          },
+        },
+      ],
+    };
     if (query.country) {
-      where.OR = [
-        { countryCode: query.country },
-        { allowedCountry: query.country },
-        { allowedCountry: null },
+      where.AND = [
+        {
+          OR: [
+            { countryCode: query.country },
+            { allowedCountry: query.country },
+            { allowedCountry: null },
+          ],
+        },
       ];
     }
     if (query.owner_id) where.ownerId = BigInt(query.owner_id);
@@ -97,9 +141,9 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     const rooms = await this.prisma.room.findMany({
       where,
       include: {
-        owner: true,
-        host: true,
-        coHost: true,
+        owner: personWithFrame,
+        host: personWithFrame,
+        coHost: personWithFrame,
         theme: true,
         _count: { select: { members: { where: { isActive: true } } } },
       },
@@ -116,9 +160,9 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     const rooms = await this.prisma.room.findMany({
       where: { ownerId: userId, OR: [{ isLive: true }, { isPermanent: true }] },
       include: {
-        owner: true,
-        host: true,
-        coHost: true,
+        owner: personWithFrame,
+        host: personWithFrame,
+        coHost: personWithFrame,
         theme: true,
         _count: { select: { members: { where: { isActive: true } } } },
       },
@@ -160,6 +204,11 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         allow_games?: boolean;
       };
       cover_image_url?: string;
+      image?: string;
+      image_url?: string;
+      cover?: string;
+      thumbnail?: string;
+      room_image?: string;
       description?: string;
       tags?: string[];
       allowed_gender?: string;
@@ -188,7 +237,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
           allow_gifts: body.settings?.allow_gifts ?? true,
           allow_games: body.settings?.allow_games ?? true,
         },
-        coverImageUrl: body.cover_image_url ?? null,
+        coverImageUrl: coverUrlFromBody(body) ?? null,
         description: body.description ?? null,
         tags: body.tags ?? [],
         allowedGender: body.allowed_gender ?? null,
@@ -201,15 +250,33 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         hostLastHeartbeatAt: new Date(),
       },
       include: {
-        owner: true,
-        host: true,
-        coHost: true,
+        owner: personWithFrame,
+        host: personWithFrame,
+        coHost: personWithFrame,
         theme: true,
         _count: { select: { members: true } },
       },
     });
     await this.ensureSeats(room.id, maxSeats);
-    return this.serializeRoom(room, globalVideo);
+    await this.prisma.roomMember.upsert({
+      where: { roomId_userId: { roomId: room.id, userId } },
+      create: {
+        roomId: room.id,
+        userId,
+        role: 'host',
+        agoraUid: this.agoraUid(userId),
+        isActive: true,
+        lastHeartbeatAt: new Date(),
+      },
+      update: {
+        role: 'host',
+        isActive: true,
+        agoraUid: this.agoraUid(userId),
+        lastHeartbeatAt: new Date(),
+      },
+    });
+    const fresh = await this.findRoom(room.id, true);
+    return this.serializeRoom(fresh, globalVideo);
   }
 
   async update(userId: bigint, id: string, body: Record<string, unknown>) {
@@ -236,9 +303,9 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         where: { id: room.id },
         data: { themeId: BigInt(String(body.theme_id)) },
         include: {
-          owner: true,
-          host: true,
-          coHost: true,
+          owner: personWithFrame,
+          host: personWithFrame,
+          coHost: personWithFrame,
           theme: true,
           _count: { select: { members: { where: { isActive: true } } } },
         },
@@ -246,13 +313,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       const globalVideo = await this.isGlobalVideoEnabled();
       return this.serializeRoom(updated, globalVideo);
     }
+    const cover = coverUrlFromBody(body);
     const updated = await this.prisma.room.update({
       where: { id: room.id },
       data: {
         ...(typeof body.title === 'string' ? { title: body.title } : {}),
-        ...(typeof body.cover_image_url === 'string'
-          ? { coverImageUrl: body.cover_image_url }
-          : {}),
+        ...(typeof cover === 'string' ? { coverImageUrl: cover } : {}),
         ...(typeof body.description === 'string'
           ? { description: body.description }
           : {}),
@@ -262,9 +328,9 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
           : {}),
       },
       include: {
-        owner: true,
-        host: true,
-        coHost: true,
+        owner: personWithFrame,
+        host: personWithFrame,
+        coHost: personWithFrame,
         theme: true,
         _count: { select: { members: { where: { isActive: true } } } },
       },
@@ -316,6 +382,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
+      include: { selectedFrame: true },
     });
     const agoraUid = this.agoraUid(userId);
     const member = await this.prisma.$transaction(async (tx) => {
@@ -385,6 +452,10 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         display_name: user.displayName ?? user.name,
         avatar: user.avatarUrl,
         avatar_url: user.avatarUrl,
+        selected_frame_id: user.selectedFrameId
+          ? Number(user.selectedFrameId)
+          : null,
+        ...selectedFrameClientFields(user.selectedFrame),
         suppressed: false,
       },
     };
@@ -492,7 +563,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     const room = await this.findRoom(id);
     const members = await this.prisma.roomMember.findMany({
       where: { roomId: room.id, isActive: true },
-      include: { user: true },
+      include: { user: { include: { selectedFrame: true } } },
     });
     return {
       users: members.map((m) => this.serializeMember(m, m.user)),
@@ -1093,14 +1164,16 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
   private async cleanupStaleMembers() {
     const cutoff = new Date(Date.now() - STALE_MS);
-    const stale = await this.prisma.roomMember.findMany({
+
+    // 1) Soft-remove stale non-host members (listeners / speakers / co-hosts).
+    const staleGuests = await this.prisma.roomMember.findMany({
       where: {
         isActive: true,
         lastHeartbeatAt: { lt: cutoff },
         role: { not: 'host' },
       },
     });
-    for (const m of stale) {
+    for (const m of staleGuests) {
       await this.prisma.roomMember.update({
         where: { id: m.id },
         data: { role: 'listener', seatIndex: null, isActive: false },
@@ -1111,21 +1184,204 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       });
       await this.presence.closeActive(m.userId, m.roomId, 'stale_heartbeat');
     }
+
+    // 2) Stale hosts / abandoned rooms: transfer host or soft-end (same as leave).
+    const staleHostRooms = await this.prisma.room.findMany({
+      where: {
+        isLive: true,
+        OR: [
+          { hostLastHeartbeatAt: { lt: cutoff } },
+          { hostLastHeartbeatAt: null, createdAt: { lt: cutoff } },
+        ],
+      },
+      select: {
+        id: true,
+        hostId: true,
+        isPermanent: true,
+      },
+    });
+
+    for (const room of staleHostRooms) {
+      try {
+        await this.expireStaleHostRoom(room, cutoff);
+      } catch (err) {
+        this.logger.warn(
+          `stale host cleanup failed for room ${room.id}: ${(err as Error).message}`,
+        );
+      }
+    }
+  }
+
+  /**
+   * When the host stops heartbeating: deactivate the stale host member,
+   * promote a fresh successor if one exists, otherwise soft-end the room
+   * (permanent rooms stay live with a null host).
+   */
+  private async expireStaleHostRoom(
+    room: { id: string; hostId: bigint | null; isPermanent: boolean },
+    cutoff: Date,
+  ) {
+    await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<
+        Array<{
+          id: string;
+          host_id: bigint | null;
+          is_permanent: boolean;
+          is_live: boolean;
+          host_last_heartbeat_at: Date | null;
+        }>
+      >`SELECT id, host_id, is_permanent, is_live, host_last_heartbeat_at
+        FROM rooms WHERE id = ${room.id}::uuid FOR UPDATE`;
+      const row = locked[0];
+      if (!row || !row.is_live) return;
+
+      const hb = row.host_last_heartbeat_at
+        ? new Date(row.host_last_heartbeat_at).getTime()
+        : 0;
+      const stillStale = !hb || hb < cutoff.getTime();
+      if (!stillStale) return;
+
+      const staleHostId = row.host_id;
+      if (staleHostId) {
+        const hostMember = await tx.roomMember.findFirst({
+          where: {
+            roomId: room.id,
+            userId: staleHostId,
+            isActive: true,
+          },
+        });
+        if (
+          hostMember &&
+          hostMember.lastHeartbeatAt &&
+          hostMember.lastHeartbeatAt.getTime() >= cutoff.getTime()
+        ) {
+          // Host member Heartbeat is fresh even if room column lagged — refresh room.
+          await tx.room.update({
+            where: { id: room.id },
+            data: {
+              hostLastHeartbeatAt: hostMember.lastHeartbeatAt,
+              lastActivityAt: new Date(),
+            },
+          });
+          return;
+        }
+
+        await tx.roomMember.updateMany({
+          where: { roomId: room.id, userId: staleHostId, isActive: true },
+          data: { isActive: false, seatIndex: null, role: 'listener' },
+        });
+        await tx.seat.updateMany({
+          where: { roomId: room.id, userId: staleHostId },
+          data: { userId: null, isMuted: false, mutedByUserId: null },
+        });
+      }
+
+      const successor = staleHostId
+        ? await this.pickFreshHostSuccessor(room.id, staleHostId, cutoff, tx)
+        : await this.pickFreshHostSuccessor(room.id, BigInt(0), cutoff, tx);
+
+      if (successor) {
+        await tx.room.update({
+          where: { id: room.id },
+          data: {
+            hostId: successor,
+            hostLastHeartbeatAt: new Date(),
+            lastActivityAt: new Date(),
+          },
+        });
+        await tx.roomMember.updateMany({
+          where: { roomId: room.id, userId: successor },
+          data: { role: 'host', isActive: true },
+        });
+        return;
+      }
+
+      if (row.is_permanent) {
+        await tx.room.update({
+          where: { id: room.id },
+          data: { hostId: null },
+        });
+        return;
+      }
+
+      await tx.room.update({
+        where: { id: room.id },
+        data: { isLive: false, endedAt: new Date(), hostId: null },
+      });
+      await tx.roomMember.updateMany({
+        where: { roomId: room.id, isActive: true },
+        data: { isActive: false, seatIndex: null, role: 'listener' },
+      });
+      await tx.seat.updateMany({
+        where: { roomId: room.id, userId: { not: null } },
+        data: { userId: null, isMuted: false, mutedByUserId: null },
+      });
+      await this.presence.closeAll(tx, room.id, 'room_ended');
+    });
+
+    if (room.hostId) {
+      await this.presence
+        .closeActive(room.hostId, room.id, 'stale_heartbeat')
+        .catch(() => undefined);
+    }
+  }
+
+  private async pickFreshHostSuccessor(
+    roomId: string,
+    exceptUserId: bigint,
+    cutoff: Date,
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
+  ) {
+    const room = await client.room.findUniqueOrThrow({
+      where: { id: roomId },
+    });
+    if (room.coHostId && room.coHostId !== exceptUserId) {
+      const co = await client.roomMember.findFirst({
+        where: {
+          roomId,
+          userId: room.coHostId,
+          isActive: true,
+          lastHeartbeatAt: { gte: cutoff },
+        },
+      });
+      if (co) return room.coHostId;
+    }
+    const next = await client.roomMember.findFirst({
+      where: {
+        roomId,
+        isActive: true,
+        userId: { not: exceptUserId },
+        lastHeartbeatAt: { gte: cutoff },
+        role: { in: ['speaker', 'co_host'] },
+      },
+      orderBy: { joinedAt: 'asc' },
+    });
+    if (next) return next.userId;
+    const any = await client.roomMember.findFirst({
+      where: {
+        roomId,
+        isActive: true,
+        userId: { not: exceptUserId },
+        lastHeartbeatAt: { gte: cutoff },
+      },
+      orderBy: { joinedAt: 'asc' },
+    });
+    return any?.userId ?? null;
   }
 
   private async findRoom(id: string, withUsers = false) {
     const include = withUsers
       ? {
-          owner: true,
-          host: true,
-          coHost: true,
+          owner: personWithFrame,
+          host: personWithFrame,
+          coHost: personWithFrame,
           theme: true,
           _count: { select: { members: { where: { isActive: true } } } },
         }
       : {
-          owner: true,
-          host: true,
-          coHost: true,
+          owner: personWithFrame,
+          host: personWithFrame,
+          coHost: personWithFrame,
           theme: true,
           _count: { select: { members: { where: { isActive: true } } } },
         };
@@ -1284,6 +1540,10 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       agora_uid: member.agoraUid ?? this.agoraUid(member.userId),
       display_name: user.displayName ?? user.name,
       avatar_url: user.avatarUrl,
+      selected_frame_id: user.selectedFrameId
+        ? Number(user.selectedFrameId)
+        : null,
+      ...selectedFrameClientFields(user.selectedFrame),
       joined_at: member.joinedAt?.toISOString(),
     };
   }
@@ -1299,6 +1559,20 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     } catch {
       return true;
     }
+  }
+
+  private serializeUserLite(user: UserLite) {
+    const label = user.displayName ?? user.name;
+    return {
+      id: Number(user.id),
+      name: label,
+      display_name: label,
+      avatar_url: user.avatarUrl,
+      selected_frame_id: user.selectedFrameId
+        ? Number(user.selectedFrameId)
+        : null,
+      ...selectedFrameClientFields(user.selectedFrame),
+    };
   }
 
   private serializeRoom(
@@ -1332,6 +1606,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   ) {
     const rawSettings = (room.settings as Record<string, unknown>) ?? {};
     const allowVideo = globalVideoEnabled && rawSettings.audio_only !== true;
+    const cover = room.coverImageUrl;
 
     return {
       id: room.id,
@@ -1344,7 +1619,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       max_seats: room.maxSeats,
       is_live: room.isLive,
       is_permanent: room.isPermanent,
-      cover_image_url: room.coverImageUrl,
+      cover_image_url: cover,
+      image: cover,
+      image_url: cover,
+      cover,
+      thumbnail: cover,
+      room_image: cover,
       description: room.description,
       tags: room.tags ?? [],
       settings: {
@@ -1369,27 +1649,9 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         banner_duration_min_ms: 1500,
         banner_duration_max_ms: 6000,
       },
-      owner: room.owner
-        ? {
-            id: Number(room.owner.id),
-            name: room.owner.displayName ?? room.owner.name,
-            avatar_url: room.owner.avatarUrl,
-          }
-        : null,
-      host: room.host
-        ? {
-            id: Number(room.host.id),
-            name: room.host.displayName ?? room.host.name,
-            avatar_url: room.host.avatarUrl,
-          }
-        : null,
-      co_host: room.coHost
-        ? {
-            id: Number(room.coHost.id),
-            name: room.coHost.displayName ?? room.coHost.name,
-            avatar_url: room.coHost.avatarUrl,
-          }
-        : null,
+      owner: room.owner ? this.serializeUserLite(room.owner) : null,
+      host: room.host ? this.serializeUserLite(room.host) : null,
+      co_host: room.coHost ? this.serializeUserLite(room.coHost) : null,
       theme: room.theme
         ? {
             id: Number(room.theme.id),

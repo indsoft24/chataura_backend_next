@@ -328,7 +328,7 @@ export class AdminService {
       }),
     ]);
     return {
-      users: rows.map(userForApi),
+      users: rows.map((user) => userForApi(user)),
       total,
       page,
       limit: take,
