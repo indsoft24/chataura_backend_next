@@ -140,11 +140,14 @@ export class RoomGiftingService {
           ref,
           senderLocked,
           {
+            source: 'gift',
+            currency: 'coins',
             room_id: room.id,
             gift_id: Number(gift.id),
             receiver_id: Number(receiverId),
             quantity,
           },
+          'gift',
         );
         await tx.user.update({
           where: { id: receiverId },
@@ -309,12 +312,15 @@ export class RoomGiftingService {
             giftRef,
             currentSender,
             {
+              source: 'gift',
+              currency: 'coins',
               room_id: room.id,
               gift_id: Number(gift.id),
               receiver_id: Number(rid),
               quantity,
               batch_ref: batchRef,
             },
+            'gift',
           );
           currentSender = debitRes.locked;
           finalBalance = debitRes.after;

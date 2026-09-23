@@ -75,6 +75,11 @@ export class AdminController {
     return this.admin.dashboard(period, from, to);
   }
 
+  @Get('users/:id/analytics')
+  userAnalytics(@Param('id') id: string) {
+    return this.admin.userAnalytics(BigInt(id));
+  }
+
   @Get('users')
   users(
     @Query('q') q?: string,

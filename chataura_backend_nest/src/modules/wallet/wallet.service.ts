@@ -349,8 +349,9 @@ export class WalletService {
         pkg.coins,
         'EARNINGS_PURCHASE',
         'Package purchased with earnings',
-        `pkg_${pkg.id}`,
+        `pkg_${pkg.id}_${Date.now()}`,
         locked,
+        { source: 'wallet', currency: 'coins', package_id: Number(pkg.id) },
       );
 
       await tx.coinPurchaseTransaction.create({
@@ -425,14 +426,16 @@ export class WalletService {
         const userMap = await this.ledger.lockUsers(tx, [senderId, receiverId]);
         const senderLocked = userMap.get(senderId.toString());
         const receiverLocked = userMap.get(receiverId.toString());
+        const transferKey = `${senderId}_${receiverId}_${Date.now()}`;
         const { after } = await this.ledger.debitCoins(
           tx,
           senderId,
           amount,
           'SELLER_TRANSFER',
           body.note ?? 'Coin transfer',
-          `to_${receiverId}`,
+          `to_${transferKey}`,
           senderLocked,
+          { source: 'wallet', currency: 'coins', receiver_id: Number(receiverId) },
         );
         const recvAfter = await this.ledger.creditCoins(
           tx,
@@ -440,8 +443,9 @@ export class WalletService {
           amount,
           'SELLER_TRANSFER',
           'Coins received',
-          `from_${senderId}`,
+          `from_${transferKey}`,
           receiverLocked,
+          { source: 'wallet', currency: 'coins', sender_id: Number(senderId) },
         );
         const row = await tx.coinTransaction.findFirst({
           where: { userId: senderId, type: 'SELLER_TRANSFER' },
@@ -502,8 +506,9 @@ export class WalletService {
         amount,
         'REFERRAL_CONVERT',
         'Referral balance converted',
-        undefined,
+        `referral_convert_${userId}_${Date.now()}`,
         locked,
+        { source: 'referral', currency: 'coins' },
       );
       return {
         referral_balance: 0,
@@ -573,8 +578,9 @@ export class WalletService {
         coins,
         'GEM_TO_COINS',
         'Gems converted to coins',
-        undefined,
+        `gems_convert_${userId}_${Date.now()}`,
         locked,
+        { source: 'wallet', currency: 'coins', gems: Number(gemsAmount) },
       );
       const gemsAfter = locked.gems - gemsAmount;
       await tx.gemConversion.create({
@@ -780,8 +786,15 @@ export class WalletService {
           cost,
           'GIFT',
           `Gift: ${gift.name}`,
-          `gift_${gift.id}_to_${receiverId}`,
+          `gift_${gift.id}_to_${receiverId}_${Date.now()}`,
           sender,
+          {
+            source: 'gift',
+            currency: 'coins',
+            gift_id: Number(gift.id),
+            receiver_id: Number(receiverId),
+          },
+          'gift',
         );
         await this.ledger.writeLedger(tx, {
           userId: senderId,

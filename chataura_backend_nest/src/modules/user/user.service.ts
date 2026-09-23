@@ -9,6 +9,10 @@ import { pipeline } from 'stream/promises';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
+import {
+  bandForXp,
+  ensureLaravelLevelBands,
+} from '../gamification/level-bands';
 import { profileForApi, userForApi } from './user.serializer';
 
 const PUBLIC_BASE =
@@ -108,6 +112,11 @@ export class UserService {
             'Referral join bonus',
             refKey,
             userMap.get(userId.toString()),
+            {
+              source: 'referral',
+              currency: 'coins',
+              referrer_id: Number(referrer.id),
+            },
           );
         }
       }
@@ -126,6 +135,50 @@ export class UserService {
             'Referral invite bonus',
             refBonusKey,
             userMap.get(referrer.id.toString()),
+            { source: 'referral', currency: 'coins', referee_id: Number(userId) },
+          );
+        }
+      }
+
+      const settings = await tx.adminSetting.findUnique({ where: { id: 1 } });
+      const extra = (settings?.bonusConfig ?? {}) as {
+        referral_milestone?: {
+          enabled?: boolean;
+          required_count?: number;
+          coins?: number;
+        };
+      };
+      const milestone = extra.referral_milestone ?? {};
+      const required = milestone.required_count ?? 5;
+      const milestoneCoins = milestone.coins ?? 100;
+      const milestoneEnabled = milestone.enabled !== false;
+      const invited = await tx.user.count({
+        where: { invitedBy: referrer.id },
+      });
+      if (milestoneEnabled && invited >= required && milestoneCoins > 0) {
+        const milestoneKey = 'referral_milestone';
+        const existing = await tx.bonusClaim.findFirst({
+          where: { userId: referrer.id, referenceKey: milestoneKey },
+        });
+        if (!existing) {
+          await tx.bonusClaim.create({
+            data: {
+              userId: referrer.id,
+              kind: 'referral_milestone',
+              coins: milestoneCoins,
+              referenceKey: milestoneKey,
+              meta: { source: 'referral', invited },
+            },
+          });
+          await this.ledger.creditCoins(
+            tx,
+            referrer.id,
+            milestoneCoins,
+            'REFERRAL_MILESTONE',
+            'Referral milestone',
+            milestoneKey,
+            null,
+            { source: 'referral', currency: 'coins', invited },
           );
         }
       }
@@ -164,11 +217,13 @@ export class UserService {
   }
 
   async profile(userId: bigint) {
+    const bands = await ensureLaravelLevelBands(this.prisma);
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
     });
     const counts = await this.rawCounts(userId);
-    return profileForApi(user, counts);
+    const band = bandForXp(Number(user.xp), bands);
+    return profileForApi(user, counts, band);
   }
 
   async updateMe(

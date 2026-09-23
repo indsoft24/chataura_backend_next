@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { bandForXp, ensureLaravelLevelBands } from '../gamification/level-bands';
 import { userForApi } from '../user/user.serializer';
 
 @Injectable()
@@ -1238,6 +1239,82 @@ export class AdminService {
         created_at: t.createdAt.toISOString(),
       })),
       meta: { page, limit, total, pages: Math.ceil(total / limit) },
+    };
+  }
+
+  async userAnalytics(userId: bigint) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    const bands = await ensureLaravelLevelBands(this.prisma);
+    const [ledger, claims, sessions, referralCount, milestone] = await Promise.all([
+      this.prisma.coinTransaction.findMany({
+        where: { userId },
+        orderBy: { id: 'desc' },
+        take: 50,
+      }),
+      this.prisma.bonusClaim.findMany({
+        where: { userId },
+        orderBy: { id: 'desc' },
+        take: 50,
+      }),
+      this.prisma.userRoomPresenceSession.findMany({
+        where: { userId },
+        orderBy: { id: 'desc' },
+        take: 20,
+      }),
+      this.prisma.user.count({ where: { invitedBy: userId } }),
+      this.prisma.bonusClaim.findFirst({
+        where: { userId, referenceKey: 'referral_milestone' },
+      }),
+    ]);
+    const xp = Number(user.xp);
+    const band = bandForXp(xp, bands);
+    return {
+      user_id: Number(user.id),
+      level: band.level,
+      level_label: band.label,
+      level_min_xp: band.minXp,
+      level_max_xp: band.maxXp,
+      xp_progress_pct: band.xpProgressPct,
+      xp,
+      wallet_balance: Number(user.walletBalance),
+      gems: Number(user.gems),
+      referral_count: referralCount,
+      referral_milestone_claimed: !!milestone,
+      level_bands: bands.map((b) => ({
+        level: b.level,
+        min_xp: Number(b.minXp),
+        max_xp: Number(b.maxXp),
+        label: b.label,
+      })),
+      ledger: ledger.map((t) => ({
+        id: Number(t.id),
+        type: t.type,
+        coin_amount: Number(t.coinAmount),
+        balance_after: t.balanceAfter !== null ? Number(t.balanceAfter) : null,
+        reference_id: t.referenceId,
+        status: t.status,
+        meta: t.meta,
+        created_at: t.createdAt.toISOString(),
+      })),
+      bonus_claims: claims.map((c) => ({
+        id: Number(c.id),
+        kind: c.kind,
+        coins: c.coins,
+        reference_key: c.referenceKey,
+        meta: c.meta,
+        created_at: c.createdAt.toISOString(),
+      })),
+      presence_sessions: sessions.map((s) => ({
+        id: Number(s.id),
+        room_id: s.roomId,
+        accumulated_seconds: s.accumulatedSeconds,
+        final_seconds: s.finalSeconds,
+        is_active: s.isActive,
+        close_reason: s.closeReason,
+        joined_at: s.joinedAt.toISOString(),
+        closed_at: s.closedAt?.toISOString() ?? null,
+      })),
     };
   }
 

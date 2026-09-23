@@ -5,6 +5,7 @@ import { AgoraService } from './agora.service';
 import { RoomController } from './room.controller';
 import { RoomEvents } from './room.events';
 import { RoomGateway } from './room.gateway';
+import { PresenceService } from './presence.service';
 import { RoomGiftingService } from './room-gifting.service';
 import { RoomService } from './room.service';
 
@@ -13,6 +14,7 @@ import { RoomService } from './room.service';
   controllers: [RoomController],
   providers: [
     RoomService,
+    PresenceService,
     RoomGiftingService,
     AgoraService,
     RoomEvents,

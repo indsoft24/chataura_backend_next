@@ -11,6 +11,7 @@ import { Prisma, RoomMemberRole } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { AgoraService } from './agora.service';
+import { PresenceService } from './presence.service';
 import { RoomEvents } from './room.events';
 
 const STALE_MS = 90_000;
@@ -35,6 +36,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     private readonly ledger: LedgerService,
     private readonly agora: AgoraService,
     private readonly events: RoomEvents,
+    private readonly presence: PresenceService,
   ) {}
 
   onModuleInit() {
@@ -288,9 +290,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       where: { id: room.id },
       data: { isLive: false, endedAt: new Date() },
     });
-    await this.prisma.roomMember.updateMany({
-      where: { roomId: room.id },
-      data: { isActive: false },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.roomMember.updateMany({
+        where: { roomId: room.id },
+        data: { isActive: false },
+      });
+      await this.presence.closeAll(tx, room.id, 'room_ended');
     });
     return { message: 'Room closed' };
   }
@@ -351,6 +356,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         where: { id: room.id },
         data: { lastActivityAt: new Date() },
       });
+      await this.presence.open(tx, userId, room.id);
       return m;
     });
 
@@ -383,6 +389,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   async leave(userId: bigint, id: string) {
     const room = await this.findRoom(id);
     let roomEnded = false;
+    let bonusEarned: Array<{
+      tier_id: number;
+      duration_minutes: number;
+      coins: number;
+      gems: number;
+    }> = [];
     await this.prisma.$transaction(async (tx) => {
       await tx.roomMember.updateMany({
         where: { roomId: room.id, userId },
@@ -421,10 +433,14 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
           }
         }
       }
+      bonusEarned = await this.presence.close(tx, userId, room.id, 'leave');
+      if (roomEnded) {
+        await this.presence.closeAll(tx, room.id, 'room_ended');
+      }
     });
     return {
       message: 'Left room',
-      bonus_earned: [],
+      bonus_earned: bonusEarned,
       room_ended: roomEnded,
       is_permanent: room.isPermanent,
     };
@@ -446,9 +462,11 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         data: { hostLastHeartbeatAt: new Date(), lastActivityAt: new Date() },
       });
     }
+    const presence = await this.presence.heartbeat(userId, room.id);
     return {
       ok: true,
-      bonus_earned: [],
+      bonus_earned: presence.bonus_earned,
+      accumulated_seconds: presence.accumulated_seconds,
       agency_linked: false,
       agency_cashback: null,
     };
@@ -536,6 +554,11 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       where: { roomId: room.id, userId: targetId },
       data: { userId: null },
     });
+    await this.presence.closeActive(
+      targetId,
+      room.id,
+      kind === 'kick' ? 'kick' : 'leave',
+    );
     return { message: kind === 'kick' ? 'User kicked' : 'User blocked' };
   }
 
@@ -855,7 +878,14 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
             sticker.coinCost,
             'STICKER',
             `Sticker: ${sticker.name}`,
-            `sticker_${sticker.id}`,
+            `sticker_${userId}_${sticker.id}`,
+            undefined,
+            {
+              source: 'store',
+              currency: 'coins',
+              sticker_id: Number(sticker.id),
+            },
+            'store',
           );
         } catch (e) {
           if ((e as { code?: string }).code === 'INSUFFICIENT_BALANCE') {
@@ -1056,6 +1086,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         where: { roomId: m.roomId, userId: m.userId },
         data: { userId: null, isMuted: false, mutedByUserId: null },
       });
+      await this.presence.closeActive(m.userId, m.roomId, 'stale_heartbeat');
     }
   }
 

@@ -5,6 +5,10 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
+import {
+  bandForXp,
+  ensureLaravelLevelBands,
+} from './level-bands';
 
 @Injectable()
 export class GamificationService {
@@ -14,20 +18,7 @@ export class GamificationService {
   ) {}
 
   async ensureDefaultLevels() {
-    const count = await this.prisma.level.count();
-    if (count > 0) return;
-    const levels = [];
-    for (let i = 1; i <= 50; i++) {
-      const minXp = (i - 1) * (i - 1) * 100;
-      const maxXp = i * i * 100 - 1;
-      levels.push({
-        level: i,
-        minXp,
-        maxXp,
-        label: `Level ${i}`,
-      });
-    }
-    await this.prisma.level.createMany({ data: levels });
+    await ensureLaravelLevelBands(this.prisma);
   }
 
   levelPayload(
@@ -41,25 +32,36 @@ export class GamificationService {
       label: string | null;
       badgeUrl: string | null;
       iconUrl: string | null;
+      level?: number;
     } | null,
     levelUp = false,
   ) {
     const userXp = Number(user.xp);
-    const min = Number(levelRow?.minXp ?? 0);
-    const max = Number(levelRow?.maxXp ?? Math.max(userXp, 1));
-    const span = Math.max(max - min + 1, 1);
-    const pct = Math.min(100, Math.max(0, ((userXp - min) / span) * 100));
+    const band = bandForXp(
+      userXp,
+      levelRow
+        ? [
+            {
+              level: levelRow.level ?? user.level,
+              minXp: levelRow.minXp,
+              maxXp: levelRow.maxXp,
+              label: levelRow.label,
+            },
+          ]
+        : [],
+    );
     return {
-      level: user.level,
-      current_level: user.level,
+      level: band.level,
+      current_level: band.level,
       xp: userXp,
       exp: userXp,
-      current_xp: user.xp,
-      xp_progress_pct: Math.round(pct * 100) / 100,
-      level_min_xp: min,
-      level_max_xp: max,
+      current_xp: userXp,
+      xp_progress_pct: band.xpProgressPct,
+      level_min_xp: band.minXp,
+      level_max_xp: band.maxXp,
       level_up: levelUp,
-      label: levelRow?.label ?? `Level ${user.level}`,
+      label: levelRow?.label ?? band.label,
+      level_label: levelRow?.label ?? band.label,
       badge_url: levelRow?.badgeUrl ?? null,
       icon_url: levelRow?.iconUrl ?? null,
     };
@@ -70,8 +72,9 @@ export class GamificationService {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
     });
-    const row = await this.prisma.level.findUnique({
-      where: { level: user.level },
+    const row = await this.prisma.level.findFirst({
+      where: { minXp: { lte: user.xp }, maxXp: { gte: user.xp } },
+      orderBy: { level: 'desc' },
     });
     return this.levelPayload(user, row);
   }
@@ -110,7 +113,7 @@ export class GamificationService {
     return this.prisma.$transaction(async (tx) => {
       const locked = await this.ledger.lockUser(tx, userId);
       if (!locked) throw new NotFoundException('User not found');
-      const newXp = locked.xp + Math.floor(amount);
+      const newXp = Number(locked.xp) + Math.floor(amount);
       const levelRow = await tx.level.findFirst({
         where: { minXp: { lte: newXp }, maxXp: { gte: newXp } },
         orderBy: { level: 'desc' },
@@ -124,23 +127,7 @@ export class GamificationService {
       });
 
       if (levelUp) {
-        const freeFrames = await tx.frame.findMany({
-          where: {
-            isActive: true,
-            isPremium: false,
-            levelRequired: { lte: newLevel },
-            OR: [{ coinCost: null }, { coinCost: 0 }],
-          },
-        });
-        for (const f of freeFrames) {
-          await tx.userUnlockedFrame.upsert({
-            where: {
-              userId_frameId: { userId, frameId: f.id },
-            },
-            create: { userId, frameId: f.id, coinsPaid: 0 },
-            update: {},
-          });
-        }
+        await this.ledger.unlockLevelFrames(tx, userId, newLevel);
       }
 
       return this.levelPayload(
@@ -151,10 +138,17 @@ export class GamificationService {
     });
   }
 
+  private frameOwned(row?: { expiresAt: Date | null } | null) {
+    if (!row) return false;
+    if (!row.expiresAt) return true;
+    return row.expiresAt.getTime() > Date.now();
+  }
+
   async frames(userId: bigint) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
     });
+    await this.ledger.unlockLevelFrames(this.prisma, userId, user.level);
     let all = await this.prisma.frame.findMany({
       where: { isActive: true },
       orderBy: [{ levelRequired: 'asc' }, { id: 'asc' }],
@@ -206,7 +200,9 @@ export class GamificationService {
     const unlocked = await this.prisma.userUnlockedFrame.findMany({
       where: { userId },
     });
-    const unlockedIds = new Set(unlocked.map((u) => u.frameId.toString()));
+    const unlockById = new Map(
+      unlocked.map((u) => [u.frameId.toString(), u]),
+    );
 
     const masterAssets = [
       'cosmic_galaxy_wings_cutout',
@@ -237,6 +233,8 @@ export class GamificationService {
       const fallbackAsset = masterAssets[idx % masterAssets.length];
       const assetKey = f.animationKey || f.slug || fallbackAsset;
       const displayUrl = f.imageUrl || assetKey;
+      const row = unlockById.get(f.id.toString());
+      const owned = this.frameOwned(row);
       return {
         id: Number(f.id),
         name: f.name,
@@ -251,8 +249,13 @@ export class GamificationService {
         animation_url: displayUrl,
         animation_url_lite: displayUrl,
         preview_url: displayUrl,
-        unlocked:
-          unlockedIds.has(f.id.toString()) || f.levelRequired <= user.level,
+        owned,
+        unlocked: owned,
+        unlock_type: row?.unlockType ?? null,
+        unlocked_at: row?.unlockedAt?.toISOString() ?? null,
+        expires_at: owned ? (row?.expiresAt?.toISOString() ?? null) : null,
+        duration_days: row?.durationDays ?? null,
+        coins_paid: row?.coinsPaid ?? 0,
         is_selected: user.selectedFrameId === f.id,
       };
     };
@@ -264,10 +267,7 @@ export class GamificationService {
         return fIdx >= 0 ? mapFrame(all[fIdx], fIdx) : null;
       })(),
       unlocked_frames: all
-        .filter(
-          (f) =>
-            unlockedIds.has(f.id.toString()) || f.levelRequired <= user.level,
-        )
+        .filter((f) => this.frameOwned(unlockById.get(f.id.toString())))
         .map(mapFrame),
       available_frames: all.map(mapFrame),
       frames: all.map(mapFrame),
@@ -284,13 +284,10 @@ export class GamificationService {
         error: { code: 'FRAME_NOT_FOUND', message: 'Frame not found' },
       });
     }
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-    });
     const unlocked = await this.prisma.userUnlockedFrame.findUnique({
       where: { userId_frameId: { userId, frameId } },
     });
-    if (!unlocked && frame.levelRequired > user.level) {
+    if (!this.frameOwned(unlocked)) {
       throw new BadRequestException({
         success: false,
         error: { code: 'LOCKED', message: 'Frame is locked' },
@@ -303,7 +300,7 @@ export class GamificationService {
     return this.frames(userId);
   }
 
-  async purchaseFrame(userId: bigint, frameId: bigint) {
+  async purchaseFrame(userId: bigint, frameId: bigint, days?: number) {
     const frame = await this.prisma.frame.findFirst({
       where: { id: frameId, isActive: true },
     });
@@ -313,51 +310,113 @@ export class GamificationService {
         error: { code: 'FRAME_NOT_FOUND', message: 'Frame not found' },
       });
     }
+    const durationDays =
+      days !== undefined && Number.isFinite(days) ? Math.max(0, Math.floor(days)) : 0;
+    const permanent = durationDays <= 0;
     const cost = frame.coinCost ?? 0;
-    if (cost <= 0) {
-      await this.prisma.userUnlockedFrame.upsert({
-        where: { userId_frameId: { userId, frameId } },
-        create: { userId, frameId, coinsPaid: 0 },
-        update: {},
-      });
-      return { ...(await this.frames(userId)), coins_paid: 0 };
-    }
 
-    return this.prisma.$transaction(async (tx) => {
+    const purchase = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`frame_purchase_${userId}_${frameId}`}))`;
-
       const already = await tx.userUnlockedFrame.findUnique({
         where: { userId_frameId: { userId, frameId } },
       });
-      if (already) {
-        const payload = await this.frames(userId);
+      const stillOwned = this.frameOwned(already);
+      if (stillOwned && !already?.expiresAt) {
         return {
-          ...payload,
           coins_paid: 0,
+          already_owned: true,
+          expires_at: null as string | null,
+          duration_days: already?.durationDays ?? null,
+          balances: null as { coins: number; gems?: number } | null,
+        };
+      }
+      const base =
+        stillOwned && already?.expiresAt && already.expiresAt.getTime() > Date.now()
+          ? already.expiresAt
+          : new Date();
+      const expiresAt = permanent
+        ? null
+        : new Date(base.getTime() + durationDays * 86400000);
+      const expiryKey = already?.expiresAt?.toISOString() ?? 'none';
+      const referenceId = `frame_${userId}_${frameId}_${durationDays}_${expiryKey}`;
+
+      if (cost <= 0) {
+        await tx.userUnlockedFrame.upsert({
+          where: { userId_frameId: { userId, frameId } },
+          create: {
+            userId,
+            frameId,
+            coinsPaid: 0,
+            expiresAt,
+            durationDays: permanent ? null : durationDays,
+            unlockType: 'level',
+          },
+          update: {
+            expiresAt,
+            durationDays: permanent ? null : durationDays,
+            unlockType: 'level',
+          },
+        });
+        return {
+          coins_paid: 0,
+          already_owned: false,
+          expires_at: expiresAt?.toISOString() ?? null,
+          duration_days: permanent ? null : durationDays,
+          balances: null,
         };
       }
 
       const locked = await this.ledger.lockUser(tx, userId);
       try {
-        const { after } = await this.ledger.debitCoins(
+        const { after, replayed } = await this.ledger.debitCoins(
           tx,
           userId,
           cost,
           'FRAME',
           `Frame: ${frame.name}`,
-          `frame_${frameId}`,
+          referenceId,
           locked,
+          {
+            source: 'store',
+            currency: 'coins',
+            frame_id: Number(frameId),
+            days: durationDays,
+          },
+          'store',
         );
+        if (replayed) {
+          return {
+            coins_paid: 0,
+            already_owned: true,
+            expires_at: already?.expiresAt?.toISOString() ?? null,
+            duration_days: already?.durationDays ?? null,
+            balances: { coins: Number(after) },
+          };
+        }
         await tx.userUnlockedFrame.upsert({
           where: { userId_frameId: { userId, frameId } },
-          create: { userId, frameId, coinsPaid: cost },
-          update: { coinsPaid: cost },
+          create: {
+            userId,
+            frameId,
+            coinsPaid: cost,
+            expiresAt,
+            durationDays: permanent ? null : durationDays,
+            unlockType: 'purchase',
+          },
+          update: {
+            coinsPaid: cost,
+            expiresAt,
+            durationDays: permanent ? null : durationDays,
+            unlockType: 'purchase',
+          },
         });
-        const payload = await this.frames(userId);
+        const fresh = await tx.user.findUniqueOrThrow({ where: { id: userId } });
         return {
-          ...payload,
           coins_paid: cost,
-          balances: { coins: Number(after) },
+          already_owned: false,
+          expires_at: expiresAt?.toISOString() ?? null,
+          duration_days: permanent ? null : durationDays,
+          balances: { coins: Number(after), gems: Number(fresh.gems) },
         };
       } catch (e) {
         if ((e as { code?: string }).code === 'INSUFFICIENT_BALANCE') {
@@ -372,6 +431,13 @@ export class GamificationService {
         throw e;
       }
     });
+
+    return {
+      ...(await this.frames(userId)),
+      ...purchase,
+      owned: true,
+      unlocked: true,
+    };
   }
 
   async entryBars(userId: bigint) {

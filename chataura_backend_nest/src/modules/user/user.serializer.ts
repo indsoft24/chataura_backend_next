@@ -56,13 +56,35 @@ export function profileForApi(
     following: number;
     friendRequests: number;
   },
+  band?: {
+    level: number;
+    minXp: number;
+    maxXp: number;
+    label: string;
+    xpProgressPct: number;
+  },
 ): Record<string, unknown> {
+  const wallet = Number(user.walletBalance);
+  const xp = Number(user.xp);
   return {
     ...userForApi(user),
+    coins: wallet,
     friends_count: counts.friends,
     followers_count: counts.followers,
     following_count: counts.following,
     friend_requests_count: counts.friendRequests,
     fans_count: counts.followers,
+    ...(band
+      ? {
+          level: band.level,
+          level_label: band.label,
+          label: band.label,
+          xp,
+          exp: xp,
+          level_min_xp: band.minXp,
+          level_max_xp: band.maxXp,
+          xp_progress_pct: band.xpProgressPct,
+        }
+      : {}),
   };
 }

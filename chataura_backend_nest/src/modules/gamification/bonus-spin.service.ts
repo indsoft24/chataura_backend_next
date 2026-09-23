@@ -3,8 +3,16 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService, LockedUser } from '../wallet/ledger.service';
+
+function isUniqueViolation(error: unknown) {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2002'
+  );
+}
 
 const SPIN_PRIZES = [
   {
@@ -42,14 +50,14 @@ const SPIN_PRIZES = [
 ];
 
 export const DEFAULT_BONUS_CONFIG = {
-  daily_streak: { enabled: true, rewards: [10, 20, 30, 40, 50, 60, 70] },
+  daily_streak: { enabled: true, rewards: [5, 10, 15, 20, 25, 30, 50] },
   referral_milestone: { enabled: true, required_count: 5, coins: 100 },
   party_room: {
     enabled: false,
     tiers: [] as Array<{ id: number; duration_minutes: number; coins: number }>,
   },
   watch_video: { enabled: false, coins: 0, min_duration_seconds: 0 },
-  admob: { enabled: true, coins: 10, daily_limit: 5, cooldown_seconds: 60 },
+  admob: { enabled: true, coins: 20, daily_limit: 5, cooldown_seconds: 60 },
   game_1: {
     enabled: true,
     coins: 5,
@@ -120,6 +128,9 @@ export class BonusSpinService {
           'SPIN',
           'Daily spin',
           `spin_${userId}_${Date.now()}`,
+          undefined,
+          { source: 'game', currency: 'coins' },
+          'game',
         );
         let balance = after;
         if (prize.coins > 0) {
@@ -195,9 +206,20 @@ export class BonusSpinService {
           Math.max(user.streakCount, 0) + 1,
           cfg.daily_streak.rewards.length,
         );
-    const invited = await this.prisma.user.count({
-      where: { invitedBy: userId },
-    });
+    const [invited, milestoneClaim, activeSession, tierClaims] =
+      await Promise.all([
+        this.prisma.user.count({ where: { invitedBy: userId } }),
+        this.prisma.bonusClaim.findFirst({
+          where: { userId, referenceKey: 'referral_milestone' },
+        }),
+        this.prisma.userRoomPresenceSession.findFirst({
+          where: { userId, isActive: true },
+          orderBy: { joinedAt: 'desc' },
+        }),
+        this.prisma.bonusClaim.findMany({
+          where: { userId, kind: 'party_tier', createdAt: { gte: start } },
+        }),
+      ]);
     return {
       daily_streak: {
         streak_count: user.streakCount,
@@ -217,7 +239,7 @@ export class BonusSpinService {
       referral_milestone: {
         referral_count: invited,
         required_count: cfg.referral_milestone.required_count,
-        claimed: invited >= cfg.referral_milestone.required_count,
+        claimed: !!milestoneClaim,
         progress_percent: Math.min(
           100,
           Math.floor(
@@ -227,9 +249,14 @@ export class BonusSpinService {
         ),
       },
       party_room: {
-        active_room_id: null,
-        accumulated_seconds: 0,
-        tiers_claimed_today: [],
+        active_room_id: activeSession?.roomId ?? null,
+        accumulated_seconds: activeSession?.accumulatedSeconds ?? 0,
+        tiers_claimed_today: tierClaims
+          .map((c) => {
+            const meta = c.meta as { tier_id?: number } | null;
+            return meta?.tier_id ?? null;
+          })
+          .filter((id): id is number => id !== null),
       },
       watch_video: { reels_claimed_today: [] },
       admob: {
@@ -248,25 +275,75 @@ export class BonusSpinService {
 
   async claimAdmob(userId: bigint) {
     const cfg = await this.bonusCfg();
-    if (!cfg.admob.enabled) {
+    if (!cfg.admob.enabled || cfg.admob.coins <= 0) {
       throw new ForbiddenException({
         success: false,
         error: { code: 'DISABLED', message: 'AdMob bonus is disabled' },
       });
     }
-    const status = await this.bonusStatus(userId);
-    if (!status.admob.can_claim_now) {
-      throw new ForbiddenException({
-        success: false,
-        error: { code: 'COOLDOWN', message: 'AdMob bonus not available yet' },
-      });
-    }
     const coins = cfg.admob.coins;
-    const after = await this.creditBonus(userId, coins, 'BONUS_ADMOB', 'admob');
-    return {
-      bonus: { coins, bonus_type: 'admob' },
-      wallet_balance: Number(after),
-    };
+    const day = this.startOfUtcDay().toISOString().slice(0, 10);
+    try {
+      const after = await this.prisma.$transaction(async (tx) => {
+        const start = this.startOfUtcDay();
+        const claimedToday = await tx.bonusClaim.count({
+          where: { userId, kind: 'admob', createdAt: { gte: start } },
+        });
+        if (claimedToday >= cfg.admob.daily_limit) {
+          throw new ForbiddenException({
+            success: false,
+            error: { code: 'DAILY_LIMIT', message: 'Daily ad limit reached' },
+          });
+        }
+        const last = await tx.bonusClaim.findFirst({
+          where: { userId, kind: 'admob' },
+          orderBy: { id: 'desc' },
+        });
+        if (last) {
+          const since = Math.floor(
+            (Date.now() - last.createdAt.getTime()) / 1000,
+          );
+          if (since < cfg.admob.cooldown_seconds) {
+            throw new ForbiddenException({
+              success: false,
+              error: { code: 'COOLDOWN', message: 'AdMob bonus not available yet' },
+            });
+          }
+        }
+        const referenceKey = `admob_${day}_${claimedToday + 1}`;
+        await tx.bonusClaim.create({
+          data: {
+            userId,
+            kind: 'admob',
+            coins,
+            referenceKey,
+            meta: { source: 'ad', impression_n: claimedToday + 1 },
+          },
+        });
+        return this.ledger.creditCoins(
+          tx,
+          userId,
+          coins,
+          'BONUS_ADMOB',
+          'Ad reward',
+          referenceKey,
+          null,
+          { source: 'ad', currency: 'coins', impression_n: claimedToday + 1 },
+        );
+      });
+      return {
+        bonus: { coins, bonus_type: 'admob' },
+        wallet_balance: Number(after),
+      };
+    } catch (e) {
+      if (isUniqueViolation(e)) {
+        throw new ForbiddenException({
+          success: false,
+          error: { code: 'ALREADY_CLAIMED', message: 'Ad reward already claimed' },
+        });
+      }
+      throw e;
+    }
   }
 
   async claimGame(
@@ -341,6 +418,10 @@ export class BonusSpinService {
         }
       }
       let balance = 0n;
+      const claimedInside = await tx.bonusClaim.count({
+        where: { userId, kind: key, createdAt: { gte: start } },
+      });
+      const referenceKey = `${key}_${userId}_${start.toISOString().slice(0, 10)}_${claimedInside + 1}`;
       if (coins > 0) {
         balance = await this.ledger.creditCoins(
           tx,
@@ -348,8 +429,9 @@ export class BonusSpinService {
           coins,
           'BONUS_GAME',
           `${key} bonus`,
-          `bonus_${key}_${userId}_${Date.now()}`,
+          referenceKey,
           lockedUser,
+          { source: 'game', currency: 'coins', result: resolved },
         );
       } else {
         if (!lockedUser) {
@@ -358,7 +440,13 @@ export class BonusSpinService {
         balance = lockedUser?.wallet_balance ?? 0n;
       }
       await tx.bonusClaim.create({
-        data: { userId, kind: key, coins, meta: { result: resolved } },
+        data: {
+          userId,
+          kind: key,
+          coins,
+          referenceKey,
+          meta: { result: resolved, source: 'game' },
+        },
       });
       return balance;
     });
@@ -377,67 +465,83 @@ export class BonusSpinService {
         error: { code: 'DISABLED', message: 'Streak bonus is disabled' },
       });
     }
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-    });
-    if (this.sameUtcDay(user.lastStreakAt)) {
-      throw new ForbiddenException({
-        success: false,
-        error: {
-          code: 'ALREADY_CLAIMED',
-          message: 'Streak already claimed today',
+    const dayKey = this.startOfUtcDay().toISOString().slice(0, 10);
+    const referenceKey = `streak_${dayKey}`;
+    try {
+      const result = await this.prisma.$transaction(async (tx) => {
+        const locked = await this.ledger.lockUser(tx, userId);
+        if (!locked) throw new ForbiddenException('User not found');
+        const last = locked.last_streak_at
+          ? new Date(locked.last_streak_at)
+          : null;
+        if (this.sameUtcDay(last)) {
+          throw new ForbiddenException({
+            success: false,
+            error: {
+              code: 'ALREADY_CLAIMED',
+              message: 'Streak already claimed today',
+            },
+          });
+        }
+        const yesterday = this.sameUtcDay(
+          last,
+          new Date(Date.now() - 86400000),
+        );
+        const nextCount = yesterday ? Number(locked.streak_count) + 1 : 1;
+        const idx = Math.min(nextCount, cfg.daily_streak.rewards.length) - 1;
+        const coins = cfg.daily_streak.rewards[Math.max(idx, 0)] ?? 0;
+        await tx.bonusClaim.create({
+          data: {
+            userId,
+            kind: 'streak',
+            coins,
+            referenceKey,
+            meta: { day: nextCount, source: 'rewards' },
+          },
+        });
+        const credited =
+          coins > 0
+            ? await this.ledger.creditCoins(
+                tx,
+                userId,
+                coins,
+                'BONUS_STREAK',
+                `Streak day ${nextCount}`,
+                referenceKey,
+                locked,
+                {
+                  source: 'rewards',
+                  currency: 'coins',
+                  check_in_day: nextCount,
+                },
+              )
+            : BigInt(locked.wallet_balance);
+        await tx.user.update({
+          where: { id: userId },
+          data: { streakCount: nextCount, lastStreakAt: new Date() },
+        });
+        return { coins, nextCount, credited };
+      });
+      return {
+        bonus: {
+          coins: result.coins,
+          bonus_type: 'streak',
+          streak_count: result.nextCount,
         },
-      });
+        wallet_balance: Number(result.credited),
+      };
+    } catch (e) {
+      if (isUniqueViolation(e)) {
+        throw new ForbiddenException({
+          success: false,
+          error: {
+            code: 'ALREADY_CLAIMED',
+            message: 'Streak already claimed today',
+          },
+        });
+      }
+      throw e;
     }
-    const yesterday = this.sameUtcDay(
-      user.lastStreakAt,
-      new Date(Date.now() - 86400000),
-    );
-    const nextCount = yesterday ? user.streakCount + 1 : 1;
-    const idx = Math.min(nextCount, cfg.daily_streak.rewards.length) - 1;
-    const coins = cfg.daily_streak.rewards[Math.max(idx, 0)] ?? 0;
-    const after = await this.prisma.$transaction(async (tx) => {
-      const credited = await this.ledger.creditCoins(
-        tx,
-        userId,
-        coins,
-        'BONUS_STREAK',
-        `Streak day ${nextCount}`,
-        `streak_${userId}_${this.startOfUtcDay().toISOString()}`,
-      );
-      await tx.user.update({
-        where: { id: userId },
-        data: { streakCount: nextCount, lastStreakAt: new Date() },
-      });
-      await tx.bonusClaim.create({
-        data: { userId, kind: 'streak', coins, meta: { day: nextCount } },
-      });
-      return credited;
-    });
-    return {
-      bonus: { coins, bonus_type: 'streak', streak_count: nextCount },
-      wallet_balance: Number(after),
-    };
-  }
-
-  private async creditBonus(
-    userId: bigint,
-    coins: number,
-    type: string,
-    kind: string,
-  ) {
-    return this.prisma.$transaction(async (tx) => {
-      const after = await this.ledger.creditCoins(
-        tx,
-        userId,
-        coins,
-        type,
-        `${kind} bonus`,
-        `${kind}_${userId}_${Date.now()}`,
-      );
-      await tx.bonusClaim.create({ data: { userId, kind, coins } });
-      return after;
-    });
   }
 
   private pickPrize() {
@@ -493,7 +597,37 @@ export class BonusSpinService {
   private async bonusCfg() {
     const settings = await this.settings();
     const extra = (settings.bonusConfig ?? {}) as Record<string, unknown>;
-    return { ...DEFAULT_BONUS_CONFIG, ...extra };
+    const merged = {
+      ...DEFAULT_BONUS_CONFIG,
+      ...extra,
+      daily_streak: {
+        ...DEFAULT_BONUS_CONFIG.daily_streak,
+        ...((extra.daily_streak as object) ?? {}),
+      },
+      admob: {
+        ...DEFAULT_BONUS_CONFIG.admob,
+        ...((extra.admob as object) ?? {}),
+      },
+      referral_milestone: {
+        ...DEFAULT_BONUS_CONFIG.referral_milestone,
+        ...((extra.referral_milestone as object) ?? {}),
+      },
+    };
+    const tiers = await this.prisma.partyRoomBonusTier.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { durationMinutes: 'asc' }],
+    });
+    merged.party_room = {
+      enabled: tiers.length > 0,
+      tiers: tiers.map((t) => ({
+        id: Number(t.id),
+        duration_minutes: t.durationMinutes,
+        reward_type: t.rewardType,
+        coins: t.rewardType === 'gems' ? 0 : t.coins,
+        gems: t.rewardType === 'gems' ? t.gems : 0,
+      })),
+    };
+    return merged;
   }
 
   private async settings() {

@@ -48,10 +48,14 @@ export class GamificationController {
   purchaseFrame(
     @CurrentUser() user: AuthUser,
     @Param('frameId') frameId: string,
-    @Body() body: { frame_id?: number | string },
+    @Body() body: { frame_id?: number | string; days?: number },
   ) {
     const id = frameId && frameId !== 'purchase' ? frameId : body.frame_id;
-    return this.game.purchaseFrame(user.id, BigInt(String(id)));
+    return this.game.purchaseFrame(
+      user.id,
+      BigInt(String(id)),
+      body?.days,
+    );
   }
 
   @Get('profile/entry-bars/all')

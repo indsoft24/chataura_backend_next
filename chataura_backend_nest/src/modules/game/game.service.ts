@@ -119,7 +119,9 @@ export class GameService {
           amount,
           'GAME_GREEDY',
           `Greedy bet ${item}`,
-          `greedy_${round.id}_${item}`,
+          `greedy_${round.id}_${item}_${Date.now()}`,
+          undefined,
+          { source: 'game', currency: 'coins', round_id: round.id.toString(), item },
         );
         await tx.greedyBet.create({
           data: {
@@ -354,7 +356,9 @@ export class GameService {
           amount,
           'GAME_LUCKY77',
           `Lucky77 ${option}`,
-          `lucky77_${round.id}_${option}`,
+          `lucky77_${round.id}_${option}_${Date.now()}`,
+          undefined,
+          { source: 'game', currency: 'coins', round_id: round.id.toString(), option },
         );
         await tx.lucky77Bet.create({
           data: {
@@ -553,6 +557,8 @@ export class GameService {
               'GAME_GREEDY_WIN',
               `Greedy win ${winner}`,
               winRef,
+              null,
+              { source: 'game', currency: 'coins', round_id: current.id.toString() },
             );
           }
         }
@@ -645,6 +651,8 @@ export class GameService {
               'GAME_LUCKY77_WIN',
               `Lucky77 win ${winner}`,
               winRef,
+              null,
+              { source: 'game', currency: 'coins', round_id: current.id.toString() },
             );
           }
         }

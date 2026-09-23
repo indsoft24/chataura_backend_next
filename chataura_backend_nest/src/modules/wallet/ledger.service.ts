@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { ensureLaravelLevelBands } from '../gamification/level-bands';
 
 type Tx = Prisma.TransactionClient | PrismaClient;
 
@@ -12,9 +13,11 @@ export interface LockedUser {
   referral_balance: bigint;
   inr_earnings_balance: bigint;
   usd_earnings_balance: bigint;
-  xp: number;
+  xp: number | bigint;
   level: number;
   role: string;
+  streak_count: number;
+  last_streak_at: Date | null;
 }
 
 @Injectable()
@@ -24,7 +27,8 @@ export class LedgerService {
   async lockUser(tx: Tx, userId: bigint): Promise<LockedUser | null> {
     const rows = await tx.$queryRaw<LockedUser[]>`
       SELECT id, wallet_balance, coin_balance, gems, referral_balance,
-             inr_earnings_balance, usd_earnings_balance, xp, level, role
+             inr_earnings_balance, usd_earnings_balance, xp, level, role,
+             streak_count, last_streak_at
       FROM users WHERE id = ${userId} FOR UPDATE`;
     return rows[0] ?? null;
   }
@@ -99,12 +103,17 @@ export class LedgerService {
     title: string,
     referenceId?: string,
     existingLock?: LockedUser | null,
+    meta?: Prisma.InputJsonValue,
   ) {
     const amt = BigInt(amount);
     if (amt <= 0n) throw new Error('credit amount must be positive');
+    const prior = await this.findByReference(tx, userId, referenceId);
+    if (prior) {
+      return prior.balanceAfter ?? existingLock?.wallet_balance ?? 0n;
+    }
     const locked = existingLock ?? (await this.lockUser(tx, userId));
     if (!locked) throw new Error('USER_NOT_FOUND');
-    const after = locked.wallet_balance + amt;
+    const after = BigInt(locked.wallet_balance) + amt;
     await tx.user.update({
       where: { id: userId },
       data: {
@@ -119,6 +128,7 @@ export class LedgerService {
       coinAmount: amt,
       balanceAfter: after,
       referenceId,
+      meta,
     });
     return after;
   }
@@ -133,13 +143,25 @@ export class LedgerService {
     referenceId?: string,
     existingLock?: LockedUser | null,
     meta?: Prisma.InputJsonValue,
-  ): Promise<{ after: bigint; locked: LockedUser }> {
+    xpSource?: string,
+  ): Promise<{ after: bigint; locked: LockedUser; replayed: boolean }> {
     const amt = BigInt(amount);
     if (amt <= 0n) throw new Error('debit amount must be positive');
+    const prior = await this.findByReference(tx, userId, referenceId);
+    if (prior) {
+      const locked = existingLock ?? (await this.lockUser(tx, userId));
+      if (!locked) throw new Error('USER_NOT_FOUND');
+      return {
+        after: prior.balanceAfter ?? BigInt(locked.wallet_balance),
+        locked,
+        replayed: true,
+      };
+    }
     const locked = existingLock ?? (await this.lockUser(tx, userId));
     if (!locked) throw new Error('USER_NOT_FOUND');
-    const after = locked.wallet_balance - amt;
-    if (locked.wallet_balance < amt || after < 0n) {
+    const wallet = BigInt(locked.wallet_balance);
+    const after = wallet - amt;
+    if (wallet < amt || after < 0n) {
       throw Object.assign(new Error('INSUFFICIENT_BALANCE'), {
         code: 'INSUFFICIENT_BALANCE',
       });
@@ -156,6 +178,7 @@ export class LedgerService {
         code: 'INSUFFICIENT_BALANCE',
       });
     }
+    const ledgerMeta = this.withSource(meta, xpSource);
     await this.writeLedger(tx, {
       userId,
       type,
@@ -163,13 +186,113 @@ export class LedgerService {
       coinAmount: -amt,
       balanceAfter: after,
       referenceId,
-      meta,
+      meta: ledgerMeta,
     });
-    const updatedLocked: LockedUser = {
+    let updatedLocked: LockedUser = {
       ...locked,
       wallet_balance: after,
       coin_balance: after,
     };
-    return { after, locked: updatedLocked };
+    if (xpSource) {
+      updatedLocked = await this.awardXpForSpend(
+        tx,
+        updatedLocked,
+        amt,
+        xpSource,
+        referenceId,
+      );
+    }
+    return { after, locked: updatedLocked, replayed: false };
+  }
+
+  /**
+   * XP for a coin spend, in the same transaction as the debit.
+   * Ledger row uses coin_amount 0 so coin sums stay coin sums.
+   */
+  async awardXpForSpend(
+    tx: Tx,
+    locked: LockedUser,
+    coinsSpent: bigint | number,
+    source: string,
+    relatedReferenceId?: string,
+  ): Promise<LockedUser> {
+    await ensureLaravelLevelBands(this.prisma);
+    const settings = await tx.adminSetting.findUnique({ where: { id: 1 } });
+    const ratio = Number(settings?.coinToXpRatio ?? 0.1);
+    const xpDelta = Math.floor(Number(coinsSpent) * ratio);
+    if (xpDelta < 1) return locked;
+    const xpRef = relatedReferenceId ? `xp_${relatedReferenceId}` : undefined;
+    const prior = await this.findByReference(tx, locked.id, xpRef);
+    if (prior) return locked;
+    const newXp = Number(locked.xp) + xpDelta;
+    const levelRow = await tx.level.findFirst({
+      where: { minXp: { lte: newXp }, maxXp: { gte: newXp } },
+      orderBy: { level: 'desc' },
+    });
+    const newLevel = levelRow?.level ?? locked.level;
+    await tx.user.update({
+      where: { id: locked.id },
+      data: { xp: newXp, exp: newXp, level: newLevel },
+    });
+    await this.writeLedger(tx, {
+      userId: locked.id,
+      type: 'XP',
+      title: `XP from ${source}`,
+      coinAmount: 0,
+      balanceAfter: newXp,
+      referenceId: xpRef,
+      meta: {
+        source,
+        currency: 'xp',
+        xp_delta: xpDelta,
+        xp_balance_after: newXp,
+        related_reference_id: relatedReferenceId ?? null,
+      },
+    });
+    if (newLevel > locked.level) {
+      await this.unlockLevelFrames(tx, locked.id, newLevel);
+    }
+    return { ...locked, xp: newXp, level: newLevel };
+  }
+
+  async unlockLevelFrames(tx: Tx, userId: bigint, level: number) {
+    const freeFrames = await tx.frame.findMany({
+      where: {
+        isActive: true,
+        isPremium: false,
+        levelRequired: { lte: level },
+        OR: [{ coinCost: null }, { coinCost: 0 }],
+      },
+    });
+    for (const frame of freeFrames) {
+      await tx.userUnlockedFrame.upsert({
+        where: { userId_frameId: { userId, frameId: frame.id } },
+        create: {
+          userId,
+          frameId: frame.id,
+          coinsPaid: 0,
+          unlockType: 'level',
+        },
+        update: {},
+      });
+    }
+  }
+
+  private async findByReference(tx: Tx, userId: bigint, referenceId?: string) {
+    if (!referenceId) return null;
+    return tx.coinTransaction.findFirst({
+      where: { userId, referenceId },
+    });
+  }
+
+  private withSource(
+    meta: Prisma.InputJsonValue | undefined,
+    source?: string,
+  ): Prisma.InputJsonValue | undefined {
+    if (!source) return meta;
+    if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+      return { ...(meta as Record<string, unknown>), source };
+    }
+    return { source, currency: 'coins' };
   }
 }
