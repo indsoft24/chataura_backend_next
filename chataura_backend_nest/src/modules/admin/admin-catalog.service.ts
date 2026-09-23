@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { resolve } from 'path';
@@ -6,6 +6,11 @@ import {
   classifyMediaUrl,
   resolveCatalogMedia,
 } from '../../common/utils/catalog-media';
+import {
+  GIFT_CATEGORIES,
+  isGiftCategory,
+  normalizeGiftCategory,
+} from '../../common/utils/gift-category';
 import { extractVideoPoster } from '../../common/utils/video-poster';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
@@ -139,6 +144,7 @@ export class AdminCatalogService {
           id: Number(g.id),
           name: g.name,
           coin_cost: g.coinCost,
+          category: normalizeGiftCategory(g.category),
           image_url: g.imageUrl,
           animation_url: g.animationUrl,
           media_type: media.media_type,
@@ -153,6 +159,7 @@ export class AdminCatalogService {
     name: string;
     coin_cost?: number;
     coinCost?: number;
+    category?: string;
     image_url?: string;
     imageUrl?: string;
     animation_url?: string;
@@ -160,6 +167,16 @@ export class AdminCatalogService {
     video_url?: string;
   }) {
     const cost = body.coin_cost ?? body.coinCost ?? 0;
+    if (body.category !== undefined && !isGiftCategory(body.category)) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `category must be one of: ${GIFT_CATEGORIES.join(', ')}`,
+        },
+      });
+    }
+    const category = normalizeGiftCategory(body.category);
     const paired = await this.pairCatalogMedia(
       body.image_url ?? body.imageUrl,
       body.animation_url ?? body.animationUrl ?? body.video_url,
@@ -168,6 +185,7 @@ export class AdminCatalogService {
       data: {
         name: body.name,
         coinCost: Number(cost),
+        category,
         imageUrl: paired.imageUrl,
         animationUrl: paired.animationUrl,
       },
@@ -176,6 +194,7 @@ export class AdminCatalogService {
       id: Number(g.id),
       name: g.name,
       coin_cost: g.coinCost,
+      category: normalizeGiftCategory(g.category),
       image_url: g.imageUrl,
       animation_url: g.animationUrl,
       is_active: g.isActive,
@@ -188,6 +207,7 @@ export class AdminCatalogService {
       name?: string;
       coin_cost?: number;
       coinCost?: number;
+      category?: string;
       image_url?: string;
       imageUrl?: string;
       animation_url?: string;
@@ -197,6 +217,15 @@ export class AdminCatalogService {
     },
   ) {
     const cost = body.coin_cost ?? body.coinCost;
+    if (body.category !== undefined && !isGiftCategory(body.category)) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `category must be one of: ${GIFT_CATEGORIES.join(', ')}`,
+        },
+      });
+    }
     const img = body.image_url ?? body.imageUrl;
     const anim = body.animation_url ?? body.animationUrl ?? body.video_url;
     let mediaPatch: { imageUrl: string | null; animationUrl: string | null } | null =
@@ -216,6 +245,9 @@ export class AdminCatalogService {
       data: {
         ...(body.name !== undefined ? { name: body.name } : {}),
         ...(cost !== undefined ? { coinCost: Number(cost) } : {}),
+        ...(body.category !== undefined
+          ? { category: normalizeGiftCategory(body.category) }
+          : {}),
         ...(mediaPatch
           ? {
               imageUrl: mediaPatch.imageUrl,
@@ -229,6 +261,7 @@ export class AdminCatalogService {
       id: Number(g.id),
       name: g.name,
       coin_cost: g.coinCost,
+      category: normalizeGiftCategory(g.category),
       image_url: g.imageUrl,
       animation_url: g.animationUrl,
       is_active: g.isActive,

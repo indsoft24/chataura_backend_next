@@ -75,6 +75,10 @@ export class CreateGiftDto {
   coinCost?: number;
 
   @IsOptional()
+  @IsIn(['standard', 'customize', 'cp', 'bcp'])
+  category?: string;
+
+  @IsOptional()
   @IsString()
   image_url?: string;
 
@@ -109,6 +113,10 @@ export class UpdateGiftDto {
   @IsInt()
   @Min(0)
   coinCost?: number;
+
+  @IsOptional()
+  @IsIn(['standard', 'customize', 'cp', 'bcp'])
+  category?: string;
 
   @IsOptional()
   @IsString()

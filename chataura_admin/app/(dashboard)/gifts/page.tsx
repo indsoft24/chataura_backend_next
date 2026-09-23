@@ -10,14 +10,29 @@ import MediaThumb from '@/app/components/MediaThumb';
 const ANIMATION_ACCEPT =
   '.svga,.json,.gif,.webp,.mp4,.webm,video/mp4,video/webm,image/gif,image/webp';
 
+const GIFT_CATEGORIES = [
+  { value: 'standard', label: 'Standard' },
+  { value: 'customize', label: 'Customize' },
+  { value: 'cp', label: 'CP (Couple)' },
+  { value: 'bcp', label: 'BCP (Best Friend Couple)' },
+] as const;
+
+type GiftCategory = (typeof GIFT_CATEGORIES)[number]['value'];
+
 type Gift = {
   id: number;
   name: string;
   coin_cost: number;
+  category?: string | null;
   image_url: string | null;
   animation_url: string | null;
   is_active: boolean;
 };
+
+function categoryLabel(value: string | null | undefined) {
+  const key = (value ?? 'standard').toLowerCase();
+  return GIFT_CATEGORIES.find((c) => c.value === key)?.label ?? 'Standard';
+}
 
 export default function GiftsPage() {
   const router = useRouter();
@@ -28,6 +43,7 @@ export default function GiftsPage() {
   // Form states
   const [name, setName] = useState('');
   const [coinCost, setCoinCost] = useState('50');
+  const [category, setCategory] = useState<GiftCategory>('standard');
   const [imageUrl, setImageUrl] = useState('');
   const [animationUrl, setAnimationUrl] = useState('');
   const [error, setError] = useState('');
@@ -38,6 +54,7 @@ export default function GiftsPage() {
   const [editingGift, setEditingGift] = useState<Gift | null>(null);
   const [editName, setEditName] = useState('');
   const [editCoinCost, setEditCoinCost] = useState('50');
+  const [editCategory, setEditCategory] = useState<GiftCategory>('standard');
   const [editImageUrl, setEditImageUrl] = useState('');
   const [editAnimationUrl, setEditAnimationUrl] = useState('');
   const [editIsActive, setEditIsActive] = useState(true);
@@ -78,6 +95,7 @@ export default function GiftsPage() {
         body: JSON.stringify({
           name: name.trim(),
           coin_cost: Number(coinCost) || 0,
+          category,
           image_url: imageUrl.trim() || undefined,
           animation_url: animationUrl.trim() || undefined,
         }),
@@ -88,6 +106,7 @@ export default function GiftsPage() {
       }
       setName('');
       setCoinCost('50');
+      setCategory('standard');
       setImageUrl('');
       setAnimationUrl('');
       void load(token);
@@ -102,6 +121,12 @@ export default function GiftsPage() {
     setEditingGift(gift);
     setEditName(gift.name);
     setEditCoinCost(String(gift.coin_cost));
+    const cat = (gift.category ?? 'standard').toLowerCase();
+    setEditCategory(
+      (GIFT_CATEGORIES.some((c) => c.value === cat)
+        ? cat
+        : 'standard') as GiftCategory,
+    );
     setEditImageUrl(gift.image_url ?? '');
     setEditAnimationUrl(gift.animation_url ?? '');
     setEditIsActive(gift.is_active);
@@ -125,6 +150,7 @@ export default function GiftsPage() {
         body: JSON.stringify({
           name: editName.trim(),
           coin_cost: Number(editCoinCost) || 0,
+          category: editCategory,
           image_url: editImageUrl.trim() || undefined,
           animation_url: editAnimationUrl.trim() || undefined,
           is_active: editIsActive,
@@ -199,6 +225,19 @@ export default function GiftsPage() {
               style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
             />
           </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Category</label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value as GiftCategory)}
+              style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem', background: '#fff' }}
+            >
+              {GIFT_CATEGORIES.map((c) => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', marginBottom: '16px' }}>
@@ -262,6 +301,9 @@ export default function GiftsPage() {
 
               <div style={{ fontWeight: 600, color: '#111827', fontSize: '1.05rem', marginBottom: '4px', textAlign: 'center' }}>{g.name}</div>
               <div style={{ color: '#d97706', fontWeight: 700, fontSize: '0.95rem' }}>🪙 {g.coin_cost.toLocaleString()} Coins</div>
+              <div style={{ marginTop: '6px', fontSize: '0.72rem', backgroundColor: '#f3f4f6', color: '#374151', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>
+                {categoryLabel(g.category)}
+              </div>
               
               {g.animation_url && (
                 <div style={{ marginTop: '6px', fontSize: '0.72rem', backgroundColor: '#e0e7ff', color: '#3730a3', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>
@@ -391,6 +433,19 @@ export default function GiftsPage() {
                 onChange={(e) => setEditCoinCost(e.target.value)}
                 style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
               />
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Category</label>
+              <select
+                value={editCategory}
+                onChange={(e) => setEditCategory(e.target.value as GiftCategory)}
+                style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem', background: '#fff' }}
+              >
+                {GIFT_CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
+                ))}
+              </select>
             </div>
 
             <FileUploadInput
