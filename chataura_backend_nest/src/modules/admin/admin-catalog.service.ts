@@ -1,10 +1,50 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
+import { resolve } from 'path';
+import {
+  classifyMediaUrl,
+  resolveCatalogMedia,
+} from '../../common/utils/catalog-media';
+import { extractVideoPoster } from '../../common/utils/video-poster';
 import { PrismaService } from '../../common/prisma/prisma.service';
+
+function blankToNull(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const trimmed = String(value).trim();
+  return trimmed ? trimmed : null;
+}
 
 @Injectable()
 export class AdminCatalogService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
+
+  private async pairCatalogMedia(
+    image: string | null | undefined,
+    animation: string | null | undefined,
+  ): Promise<{ imageUrl: string | null; animationUrl: string | null }> {
+    let imageUrl = blankToNull(image);
+    let animationUrl = blankToNull(animation);
+    if (imageUrl && classifyMediaUrl(imageUrl) === 'video') {
+      if (!animationUrl) animationUrl = imageUrl;
+      imageUrl = null;
+    }
+    if (!imageUrl && animationUrl && classifyMediaUrl(animationUrl) === 'video') {
+      const poster = await extractVideoPoster({
+        videoUrl: animationUrl,
+        uploadsDir: resolve(process.cwd(), 'uploads'),
+        publicBase: this.config.get<string>(
+          'PUBLIC_BASE_URL',
+          'http://localhost:3000',
+        ),
+      });
+      if (poster) imageUrl = poster;
+    }
+    return { imageUrl, animationUrl };
+  }
 
   // ──────────────────────────────────────────────
   // Packages
@@ -93,14 +133,19 @@ export class AdminCatalogService {
   async gifts() {
     const rows = await this.prisma.gift.findMany({ orderBy: { id: 'asc' } });
     return {
-      gifts: rows.map((g) => ({
-        id: Number(g.id),
-        name: g.name,
-        coin_cost: g.coinCost,
-        image_url: g.imageUrl,
-        animation_url: g.animationUrl,
-        is_active: g.isActive,
-      })),
+      gifts: rows.map((g) => {
+        const media = resolveCatalogMedia(g.imageUrl, g.animationUrl);
+        return {
+          id: Number(g.id),
+          name: g.name,
+          coin_cost: g.coinCost,
+          image_url: g.imageUrl,
+          animation_url: g.animationUrl,
+          media_type: media.media_type,
+          loop: media.loop,
+          is_active: g.isActive,
+        };
+      }),
     };
   }
 
@@ -115,15 +160,16 @@ export class AdminCatalogService {
     video_url?: string;
   }) {
     const cost = body.coin_cost ?? body.coinCost ?? 0;
-    const img = body.image_url ?? body.imageUrl ?? null;
-    const anim =
-      body.animation_url ?? body.animationUrl ?? body.video_url ?? null;
+    const paired = await this.pairCatalogMedia(
+      body.image_url ?? body.imageUrl,
+      body.animation_url ?? body.animationUrl ?? body.video_url,
+    );
     const g = await this.prisma.gift.create({
       data: {
         name: body.name,
         coinCost: Number(cost),
-        imageUrl: img,
-        animationUrl: anim,
+        imageUrl: paired.imageUrl,
+        animationUrl: paired.animationUrl,
       },
     });
     return {
@@ -152,15 +198,30 @@ export class AdminCatalogService {
   ) {
     const cost = body.coin_cost ?? body.coinCost;
     const img = body.image_url ?? body.imageUrl;
-    const anim =
-      body.animation_url ?? body.animationUrl ?? body.video_url;
+    const anim = body.animation_url ?? body.animationUrl ?? body.video_url;
+    let mediaPatch: { imageUrl: string | null; animationUrl: string | null } | null =
+      null;
+    if (img !== undefined || anim !== undefined) {
+      const existing = await this.prisma.gift.findUnique({
+        where: { id },
+        select: { imageUrl: true, animationUrl: true },
+      });
+      mediaPatch = await this.pairCatalogMedia(
+        img !== undefined ? img : existing?.imageUrl,
+        anim !== undefined ? anim : existing?.animationUrl,
+      );
+    }
     const g = await this.prisma.gift.update({
       where: { id },
       data: {
         ...(body.name !== undefined ? { name: body.name } : {}),
         ...(cost !== undefined ? { coinCost: Number(cost) } : {}),
-        ...(img !== undefined ? { imageUrl: img } : {}),
-        ...(anim !== undefined ? { animationUrl: anim } : {}),
+        ...(mediaPatch
+          ? {
+              imageUrl: mediaPatch.imageUrl,
+              animationUrl: mediaPatch.animationUrl,
+            }
+          : {}),
         ...(body.is_active !== undefined ? { isActive: body.is_active } : {}),
       },
     });
@@ -386,7 +447,10 @@ export class AdminCatalogService {
         is_premium: f.isPremium,
         is_active: f.isActive,
         image_url: f.imageUrl,
+        animation_url: f.animationUrl,
         animation_key: f.animationKey,
+        composite_mode: f.compositeMode,
+        media_type: resolveCatalogMedia(f.imageUrl, f.animationUrl).media_type,
       })),
     };
   }
@@ -398,8 +462,18 @@ export class AdminCatalogService {
     coin_cost?: number;
     is_premium?: boolean;
     image_url?: string;
+    animation_url?: string;
     animation_key?: string;
+    composite_mode?: string;
   }) {
+    const paired = await this.pairCatalogMedia(body.image_url, body.animation_url);
+    const composite =
+      body.composite_mode === 'screen' || body.composite_mode === 'alpha'
+        ? body.composite_mode
+        : classifyMediaUrl(paired.animationUrl) === 'video' &&
+            paired.animationUrl?.toLowerCase().includes('.mp4')
+          ? 'screen'
+          : 'alpha';
     const f = await this.prisma.frame.create({
       data: {
         name: body.name,
@@ -410,8 +484,10 @@ export class AdminCatalogService {
             ? Number(body.coin_cost)
             : null,
         isPremium: Boolean(body.is_premium ?? false),
-        imageUrl: body.image_url ?? null,
+        imageUrl: paired.imageUrl,
+        animationUrl: paired.animationUrl,
         animationKey: body.animation_key ?? null,
+        compositeMode: composite,
       },
     });
     return {
@@ -422,6 +498,8 @@ export class AdminCatalogService {
       coin_cost: f.coinCost,
       is_premium: f.isPremium,
       image_url: f.imageUrl,
+      animation_url: f.animationUrl,
+      composite_mode: f.compositeMode,
       is_active: f.isActive,
     };
   }
@@ -436,9 +514,39 @@ export class AdminCatalogService {
       is_premium?: boolean;
       is_active?: boolean;
       image_url?: string;
+      animation_url?: string;
       animation_key?: string;
+      composite_mode?: string;
     },
   ) {
+    let mediaPatch: { imageUrl: string | null; animationUrl: string | null } | null =
+      null;
+    let compositePatch: string | undefined;
+    if (
+      body.image_url !== undefined ||
+      body.animation_url !== undefined ||
+      body.composite_mode !== undefined
+    ) {
+      const existing = await this.prisma.frame.findUnique({
+        where: { id },
+        select: { imageUrl: true, animationUrl: true, compositeMode: true },
+      });
+      mediaPatch = await this.pairCatalogMedia(
+        body.image_url !== undefined ? body.image_url : existing?.imageUrl,
+        body.animation_url !== undefined
+          ? body.animation_url
+          : existing?.animationUrl,
+      );
+      if (body.composite_mode === 'screen' || body.composite_mode === 'alpha') {
+        compositePatch = body.composite_mode;
+      } else if (body.animation_url !== undefined) {
+        compositePatch =
+          classifyMediaUrl(mediaPatch.animationUrl) === 'video' &&
+          mediaPatch.animationUrl?.toLowerCase().includes('.mp4')
+            ? 'screen'
+            : 'alpha';
+      }
+    }
     const f = await this.prisma.frame.update({
       where: { id },
       data: {
@@ -458,7 +566,15 @@ export class AdminCatalogService {
         ...(body.is_active !== undefined
           ? { isActive: Boolean(body.is_active) }
           : {}),
-        ...(body.image_url !== undefined ? { imageUrl: body.image_url } : {}),
+        ...(mediaPatch
+          ? {
+              imageUrl: mediaPatch.imageUrl,
+              animationUrl: mediaPatch.animationUrl,
+            }
+          : {}),
+        ...(compositePatch !== undefined
+          ? { compositeMode: compositePatch }
+          : {}),
         ...(body.animation_key !== undefined
           ? { animationKey: body.animation_key }
           : {}),
@@ -468,6 +584,9 @@ export class AdminCatalogService {
       id: Number(f.id),
       name: f.name,
       category: f.category,
+      image_url: f.imageUrl,
+      animation_url: f.animationUrl,
+      composite_mode: f.compositeMode,
       is_active: f.isActive,
     };
   }
@@ -630,6 +749,7 @@ export class AdminCatalogService {
         coin_cost: s.coinCost,
         image_url: s.imageUrl,
         animation_url: s.animationUrl,
+        media_type: resolveCatalogMedia(s.imageUrl, s.animationUrl).media_type,
         is_active: s.isActive,
       })),
     };
@@ -641,12 +761,13 @@ export class AdminCatalogService {
     image_url?: string;
     animation_url?: string;
   }) {
+    const paired = await this.pairCatalogMedia(body.image_url, body.animation_url);
     const s = await this.prisma.sticker.create({
       data: {
         name: body.name,
         coinCost: Number(body.coin_cost ?? 0),
-        imageUrl: body.image_url ?? null,
-        animationUrl: body.animation_url ?? null,
+        imageUrl: paired.imageUrl,
+        animationUrl: paired.animationUrl,
       },
     });
     return {
@@ -668,6 +789,20 @@ export class AdminCatalogService {
       is_active?: boolean;
     },
   ) {
+    let mediaPatch: { imageUrl: string | null; animationUrl: string | null } | null =
+      null;
+    if (body.image_url !== undefined || body.animation_url !== undefined) {
+      const existing = await this.prisma.sticker.findUnique({
+        where: { id },
+        select: { imageUrl: true, animationUrl: true },
+      });
+      mediaPatch = await this.pairCatalogMedia(
+        body.image_url !== undefined ? body.image_url : existing?.imageUrl,
+        body.animation_url !== undefined
+          ? body.animation_url
+          : existing?.animationUrl,
+      );
+    }
     const s = await this.prisma.sticker.update({
       where: { id },
       data: {
@@ -675,9 +810,11 @@ export class AdminCatalogService {
         ...(body.coin_cost !== undefined
           ? { coinCost: Number(body.coin_cost) }
           : {}),
-        ...(body.image_url !== undefined ? { imageUrl: body.image_url } : {}),
-        ...(body.animation_url !== undefined
-          ? { animationUrl: body.animation_url }
+        ...(mediaPatch
+          ? {
+              imageUrl: mediaPatch.imageUrl,
+              animationUrl: mediaPatch.animationUrl,
+            }
           : {}),
         ...(body.is_active !== undefined
           ? { isActive: Boolean(body.is_active) }

@@ -221,7 +221,15 @@ export class CreateFrameDto {
 
   @IsOptional()
   @IsString()
+  animation_url?: string;
+
+  @IsOptional()
+  @IsString()
   animation_key?: string;
+
+  @IsOptional()
+  @IsIn(['alpha', 'screen'])
+  composite_mode?: 'alpha' | 'screen';
 }
 
 export class UpdateFrameDto {
@@ -257,7 +265,15 @@ export class UpdateFrameDto {
 
   @IsOptional()
   @IsString()
+  animation_url?: string;
+
+  @IsOptional()
+  @IsString()
   animation_key?: string;
+
+  @IsOptional()
+  @IsIn(['alpha', 'screen'])
+  composite_mode?: 'alpha' | 'screen';
 }
 
 // ──────────────────────────────────────────────

@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import FileUploadInput from '@/app/components/FileUploadInput';
+import MediaThumb, { compositeForAnimation } from '@/app/components/MediaThumb';
+
+const ANIMATION_ACCEPT =
+  '.svga,.json,.gif,.webp,.mp4,.webm,video/mp4,video/webm,image/gif,image/webp';
 
 type Frame = {
   id: number;
@@ -15,6 +19,8 @@ type Frame = {
   is_premium: boolean;
   is_active: boolean;
   image_url: string | null;
+  animation_url: string | null;
+  composite_mode: 'alpha' | 'screen' | null;
 };
 
 export default function FramesPage() {
@@ -30,6 +36,8 @@ export default function FramesPage() {
   const [coinCost, setCoinCost] = useState('0');
   const [isPremium, setIsPremium] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
+  const [animationUrl, setAnimationUrl] = useState('');
+  const [composite, setComposite] = useState<'alpha' | 'screen'>('alpha');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -42,6 +50,8 @@ export default function FramesPage() {
   const [editCoinCost, setEditCoinCost] = useState('0');
   const [editIsPremium, setEditIsPremium] = useState(false);
   const [editImageUrl, setEditImageUrl] = useState('');
+  const [editAnimationUrl, setEditAnimationUrl] = useState('');
+  const [editComposite, setEditComposite] = useState<'alpha' | 'screen'>('alpha');
   const [editIsActive, setEditIsActive] = useState(true);
   const [editError, setEditError] = useState('');
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -82,7 +92,9 @@ export default function FramesPage() {
           level_required: Number(levelReq) || 1,
           coin_cost: coinCost ? Number(coinCost) : null,
           is_premium: isPremium,
-          image_url: imageUrl.trim() || undefined,
+          image_url: imageUrl.trim(),
+          animation_url: animationUrl.trim(),
+          composite_mode: composite,
         }),
       });
       if (!json.success) {
@@ -91,6 +103,8 @@ export default function FramesPage() {
       }
       setName('');
       setImageUrl('');
+      setAnimationUrl('');
+      setComposite('alpha');
       setIsPremium(false);
       setCoinCost('0');
       void load(token);
@@ -109,6 +123,8 @@ export default function FramesPage() {
     setEditCoinCost(frame.coin_cost !== null ? String(frame.coin_cost) : '0');
     setEditIsPremium(frame.is_premium);
     setEditImageUrl(frame.image_url ?? '');
+    setEditAnimationUrl(frame.animation_url ?? '');
+    setEditComposite(frame.composite_mode === 'screen' ? 'screen' : 'alpha');
     setEditIsActive(frame.is_active);
     setEditError('');
     setEditModalOpen(true);
@@ -133,7 +149,9 @@ export default function FramesPage() {
           level_required: Number(editLevelReq) || 1,
           coin_cost: editCoinCost ? Number(editCoinCost) : null,
           is_premium: editIsPremium,
-          image_url: editImageUrl.trim() || undefined,
+          image_url: editImageUrl.trim(),
+          animation_url: editAnimationUrl.trim(),
+          composite_mode: editComposite,
           is_active: editIsActive,
         }),
       });
@@ -232,14 +250,39 @@ export default function FramesPage() {
           </div>
         </div>
 
-        <FileUploadInput
-          label="Frame Asset (.svga, .png, .webp, .gif)"
-          value={imageUrl}
-          onChange={(url) => setImageUrl(url)}
-          accept="image/*,.svga,.json"
-          placeholder="https://.../frame.svga or upload file"
-          helpText="Upload an animated SVGA frame or a transparent PNG/WebP frame overlay."
-        />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', marginBottom: '16px' }}>
+          <FileUploadInput
+            label="Frame Poster (.png, .webp)"
+            value={imageUrl}
+            onChange={(url) => setImageUrl(url)}
+            accept="image/*"
+            placeholder="https://.../frame_poster.png or upload image"
+            helpText="Still preview for the catalog. Leave empty for video uploads and a poster is generated."
+          />
+          <FileUploadInput
+            label="Frame Animation (.svga, .gif, .webp, .mp4, .webm)"
+            value={animationUrl}
+            onChange={(url) => {
+              setAnimationUrl(url);
+              setComposite(compositeForAnimation(url));
+            }}
+            accept={ANIMATION_ACCEPT}
+            placeholder="https://.../frame.mp4 or upload file"
+            helpText="Looping avatar ring. MP4 glow clips on black use Screen composite."
+          />
+        </div>
+
+        <div style={{ marginBottom: '16px' }}>
+          <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Composite</label>
+          <select
+            value={composite}
+            onChange={(e) => setComposite(e.target.value === 'screen' ? 'screen' : 'alpha')}
+            style={{ width: '100%', maxWidth: '360px', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem', backgroundColor: '#fff' }}
+          >
+            <option value="alpha">Alpha (transparent PNG, WebM, SVGA)</option>
+            <option value="screen">Screen (black background glow video)</option>
+          </select>
+        </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
           <input
@@ -285,11 +328,14 @@ export default function FramesPage() {
           {frames.map((f) => (
             <div key={f.id} style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <div style={{ width: '92px', height: '92px', borderRadius: '50%', background: '#0f172a', marginBottom: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', position: 'relative' }}>
-                {f.image_url ? (
-                  <img src={f.image_url} alt={f.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                ) : (
-                  <span style={{ fontSize: '2.5rem' }}>⭕</span>
-                )}
+                <MediaThumb
+                  imageUrl={f.image_url}
+                  animationUrl={f.animation_url}
+                  composite={f.composite_mode}
+                  alt={f.name}
+                  fallback="⭕"
+                  rounded
+                />
               </div>
 
               <div style={{ fontWeight: 600, color: '#111827', fontSize: '1.05rem', marginBottom: '4px', textAlign: 'center' }}>{f.name}</div>
@@ -462,13 +508,37 @@ export default function FramesPage() {
               />
             </div>
 
-            <FileUploadInput
-              label="Frame Asset (.svga, .png, .webp, .gif)"
-              value={editImageUrl}
-              onChange={(url) => setEditImageUrl(url)}
-              accept="image/*,.svga,.json"
-              placeholder="https://.../frame.svga"
-            />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+              <FileUploadInput
+                label="Frame Poster (.png, .webp)"
+                value={editImageUrl}
+                onChange={(url) => setEditImageUrl(url)}
+                accept="image/*"
+                placeholder="https://.../frame_poster.png"
+              />
+              <FileUploadInput
+                label="Frame Animation (.svga, .gif, .webp, .mp4, .webm)"
+                value={editAnimationUrl}
+                onChange={(url) => {
+                  setEditAnimationUrl(url);
+                  setEditComposite(compositeForAnimation(url));
+                }}
+                accept={ANIMATION_ACCEPT}
+                placeholder="https://.../frame.mp4"
+              />
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Composite</label>
+              <select
+                value={editComposite}
+                onChange={(e) => setEditComposite(e.target.value === 'screen' ? 'screen' : 'alpha')}
+                style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem', backgroundColor: '#fff' }}
+              >
+                <option value="alpha">Alpha (transparent PNG, WebM, SVGA)</option>
+                <option value="screen">Screen (black background glow video)</option>
+              </select>
+            </div>
 
             <div style={{ display: 'flex', gap: '20px', marginBottom: '20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

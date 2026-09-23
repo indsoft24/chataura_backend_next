@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { presentFrameMedia } from '../../common/utils/catalog-media';
 import { LedgerService } from '../wallet/ledger.service';
 import {
   bandForXp,
@@ -232,7 +233,11 @@ export class GamificationService {
     const mapFrame = (f: (typeof all)[0], idx: number) => {
       const fallbackAsset = masterAssets[idx % masterAssets.length];
       const assetKey = f.animationKey || f.slug || fallbackAsset;
-      const displayUrl = f.imageUrl || assetKey;
+      const media = presentFrameMedia(f.imageUrl, f.animationUrl, f.compositeMode);
+      const displayUrl = media.loop
+        ? media.preview_url
+        : media.preview_url || assetKey;
+      const animationUrl = media.loop ? media.animation_url : displayUrl;
       const row = unlockById.get(f.id.toString());
       const owned = this.frameOwned(row);
       return {
@@ -246,9 +251,14 @@ export class GamificationService {
         is_premium: f.isPremium,
         image_url: displayUrl,
         animation_key: assetKey,
-        animation_url: displayUrl,
-        animation_url_lite: displayUrl,
-        preview_url: displayUrl,
+        animation_url: animationUrl,
+        animation_url_lite: media.loop
+          ? media.animation_url_lite
+          : displayUrl,
+        preview_url: media.preview_url || displayUrl,
+        media_type: media.media_type,
+        loop: media.loop,
+        composite: media.composite,
         owned,
         unlocked: owned,
         unlock_type: row?.unlockType ?? null,
@@ -563,19 +573,27 @@ export class GamificationService {
       });
     }
 
-    const items = roleFrames.map((f) => ({
-      id: Number(f.id),
-      role_key: f.animationKey || 'agency',
-      slug: f.slug,
-      motion_type: 'hq',
-      label: f.name,
-      is_default: true,
-      animation_url: f.imageUrl,
-      animation_url_lite: f.imageUrl,
-      preview_url: f.imageUrl,
-      entry_image_url: f.imageUrl,
-      entry_animation_url: f.imageUrl,
-    }));
+    const items = roleFrames.map((f) => {
+      const media = presentFrameMedia(f.imageUrl, f.animationUrl, f.compositeMode);
+      const preview = media.preview_url || media.image_url;
+      const animation = media.animation_url || preview;
+      return {
+        id: Number(f.id),
+        role_key: f.animationKey || 'agency',
+        slug: f.slug,
+        motion_type: 'hq',
+        label: f.name,
+        is_default: true,
+        animation_url: animation,
+        animation_url_lite: media.animation_url_lite || preview,
+        preview_url: preview,
+        entry_image_url: preview,
+        entry_animation_url: animation,
+        media_type: media.media_type,
+        loop: media.loop,
+        composite: media.composite,
+      };
+    });
 
     return { role_frames: items };
   }
@@ -636,6 +654,8 @@ export class GamificationService {
       role_frame_url: selectedFrame?.animation_url ?? null,
       role_frame_url_lite: selectedFrame?.animation_url_lite ?? null,
       role_frame_url_hq: selectedFrame?.animation_url ?? null,
+      role_frame_media_type: selectedFrame?.media_type ?? null,
+      role_frame_composite: selectedFrame?.composite ?? null,
     };
   }
 

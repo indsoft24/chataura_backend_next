@@ -8,7 +8,10 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { Prisma, RoomMemberRole } from '@prisma/client';
-import { resolveCatalogMedia } from '../../common/utils/catalog-media';
+import {
+  catalogClientFields,
+  presentFrameMedia,
+} from '../../common/utils/catalog-media';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { AgoraService } from './agora.service';
@@ -830,15 +833,13 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
     return {
       stickers: rows.map((s) => {
-        const media = resolveCatalogMedia(s.imageUrl, s.animationUrl);
         const isFree = s.coinCost === 0;
         return {
           id: Number(s.id),
           name: s.name,
           coin_cost: s.coinCost,
           is_free: isFree,
-          image_url: media.image_url,
-          animation_url: media.animation_url,
+          ...catalogClientFields(s.imageUrl, s.animationUrl),
           owned: isFree || ownedIds.has(s.id.toString()),
         };
       }),
@@ -941,12 +942,10 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       }
     }
     const quantity = Math.min(Math.max(Number(body.quantity ?? 1), 1), 100);
-    const media = resolveCatalogMedia(sticker.imageUrl, sticker.animationUrl);
     return {
       sticker_id: Number(sticker.id),
       quantity,
-      image_url: media.image_url,
-      animation_url: media.animation_url,
+      ...catalogClientFields(sticker.imageUrl, sticker.animationUrl),
       total_cost: 0,
       owned: true,
     };
@@ -993,6 +992,41 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private seatFrameFields(
+    frame:
+      | {
+          imageUrl: string | null;
+          animationUrl: string | null;
+          compositeMode: string | null;
+        }
+      | null
+      | undefined,
+  ) {
+    if (!frame) {
+      return {
+        selected_frame_url: null,
+        selected_frame_url_lite: null,
+        selected_frame_url_hq: null,
+        selected_frame_animation_url: null,
+        selected_frame_media_type: null,
+        selected_frame_composite: null,
+      };
+    }
+    const media = presentFrameMedia(
+      frame.imageUrl,
+      frame.animationUrl,
+      frame.compositeMode,
+    );
+    return {
+      selected_frame_url: media.preview_url,
+      selected_frame_url_lite: media.animation_url_lite,
+      selected_frame_url_hq: media.preview_url,
+      selected_frame_animation_url: media.animation_url,
+      selected_frame_media_type: media.media_type,
+      selected_frame_composite: media.composite,
+    };
+  }
+
   private async seatsSnapshot(
     roomId: string,
     viewerId: bigint | null | undefined,
@@ -1028,9 +1062,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         selected_frame_id: s.user?.selectedFrameId
           ? Number(s.user.selectedFrameId)
           : null,
-        selected_frame_url: s.user?.selectedFrame?.imageUrl ?? null,
-        selected_frame_url_lite: s.user?.selectedFrame?.imageUrl ?? null,
-        selected_frame_url_hq: s.user?.selectedFrame?.imageUrl ?? null,
+        ...this.seatFrameFields(s.user?.selectedFrame),
         rtc_role: s.userId ? 'publisher' : null,
       })),
       max_seats: maxSeats,

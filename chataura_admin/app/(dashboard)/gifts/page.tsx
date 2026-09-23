@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import FileUploadInput from '@/app/components/FileUploadInput';
+import MediaThumb from '@/app/components/MediaThumb';
+
+const ANIMATION_ACCEPT =
+  '.svga,.json,.gif,.webp,.mp4,.webm,video/mp4,video/webm,image/gif,image/webp';
 
 type Gift = {
   id: number;
@@ -208,12 +212,12 @@ export default function GiftsPage() {
           />
 
           <FileUploadInput
-            label="Gift Animation Effect (.svga, .json, .webp, .gif)"
+            label="Gift Animation (.svga, .json, .gif, .webp, .mp4, .webm)"
             value={animationUrl}
             onChange={(url) => setAnimationUrl(url)}
-            accept=".svga,.json,image/*"
-            placeholder="https://.../gift_anim.svga or upload file"
-            helpText="Upload SVGA or Lottie JSON played on screen during room gifting."
+            accept={ANIMATION_ACCEPT}
+            placeholder="https://.../gift_anim.mp4 or upload file"
+            helpText="Looping gift sticker. SVGA, Lottie, GIF, WebP, MP4, or WebM. MP4 plays full-screen in the room."
           />
         </div>
 
@@ -248,11 +252,12 @@ export default function GiftsPage() {
           {gifts.map((g) => (
             <div key={g.id} style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>
               <div style={{ width: '96px', height: '96px', borderRadius: '12px', background: '#f8fafc', marginBottom: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid #f1f5f9' }}>
-                {g.image_url ? (
-                  <img src={g.image_url} alt={g.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                ) : (
-                  <span style={{ fontSize: '2.5rem' }}>🎁</span>
-                )}
+                <MediaThumb
+                  imageUrl={g.image_url}
+                  animationUrl={g.animation_url}
+                  alt={g.name}
+                  fallback="🎁"
+                />
               </div>
 
               <div style={{ fontWeight: 600, color: '#111827', fontSize: '1.05rem', marginBottom: '4px', textAlign: 'center' }}>{g.name}</div>
@@ -397,11 +402,11 @@ export default function GiftsPage() {
             />
 
             <FileUploadInput
-              label="Gift Animation Effect (.svga, .json, .webp)"
+              label="Gift Animation (.svga, .json, .gif, .webp, .mp4, .webm)"
               value={editAnimationUrl}
               onChange={(url) => setEditAnimationUrl(url)}
-              accept=".svga,.json,image/*"
-              placeholder="https://.../gift_anim.svga"
+              accept={ANIMATION_ACCEPT}
+              placeholder="https://.../gift_anim.mp4"
             />
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>

@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import FileUploadInput from '@/app/components/FileUploadInput';
+import MediaThumb from '@/app/components/MediaThumb';
+
+const ANIMATION_ACCEPT =
+  '.svga,.json,.gif,.webp,.mp4,.webm,video/mp4,video/webm,image/gif,image/webp';
 
 type Sticker = {
   id: number;
@@ -207,12 +211,12 @@ export default function StickersPage() {
           />
 
           <FileUploadInput
-            label="Animated Sticker (.gif, .webp, .json, .svga)"
+            label="Animated Sticker (.gif, .webp, .json, .svga, .mp4, .webm)"
             value={animationUrl}
             onChange={(url) => setAnimationUrl(url)}
-            accept=".svga,.json,image/*"
-            placeholder="https://.../sticker_anim.json or upload file"
-            helpText="Upload an animated GIF, WebP, Lottie JSON, or SVGA sticker."
+            accept={ANIMATION_ACCEPT}
+            placeholder="https://.../sticker_anim.mp4 or upload file"
+            helpText="Looping sticker. GIF, WebP, Lottie JSON, SVGA, MP4, or WebM."
           />
         </div>
 
@@ -247,11 +251,12 @@ export default function StickersPage() {
           {stickers.map((s) => (
             <div key={s.id} style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <div style={{ width: '84px', height: '84px', borderRadius: '12px', background: '#f8fafc', marginBottom: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid #f1f5f9' }}>
-                {s.image_url ? (
-                  <img src={s.image_url} alt={s.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                ) : (
-                  <span style={{ fontSize: '2.5rem' }}>✨</span>
-                )}
+                <MediaThumb
+                  imageUrl={s.image_url}
+                  animationUrl={s.animation_url}
+                  alt={s.name}
+                  fallback="✨"
+                />
               </div>
 
               <div style={{ fontWeight: 600, color: '#111827', fontSize: '1.05rem', marginBottom: '4px', textAlign: 'center' }}>{s.name}</div>
@@ -398,11 +403,11 @@ export default function StickersPage() {
             />
 
             <FileUploadInput
-              label="Animated Sticker (.gif, .webp, .json, .svga)"
+              label="Animated Sticker (.gif, .webp, .json, .svga, .mp4, .webm)"
               value={editAnimationUrl}
               onChange={(url) => setEditAnimationUrl(url)}
-              accept=".svga,.json,image/*"
-              placeholder="https://.../sticker_anim.json"
+              accept={ANIMATION_ACCEPT}
+              placeholder="https://.../sticker_anim.mp4"
             />
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>

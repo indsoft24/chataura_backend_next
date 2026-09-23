@@ -400,7 +400,9 @@ model Frame {
   isPremium     Boolean  @default(false) @map("is_premium")
   isActive      Boolean  @default(true) @map("is_active")
   imageUrl      String?  @map("image_url") @db.Text
+  animationUrl  String?  @map("animation_url") @db.Text
   animationKey  String?  @map("animation_key") @db.VarChar(128)
+  compositeMode String   @default("alpha") @map("composite_mode") @db.VarChar(16)
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   unlocks         UserUnlockedFrame[]

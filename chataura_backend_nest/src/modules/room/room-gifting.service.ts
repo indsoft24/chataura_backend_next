@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { resolveCatalogMedia } from '../../common/utils/catalog-media';
+import { catalogClientFields } from '../../common/utils/catalog-media';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { RoomEvents } from './room.events';
@@ -43,17 +43,13 @@ export class RoomGiftingService {
     }
 
     return {
-      gifts: gifts.map((g) => {
-        const media = resolveCatalogMedia(g.imageUrl, g.animationUrl);
-        return {
-          id: Number(g.id),
-          name: g.name,
-          coin_cost: g.coinCost,
-          coin_price: g.coinCost,
-          image_url: media.image_url,
-          animation_url: media.animation_url,
-        };
-      }),
+      gifts: gifts.map((g) => ({
+        id: Number(g.id),
+        name: g.name,
+        coin_cost: g.coinCost,
+        coin_price: g.coinCost,
+        ...catalogClientFields(g.imageUrl, g.animationUrl),
+      })),
     };
   }
 
@@ -181,11 +177,9 @@ export class RoomGiftingService {
       }
     });
     {
-      const media = resolveCatalogMedia(gift.imageUrl, gift.animationUrl);
       this.events.emitGiftOverlay(room.id, {
         gift_id: Number(gift.id),
-        image_url: media.image_url,
-        animation_url: media.animation_url,
+        ...catalogClientFields(gift.imageUrl, gift.animationUrl),
         sender_id: Number(senderId),
         receiver_id: Number(receiverId),
         quantity,
@@ -358,12 +352,11 @@ export class RoomGiftingService {
     });
 
     {
-      const media = resolveCatalogMedia(gift.imageUrl, gift.animationUrl);
+      const media = catalogClientFields(gift.imageUrl, gift.animationUrl);
       for (const rid of receiverIds) {
         this.events.emitGiftOverlay(room.id, {
           gift_id: Number(gift.id),
-          image_url: media.image_url,
-          animation_url: media.animation_url,
+          ...media,
           sender_id: Number(senderId),
           receiver_id: Number(rid),
           quantity,

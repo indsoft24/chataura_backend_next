@@ -20,6 +20,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NODE_OPTIONS=--max-old-space-size=1200
 
+RUN apk add --no-cache ffmpeg
+
 COPY package.json package-lock.json ./
 RUN npm install --omit=dev && npm cache clean --force
 

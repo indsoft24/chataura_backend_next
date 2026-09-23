@@ -17,7 +17,7 @@ export default function FileUploadInput({
   label,
   value,
   onChange,
-  accept = 'image/*,.json,.svga,.svg,.webp,.gif,.png,.jpg,.jpeg',
+  accept = 'image/*,video/mp4,video/webm,.json,.svga,.svg,.webp,.gif,.png,.jpg,.jpeg,.mp4,.webm',
   helpText = 'Max 15MB. You can upload a local file or paste a direct/CDN URL below.',
   placeholder = 'https://... or uploaded path',
   required = false,
@@ -60,15 +60,14 @@ export default function FileUploadInput({
     }
   };
 
-  const isAnimation =
-    value?.toLowerCase().endsWith('.json') ||
-    value?.toLowerCase().endsWith('.svga') ||
-    fileName?.toLowerCase().endsWith('.json') ||
-    fileName?.toLowerCase().endsWith('.svga');
+  const path = value ? value.split(/[?#]/)[0].toLowerCase() : '';
+  const isVideo = path.endsWith('.mp4') || path.endsWith('.webm');
+  const isAnimation = path.endsWith('.json') || path.endsWith('.svga');
 
   const isImage =
     value &&
     !isAnimation &&
+    !isVideo &&
     (value.startsWith('http') || value.startsWith('/uploads') || value.startsWith('data:image'));
 
   return (
@@ -245,7 +244,30 @@ export default function FileUploadInput({
             border: '1px solid #e2e8f0',
           }}
         >
-          {isImage ? (
+          {isVideo ? (
+            <div
+              style={{
+                width: '72px',
+                height: '72px',
+                borderRadius: '6px',
+                backgroundColor: '#0f172a',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden',
+                flexShrink: 0,
+              }}
+            >
+              <video
+                src={value}
+                muted
+                loop
+                autoPlay
+                playsInline
+                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+              />
+            </div>
+          ) : isImage ? (
             <div
               style={{
                 width: '48px',
@@ -304,7 +326,11 @@ export default function FileUploadInput({
 
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#334155' }}>
-              {isAnimation ? 'Lottie / SVGA Animation Asset' : 'Current Active Asset'}
+              {isVideo
+                ? 'Looping video'
+                : isAnimation
+                  ? 'Lottie / SVGA Animation Asset'
+                  : 'Current Active Asset'}
             </div>
             <div
               style={{
