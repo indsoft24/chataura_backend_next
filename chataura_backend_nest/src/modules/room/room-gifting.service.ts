@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { resolveCatalogMedia } from '../../common/utils/catalog-media';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { RoomEvents } from './room.events';
@@ -41,29 +42,16 @@ export class RoomGiftingService {
       });
     }
 
-    const defaultGiftUrls: Record<string, string> = {
-      rose: 'https://media.giphy.com/media/w78ifyfLK7q8308f0k/200w.gif',
-      heart: 'https://media.giphy.com/media/l4FGzFhVty9Q0cyxq/200w.gif',
-      diamond: 'https://media.giphy.com/media/FiR4O9bYEPkBi/200w.gif',
-      crown: 'https://media.giphy.com/media/26FPLMDDN5fJCir0A/200w.gif',
-      rocket: 'https://media.giphy.com/media/mi6DsSSNKDbUY/200w.gif',
-      'luxury car': 'https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/200w.gif',
-      castle: 'https://media.giphy.com/media/artj92V8o75VPL7AeQ/200w.gif',
-      superstar: 'https://media.giphy.com/media/26tPplGWjN0xLybiU/200w.gif',
-    };
-
     return {
       gifts: gifts.map((g) => {
-        const key = g.name.toLowerCase().trim();
-        const fallback = defaultGiftUrls[key] ?? 'https://media.giphy.com/media/w78ifyfLK7q8308f0k/200w.gif';
-        const img = g.imageUrl || fallback;
+        const media = resolveCatalogMedia(g.imageUrl, g.animationUrl);
         return {
           id: Number(g.id),
           name: g.name,
           coin_cost: g.coinCost,
           coin_price: g.coinCost,
-          image_url: img,
-          animation_url: g.animationUrl || img,
+          image_url: media.image_url,
+          animation_url: media.animation_url,
         };
       }),
     };
@@ -192,14 +180,17 @@ export class RoomGiftingService {
         throw e;
       }
     });
-    this.events.emitGiftOverlay(room.id, {
-      gift_id: Number(gift.id),
-      image_url: gift.imageUrl,
-      animation_url: gift.animationUrl,
-      sender_id: Number(senderId),
-      receiver_id: Number(receiverId),
-      quantity,
-    });
+    {
+      const media = resolveCatalogMedia(gift.imageUrl, gift.animationUrl);
+      this.events.emitGiftOverlay(room.id, {
+        gift_id: Number(gift.id),
+        image_url: media.image_url,
+        animation_url: media.animation_url,
+        sender_id: Number(senderId),
+        receiver_id: Number(receiverId),
+        quantity,
+      });
+    }
     return result;
   }
 
@@ -366,15 +357,18 @@ export class RoomGiftingService {
       }
     });
 
-    for (const rid of receiverIds) {
-      this.events.emitGiftOverlay(room.id, {
-        gift_id: Number(gift.id),
-        image_url: gift.imageUrl,
-        animation_url: gift.animationUrl,
-        sender_id: Number(senderId),
-        receiver_id: Number(rid),
-        quantity,
-      });
+    {
+      const media = resolveCatalogMedia(gift.imageUrl, gift.animationUrl);
+      for (const rid of receiverIds) {
+        this.events.emitGiftOverlay(room.id, {
+          gift_id: Number(gift.id),
+          image_url: media.image_url,
+          animation_url: media.animation_url,
+          sender_id: Number(senderId),
+          receiver_id: Number(rid),
+          quantity,
+        });
+      }
     }
 
     return result;

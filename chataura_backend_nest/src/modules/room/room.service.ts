@@ -8,6 +8,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { Prisma, RoomMemberRole } from '@prisma/client';
+import { resolveCatalogMedia } from '../../common/utils/catalog-media';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { AgoraService } from './agora.service';
@@ -827,29 +828,18 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       : [];
     const ownedIds = new Set(owned.map((o) => o.stickerId.toString()));
 
-    const defaultStickerUrls: Record<string, string> = {
-      wave: 'https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/200w.gif',
-      heart: 'https://media.giphy.com/media/l4FGzFhVty9Q0cyxq/200w.gif',
-      fire: 'https://media.giphy.com/media/3o72F8t9TDi2xVnxOE/200w.gif',
-      clap: 'https://media.giphy.com/media/artj92V8o75VPL7AeQ/200w.gif',
-      crown: 'https://media.giphy.com/media/26FPLMDDN5fJCir0A/200w.gif',
-      cool: 'https://media.giphy.com/media/d31w24psGYeekCZy/200w.gif',
-      party: 'https://media.giphy.com/media/artj92V8o75VPL7AeQ/200w.gif',
-      kiss: 'https://media.giphy.com/media/Eiaj048pggjySP0sQz/200w.gif',
-    };
-
     return {
       stickers: rows.map((s) => {
-        const key = s.name.toLowerCase().trim();
-        const fallback = defaultStickerUrls[key] ?? 'https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/200w.gif';
-        const img = s.imageUrl || fallback;
+        const media = resolveCatalogMedia(s.imageUrl, s.animationUrl);
+        const isFree = s.coinCost === 0;
         return {
           id: Number(s.id),
           name: s.name,
           coin_cost: s.coinCost,
-          image_url: img,
-          animation_url: s.animationUrl || img,
-          owned: s.coinCost === 0 || ownedIds.has(s.id.toString()),
+          is_free: isFree,
+          image_url: media.image_url,
+          animation_url: media.animation_url,
+          owned: isFree || ownedIds.has(s.id.toString()),
         };
       }),
     };
@@ -951,11 +941,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       }
     }
     const quantity = Math.min(Math.max(Number(body.quantity ?? 1), 1), 100);
+    const media = resolveCatalogMedia(sticker.imageUrl, sticker.animationUrl);
     return {
       sticker_id: Number(sticker.id),
       quantity,
-      image_url: sticker.imageUrl,
-      animation_url: sticker.animationUrl,
+      image_url: media.image_url,
+      animation_url: media.animation_url,
       total_cost: 0,
       owned: true,
     };

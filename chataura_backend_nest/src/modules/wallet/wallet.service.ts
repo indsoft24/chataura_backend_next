@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import Razorpay from 'razorpay';
+import { resolveCatalogMedia } from '../../common/utils/catalog-media';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from './ledger.service';
 
@@ -871,12 +872,16 @@ export class WalletService {
       });
     }
     return {
-      gifts: gifts.map((g) => ({
-        id: Number(g.id),
-        name: g.name,
-        coin_cost: g.coinCost,
-        image_url: g.imageUrl,
-      })),
+      gifts: gifts.map((g) => {
+        const media = resolveCatalogMedia(g.imageUrl, g.animationUrl);
+        return {
+          id: Number(g.id),
+          name: g.name,
+          coin_cost: g.coinCost,
+          image_url: media.image_url,
+          animation_url: media.animation_url,
+        };
+      }),
     };
   }
 
