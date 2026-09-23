@@ -38,6 +38,65 @@ export class RelationshipController {
     });
   }
 
+  @Get('relationships/broadcasts')
+  broadcasts(
+    @Query('room_id') roomId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.relationships.broadcasts({
+      roomId,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('relationships/rings')
+  rings(
+    @CurrentUser() user: { id: bigint },
+    @Query('type') type?: string,
+  ) {
+    return this.relationships.listRings(user.id, type);
+  }
+
+  @Get('relationships/privileges')
+  privileges(
+    @CurrentUser() user: { id: bigint },
+    @Query('type') type = 'cp',
+  ) {
+    return this.relationships.listPrivileges(user.id, type);
+  }
+
+  @Post('relationships/invite')
+  invite(
+    @CurrentUser() user: { id: bigint },
+    @Body() body: { user_id: number | string; type_code: string },
+  ) {
+    return this.relationships.invite(user.id, body.user_id, body.type_code);
+  }
+
+  @Post('relationships/:id/accept')
+  accept(
+    @CurrentUser() user: { id: bigint },
+    @Param('id') id: string,
+  ) {
+    return this.relationships.accept(user.id, id);
+  }
+
+  @Post('relationships/:id/unbind')
+  unbind(
+    @CurrentUser() user: { id: bigint },
+    @Param('id') id: string,
+  ) {
+    return this.relationships.unbind(user.id, id);
+  }
+
+  @Post('rooms/:roomId/relationships/mic-tick')
+  micTick(
+    @Param('roomId') roomId: string,
+    @Body() body: { seated_user_ids?: Array<number | string> },
+  ) {
+    return this.relationships.micTick(roomId, body.seated_user_ids ?? []);
+  }
+
   @Get('relationships/leaderboard')
   leaderboard(
     @Query('type') type: string,
@@ -123,6 +182,11 @@ export class RelationshipController {
       visual?: object;
       leaderboard?: object;
       rank1_rewards?: object;
+      max_partners?: number | null;
+      formation_cost_coins?: number;
+      unbind_cost_coins?: number;
+      mic_exp_per_tick?: number;
+      mic_exp_daily_cap?: number;
     },
   ) {
     return this.relationships.adminUpsertType(body);

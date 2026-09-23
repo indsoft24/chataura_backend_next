@@ -1,23 +1,36 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  forwardRef,
+} from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { LedgerService } from '../wallet/ledger.service';
 import { RelationshipEngineService } from './relationship-engine.service';
 import {
   PeriodType,
+  canonicalUserPair,
   isPeriodType,
   periodKey,
 } from './relationship-period';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class RelationshipService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly engine: RelationshipEngineService,
+    @Inject(forwardRef(() => LedgerService))
+    private readonly ledger: LedgerService,
   ) {}
 
   async listTypes(enabledOnly = true) {
     await this.engine.ensureDefaultTypes();
     const types = await this.prisma.relationshipType.findMany({
       where: enabledOnly ? { enabled: true } : undefined,
+      include: { levelThresholds: { orderBy: { level: 'asc' } } },
       orderBy: { sortOrder: 'asc' },
     });
     return {
@@ -38,7 +51,7 @@ export class RelationshipService {
 
     const rows = await this.prisma.userRelationship.findMany({
       where: {
-        status: 'active',
+        status: { in: ['active', 'pending'] },
         OR: [{ userLowId: userId }, { userHighId: userId }],
         ...(type ? { relationshipTypeId: type.id } : {}),
         ...(opts.cursor ? { id: { lt: opts.cursor } } : {}),
@@ -51,8 +64,23 @@ export class RelationshipService {
     const hasMore = rows.length > take;
     const page = hasMore ? rows.slice(0, take) : rows;
     const items = await Promise.all(page.map((r) => this.mapRelationship(r)));
+    const pending = items.filter((i) => i.status === 'pending');
+    const count = type
+      ? await this.prisma.userRelationship.count({
+          where: {
+            relationshipTypeId: type.id,
+            status: { in: ['active', 'pending'] },
+            OR: [{ userLowId: userId }, { userHighId: userId }],
+          },
+        })
+      : items.length;
     return {
       items,
+      pending,
+      count,
+      max_partners: type?.maxPartners ?? null,
+      formation_cost_coins: type?.formationCostCoins ?? 0,
+      unbind_cost_coins: type?.unbindCostCoins ?? 0,
       next_cursor: hasMore ? page[page.length - 1].id : null,
     };
   }
@@ -216,6 +244,11 @@ export class RelationshipService {
     visual?: object;
     leaderboard?: object;
     rank1_rewards?: object;
+    max_partners?: number | null;
+    formation_cost_coins?: number;
+    unbind_cost_coins?: number;
+    mic_exp_per_tick?: number;
+    mic_exp_daily_cap?: number;
   }) {
     const code = body.code.trim().toLowerCase();
     const row = await this.prisma.relationshipType.upsert({
@@ -237,6 +270,11 @@ export class RelationshipService {
         visual: body.visual ?? undefined,
         leaderboard: body.leaderboard ?? undefined,
         rank1Rewards: body.rank1_rewards ?? undefined,
+        maxPartners: body.max_partners ?? undefined,
+        formationCostCoins: body.formation_cost_coins ?? 0,
+        unbindCostCoins: body.unbind_cost_coins ?? 0,
+        micExpPerTick: body.mic_exp_per_tick ?? 0,
+        micExpDailyCap: body.mic_exp_daily_cap ?? 0,
       },
       update: {
         name: body.name,
@@ -254,6 +292,11 @@ export class RelationshipService {
         visual: body.visual,
         leaderboard: body.leaderboard,
         rank1Rewards: body.rank1_rewards,
+        maxPartners: body.max_partners,
+        formationCostCoins: body.formation_cost_coins,
+        unbindCostCoins: body.unbind_cost_coins,
+        micExpPerTick: body.mic_exp_per_tick,
+        micExpDailyCap: body.mic_exp_daily_cap,
       },
     });
     return this.mapType(row);
@@ -336,6 +379,281 @@ export class RelationshipService {
     };
   }
 
+  fail(code: string, message: string): never {
+    throw new BadRequestException({
+      success: false,
+      error: { code, message },
+    });
+  }
+
+  async invite(userId: bigint, targetUserId: number | string, typeCode: string) {
+    const type = await this.requireType(typeCode);
+    const target = BigInt(targetUserId);
+    if (target === userId) this.fail('INVALID_TARGET', 'Cannot invite yourself');
+
+    const { userLowId, userHighId } = canonicalUserPair(userId, target);
+    const existing = await this.prisma.userRelationship.findUnique({
+      where: {
+        relationshipTypeId_userLowId_userHighId: {
+          relationshipTypeId: type.id,
+          userLowId,
+          userHighId,
+        },
+      },
+    });
+    if (existing && (existing.status === 'active' || existing.status === 'pending')) {
+      this.fail('ALREADY_EXISTS', 'Relationship already exists');
+    }
+
+    const atCap = await this.engine.isAtPartnerCap(
+      this.prisma,
+      type,
+      userId,
+      target,
+    );
+    if (atCap) this.fail('AT_CAP', `Maximum ${type.maxPartners} ${type.name} partners`);
+
+    const activateNow = !type.requiresAccept && type.formationCostCoins <= 0;
+    const status = activateNow ? 'active' : 'pending';
+
+    const row = await this.prisma.$transaction(async (tx) => {
+      if (activateNow === false && type.requiresAccept === false && type.formationCostCoins > 0) {
+        await this.debitOrThrow(
+          tx,
+          userId,
+          type.formationCostCoins,
+          `rel_form_${type.code}_${userLowId}_${userHighId}`,
+          `${type.name} formation`,
+        );
+      }
+      if (existing) {
+        return tx.userRelationship.update({
+          where: { id: existing.id },
+          data: {
+            status,
+            initiatorId: userId,
+            totalScore: 0,
+            level: type.levelsEnabled ? 1 : null,
+          },
+          include: { relationshipType: true },
+        });
+      }
+      return tx.userRelationship.create({
+        data: {
+          relationshipTypeId: type.id,
+          userLowId,
+          userHighId,
+          initiatorId: userId,
+          status,
+          totalScore: 0,
+          level: type.levelsEnabled ? 1 : null,
+        },
+        include: { relationshipType: true },
+      });
+    });
+    return this.mapRelationship(row);
+  }
+
+  async accept(userId: bigint, id: string) {
+    const row = await this.prisma.userRelationship.findUnique({
+      where: { id },
+      include: { relationshipType: true },
+    });
+    if (!row) {
+      throw new NotFoundException({
+        success: false,
+        error: { code: 'RELATIONSHIP_NOT_FOUND', message: 'Not found' },
+      });
+    }
+    if (row.status !== 'pending') this.fail('NOT_PENDING', 'Invite is not pending');
+    const isMember = row.userLowId === userId || row.userHighId === userId;
+    if (!isMember) throw new ForbiddenException({ success: false, error: { code: 'FORBIDDEN' } });
+    if (row.initiatorId && row.initiatorId === userId) {
+      this.fail('NOT_INVITEE', 'Wait for the other user to accept');
+    }
+
+    const payer = row.initiatorId ?? (row.userLowId === userId ? row.userHighId : row.userLowId);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (row.relationshipType.formationCostCoins > 0) {
+        await this.debitOrThrow(
+          tx,
+          payer,
+          row.relationshipType.formationCostCoins,
+          `rel_accept_${row.id}`,
+          `${row.relationshipType.name} formation`,
+        );
+      }
+      return tx.userRelationship.update({
+        where: { id: row.id },
+        data: { status: 'active' },
+        include: { relationshipType: true },
+      });
+    });
+    return this.mapRelationship(updated);
+  }
+
+  async unbind(userId: bigint, id: string) {
+    const row = await this.prisma.userRelationship.findUnique({
+      where: { id },
+      include: { relationshipType: true },
+    });
+    if (!row) {
+      throw new NotFoundException({
+        success: false,
+        error: { code: 'RELATIONSHIP_NOT_FOUND', message: 'Not found' },
+      });
+    }
+    const isMember = row.userLowId === userId || row.userHighId === userId;
+    if (!isMember) throw new ForbiddenException({ success: false, error: { code: 'FORBIDDEN' } });
+    if (row.status === 'ended') this.fail('ALREADY_ENDED', 'Already removed');
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (row.relationshipType.unbindCostCoins > 0 && row.status === 'active') {
+        await this.debitOrThrow(
+          tx,
+          userId,
+          row.relationshipType.unbindCostCoins,
+          `rel_unbind_${row.id}_${userId}`,
+          `${row.relationshipType.name} unbind`,
+        );
+      }
+      return tx.userRelationship.update({
+        where: { id: row.id },
+        data: { status: 'ended', totalScore: 0, level: null },
+        include: { relationshipType: true },
+      });
+    });
+    return this.mapRelationship(updated);
+  }
+
+  private async debitOrThrow(
+    tx: Prisma.TransactionClient,
+    userId: bigint,
+    amount: number,
+    referenceId: string,
+    title: string,
+  ) {
+    try {
+      await this.ledger.debitCoins(tx, userId, amount, 'relationship', title, referenceId);
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      if (code === 'INSUFFICIENT_BALANCE') {
+        this.fail('INSUFFICIENT_BALANCE', 'Not enough coins');
+      }
+      throw e;
+    }
+  }
+
+  async listRings(userId: bigint, typeCode?: string) {
+    const type = typeCode ? await this.requireType(typeCode) : null;
+    const defs = await this.prisma.relationshipRing.findMany({
+      where: type ? { relationshipTypeId: type.id } : undefined,
+      include: { relationshipType: true },
+      orderBy: [{ sortOrder: 'asc' }, { minLevel: 'asc' }],
+    });
+    const owned = await this.prisma.userRelationshipRing.findMany({
+      where: { userId, ringId: { in: defs.map((d) => d.id) } },
+    });
+    const ownedSet = new Set(owned.map((o) => o.ringId));
+    return {
+      items: defs.map((d) => ({
+        id: d.id,
+        code: d.code,
+        name: d.name,
+        min_level: d.minLevel,
+        image_url: d.imageUrl,
+        type_code: d.relationshipType.code,
+        owned: ownedSet.has(d.id),
+      })),
+    };
+  }
+
+  async listPrivileges(userId: bigint, typeCode: string) {
+    const type = await this.requireType(typeCode);
+    const thresholds = await this.prisma.relationshipLevelThreshold.findMany({
+      where: { relationshipTypeId: type.id },
+      orderBy: { level: 'asc' },
+    });
+    const primary = await this.prisma.userRelationship.findFirst({
+      where: {
+        relationshipTypeId: type.id,
+        status: 'active',
+        OR: [{ userLowId: userId }, { userHighId: userId }],
+      },
+      orderBy: { totalScore: 'desc' },
+    });
+    const currentLevel = type.levelsEnabled ? primary?.level ?? 0 : 0;
+    const catalog = thresholds.map((t) => {
+      const rewards = (t.rewards ?? {}) as { privileges?: string[] };
+      return {
+        level: t.level,
+        min_score: Number(t.minScore),
+        privileges: rewards.privileges ?? [],
+        unlocked: currentLevel >= t.level,
+      };
+    });
+    return {
+      type_code: type.code,
+      current_level: currentLevel || null,
+      total_score: primary ? Number(primary.totalScore) : 0,
+      catalog,
+    };
+  }
+
+  async broadcasts(opts: { roomId?: string; limit?: number }) {
+    const take = Math.min(Math.max(opts.limit ?? 6, 1), 12);
+    const types = await this.prisma.relationshipType.findMany({
+      where: { enabled: true },
+      orderBy: { sortOrder: 'asc' },
+    });
+    const items: Array<Record<string, unknown>> = [];
+    for (const type of types) {
+      const board = await this.leaderboard({
+        type: type.code,
+        period: 'daily',
+        scope: opts.roomId ? 'room' : 'global',
+        room_id: opts.roomId,
+        limit: 3,
+      });
+      const rule = await this.prisma.relationshipGiftRule.findFirst({
+        where: { relationshipTypeId: type.id, enabled: true },
+        orderBy: { pointValue: 'asc' },
+      });
+      for (const row of board.items) {
+        items.push({
+          ...row,
+          type_code: type.code,
+          gift_id: rule ? Number(rule.giftId) : null,
+          suggested_qty: 1,
+        });
+      }
+    }
+    items.sort((a, b) => Number(b.score ?? 0) - Number(a.score ?? 0));
+    return { items: items.slice(0, take) };
+  }
+
+  async micTick(roomId: string, seatedUserIds: Array<number | string>) {
+    return this.prisma.$transaction((tx) =>
+      this.engine.applyMicTick(tx, {
+        roomId,
+        seatedUserIds: seatedUserIds.map((id) => BigInt(id)),
+      }),
+    );
+  }
+
+  private async requireType(typeCode: string) {
+    const type = await this.prisma.relationshipType.findFirst({
+      where: { code: typeCode.trim().toLowerCase(), enabled: true },
+    });
+    if (!type) {
+      throw new NotFoundException({
+        success: false,
+        error: { code: 'TYPE_NOT_FOUND', message: 'Relationship type not found' },
+      });
+    }
+    return type;
+  }
+
   // ── Mappers ────────────────────────────────────────────────────────
 
   private mapType(t: {
@@ -356,6 +674,16 @@ export class RelationshipService {
     visual: unknown;
     leaderboard: unknown;
     rank1Rewards: unknown;
+    maxPartners?: number | null;
+    formationCostCoins?: number;
+    unbindCostCoins?: number;
+    micExpPerTick?: number;
+    micExpDailyCap?: number;
+    levelThresholds?: Array<{
+      level: number;
+      minScore: bigint;
+      rewards: unknown;
+    }>;
   }) {
     return {
       id: t.id,
@@ -372,9 +700,19 @@ export class RelationshipService {
       levels_enabled: t.levelsEnabled,
       dm_gifts_count: t.dmGiftsCount,
       room_gifts_count: t.roomGiftsCount,
+      max_partners: t.maxPartners ?? null,
+      formation_cost_coins: t.formationCostCoins ?? 0,
+      unbind_cost_coins: t.unbindCostCoins ?? 0,
+      mic_exp_per_tick: t.micExpPerTick ?? 0,
+      mic_exp_daily_cap: t.micExpDailyCap ?? 0,
       visual: t.visual,
       leaderboard: t.leaderboard,
       rank1_rewards: t.rank1Rewards,
+      levels: (t.levelThresholds ?? []).map((th) => ({
+        level: th.level,
+        min_score: Number(th.minScore),
+        rewards: th.rewards,
+      })),
     };
   }
 

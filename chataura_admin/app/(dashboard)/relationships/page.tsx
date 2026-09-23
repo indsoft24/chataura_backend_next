@@ -18,6 +18,9 @@ type RelType = {
   quantity_multiplies_points?: boolean;
   dm_gifts_count?: boolean;
   room_gifts_count?: boolean;
+  max_partners?: number | null;
+  formation_cost_coins?: number;
+  unbind_cost_coins?: number;
   visual?: Record<string, unknown> | null;
   rank1_rewards?: { xp_bonus?: number; badge?: boolean } | null;
 };
@@ -48,6 +51,10 @@ export default function RelationshipsAdminPage() {
   const [editIconUrl, setEditIconUrl] = useState('');
   const [editFormedUrl, setEditFormedUrl] = useState('');
   const [editColorPrimary, setEditColorPrimary] = useState('#FF4D8D');
+  const [editMax, setEditMax] = useState('');
+  const [editFormCost, setEditFormCost] = useState('0');
+  const [editUnbindCost, setEditUnbindCost] = useState('0');
+  const [editRules, setEditRules] = useState('');
 
   async function load(tok: string) {
     setLoading(true);
@@ -78,7 +85,11 @@ export default function RelationshipsAdminPage() {
     const visual = (t.visual ?? {}) as Record<string, string>;
     setEditIconUrl(visual.icon_url ?? '');
     setEditFormedUrl(visual.formed_lottie_url ?? '');
-    setEditColorPrimary(visual.color_primary ?? (t.code === 'bcp' ? '#00E5FF' : '#FF4D8D'));
+    setEditColorPrimary(visual.color_primary ?? (t.code === 'bcp' ? '#7C4DFF' : '#FF4D8D'));
+    setEditMax(t.max_partners != null ? String(t.max_partners) : '');
+    setEditFormCost(String(t.formation_cost_coins ?? 0));
+    setEditUnbindCost(String(t.unbind_cost_coins ?? 0));
+    setEditRules(visual.rules ?? '');
   }
 
   useEffect(() => {
@@ -127,9 +138,9 @@ export default function RelationshipsAdminPage() {
         name: editName,
         enabled: editEnabled,
         levels_enabled: editLevels,
-        exclusivity_mode: 'none',
+        exclusivity_mode: editCode.trim().toLowerCase() === 'bcp' ? 'none' : 'none',
         formation_rule: 'first_qualifying_gift',
-        requires_accept: false,
+        requires_accept: editCode.trim().toLowerCase() === 'bcp',
         bidirectional_scoring: true,
         quantity_multiplies_points: true,
         dm_gifts_count: true,
@@ -138,11 +149,22 @@ export default function RelationshipsAdminPage() {
           color_primary: editColorPrimary,
           icon_url: editIconUrl || undefined,
           formed_lottie_url: editFormedUrl || undefined,
+          hub_label: editCode.trim().toLowerCase() === 'bcp' ? 'BCP' : 'CP',
+          hub_tabs:
+            editCode.trim().toLowerCase() === 'bcp'
+              ? ['home', 'privileges', 'rules']
+              : ['home', 'privileges', 'rings'],
+          rules: editRules || undefined,
         },
         rank1_rewards: {
           xp_bonus: Number(editXpBonus) || 0,
           badge: true,
         },
+        max_partners: editMax.trim() === '' ? null : Number(editMax),
+        formation_cost_coins: Number(editFormCost) || 0,
+        unbind_cost_coins: Number(editUnbindCost) || 0,
+        mic_exp_per_tick: editCode.trim().toLowerCase() === 'bcp' ? 120 : 0,
+        mic_exp_daily_cap: editCode.trim().toLowerCase() === 'bcp' ? 12000 : 0,
       }),
     });
     setMsg(`Type ${editCode} saved`);
@@ -235,6 +257,26 @@ export default function RelationshipsAdminPage() {
             value={editFormedUrl}
             onChange={(e) => setEditFormedUrl(e.target.value)}
             style={inputStyle}
+          />
+        </label>
+        <label style={labelStyle}>
+          Max partners (blank = unlimited)
+          <input value={editMax} onChange={(e) => setEditMax(e.target.value)} style={inputStyle} />
+        </label>
+        <label style={labelStyle}>
+          Formation cost
+          <input value={editFormCost} onChange={(e) => setEditFormCost(e.target.value)} style={inputStyle} />
+        </label>
+        <label style={labelStyle}>
+          Unbind cost
+          <input value={editUnbindCost} onChange={(e) => setEditUnbindCost(e.target.value)} style={inputStyle} />
+        </label>
+        <label style={{ ...labelStyle, gridColumn: '1 / -1' }}>
+          Rules text
+          <textarea
+            value={editRules}
+            onChange={(e) => setEditRules(e.target.value)}
+            style={{ ...inputStyle, minHeight: 120 }}
           />
         </label>
         <label style={{ ...labelStyle, flexDirection: 'row', alignItems: 'center', gap: 8 }}>

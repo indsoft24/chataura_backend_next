@@ -1081,6 +1081,11 @@ model RelationshipType {
   levelsEnabled              Boolean  @default(false) @map("levels_enabled")
   dmGiftsCount               Boolean  @default(true) @map("dm_gifts_count")
   roomGiftsCount             Boolean  @default(true) @map("room_gifts_count")
+  maxPartners                Int?     @map("max_partners")
+  formationCostCoins         Int      @default(0) @map("formation_cost_coins")
+  unbindCostCoins            Int      @default(0) @map("unbind_cost_coins")
+  micExpPerTick              Int      @default(0) @map("mic_exp_per_tick")
+  micExpDailyCap             Int      @default(0) @map("mic_exp_daily_cap")
   visual                     Json?
   leaderboard                Json?
   rank1Rewards               Json?    @map("rank1_rewards")
@@ -1090,6 +1095,7 @@ model RelationshipType {
   giftRules     RelationshipGiftRule[]
   relationships UserRelationship[]
   levelThresholds RelationshipLevelThreshold[]
+  rings         RelationshipRing[]
 
   @@index([enabled, sortOrder])
   @@map("relationship_types")
@@ -1140,7 +1146,7 @@ model RelationshipScoreLedger {
   giftTransactionId  String   @unique @map("gift_transaction_id") @db.VarChar(191)
   senderId           BigInt   @map("sender_id")
   receiverId         BigInt   @map("receiver_id")
-  giftId             BigInt   @map("gift_id")
+  giftId             BigInt?  @map("gift_id")
   quantity           Int      @default(1)
   pointValue         Int      @map("point_value")
   contribution       BigInt
@@ -1184,4 +1190,36 @@ model RelationshipLevelThreshold {
 
   @@unique([relationshipTypeId, level])
   @@map("relationship_level_thresholds")
+}
+
+model RelationshipRing {
+  id                 String   @id @default(uuid()) @db.Uuid
+  relationshipTypeId String   @map("relationship_type_id") @db.Uuid
+  code               String   @db.VarChar(32)
+  name               String   @db.VarChar(64)
+  minLevel           Int      @map("min_level")
+  imageUrl           String?  @map("image_url") @db.Text
+  sortOrder          Int      @default(0) @map("sort_order")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  relationshipType RelationshipType       @relation(fields: [relationshipTypeId], references: [id], onDelete: Cascade)
+  grants           UserRelationshipRing[]
+
+  @@unique([relationshipTypeId, code])
+  @@index([relationshipTypeId, minLevel])
+  @@map("relationship_rings")
+}
+
+model UserRelationshipRing {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         BigInt   @map("user_id")
+  ringId         String   @map("ring_id") @db.Uuid
+  relationshipId String   @map("relationship_id") @db.Uuid
+  grantedAt      DateTime @default(now()) @map("granted_at") @db.Timestamptz(6)
+
+  ring RelationshipRing @relation(fields: [ringId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, ringId])
+  @@index([userId])
+  @@map("user_relationship_rings")
 }

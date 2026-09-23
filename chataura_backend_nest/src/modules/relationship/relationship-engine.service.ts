@@ -62,7 +62,7 @@ export type RelationshipApplyResult = {
   };
 };
 
-type Tx = Prisma.TransactionClient;
+type Tx = Prisma.TransactionClient | PrismaService;
 
 @Injectable()
 export class RelationshipEngineService {
@@ -162,6 +162,13 @@ export class RelationshipEngineService {
     });
 
     if (!rel) {
+      const atCap = await this.isAtPartnerCap(
+        tx,
+        type,
+        input.senderId,
+        input.receiverId,
+      );
+      if (atCap) return empty;
       created = true;
       rel = await tx.userRelationship.create({
         data: {
@@ -172,6 +179,26 @@ export class RelationshipEngineService {
           status: 'active',
           totalScore: contribution,
           level: type.levelsEnabled ? 1 : null,
+        },
+      });
+    } else if (rel.status === 'ended') {
+      created = true;
+      rel = await tx.userRelationship.update({
+        where: { id: rel.id },
+        data: {
+          status: 'active',
+          initiatorId: input.senderId,
+          totalScore: contribution,
+          level: type.levelsEnabled ? 1 : null,
+        },
+      });
+    } else if (rel.status === 'pending') {
+      created = true;
+      rel = await tx.userRelationship.update({
+        where: { id: rel.id },
+        data: {
+          status: 'active',
+          totalScore: { increment: contribution },
         },
       });
     } else {
@@ -195,6 +222,8 @@ export class RelationshipEngineService {
         roomId: input.roomId ?? null,
       },
     });
+
+    rel = await this.refreshLevelAndRings(tx, rel.id, type.id);
 
     const now = new Date();
     for (const period of PERIOD_TYPES) {
@@ -424,45 +453,246 @@ export class RelationshipEngineService {
     };
   }
 
+  async isAtPartnerCap(
+    tx: Tx,
+    type: { id: string; maxPartners: number | null },
+    userA: bigint,
+    userB: bigint,
+  ): Promise<boolean> {
+    const cap = type.maxPartners;
+    if (!cap || cap <= 0) return false;
+    for (const uid of [userA, userB]) {
+      const n = await tx.userRelationship.count({
+        where: {
+          relationshipTypeId: type.id,
+          status: { in: ['active', 'pending'] },
+          OR: [{ userLowId: uid }, { userHighId: uid }],
+        },
+      });
+      if (n >= cap) return true;
+    }
+    return false;
+  }
+
+  async refreshLevelAndRings(tx: Tx, relationshipId: string, typeId: string) {
+    const rel = await tx.userRelationship.findUniqueOrThrow({
+      where: { id: relationshipId },
+    });
+    const type = await tx.relationshipType.findUniqueOrThrow({
+      where: { id: typeId },
+    });
+    if (!type.levelsEnabled) return rel;
+
+    const thresholds = await tx.relationshipLevelThreshold.findMany({
+      where: { relationshipTypeId: typeId },
+      orderBy: { level: 'asc' },
+    });
+    let level = 1;
+    for (const t of thresholds) {
+      if (rel.totalScore >= t.minScore) level = t.level;
+    }
+    const updated =
+      rel.level === level
+        ? rel
+        : await tx.userRelationship.update({
+            where: { id: rel.id },
+            data: { level },
+          });
+
+    const rings = await tx.relationshipRing.findMany({
+      where: { relationshipTypeId: typeId, minLevel: { lte: level } },
+    });
+    for (const ring of rings) {
+      for (const uid of [rel.userLowId, rel.userHighId]) {
+        await tx.userRelationshipRing.upsert({
+          where: { userId_ringId: { userId: uid, ringId: ring.id } },
+          create: {
+            userId: uid,
+            ringId: ring.id,
+            relationshipId: rel.id,
+          },
+          update: {},
+        });
+      }
+    }
+    return updated;
+  }
+
+  async applyMicTick(
+    tx: Tx,
+    input: { roomId: string; seatedUserIds: bigint[] },
+  ): Promise<{ applied: number }> {
+    const seated = Array.from(new Set(input.seatedUserIds));
+    if (seated.length < 2) return { applied: 0 };
+
+    const types = await tx.relationshipType.findMany({
+      where: { enabled: true, micExpPerTick: { gt: 0 } },
+    });
+    if (!types.length) return { applied: 0 };
+
+    let applied = 0;
+    const now = new Date();
+    for (const type of types) {
+      const pairs = await tx.userRelationship.findMany({
+        where: {
+          relationshipTypeId: type.id,
+          status: 'active',
+          userLowId: { in: seated },
+          userHighId: { in: seated },
+        },
+      });
+      for (const rel of pairs) {
+        const tick = BigInt(type.micExpPerTick);
+        const dayStart = new Date(now);
+        dayStart.setUTCHours(0, 0, 0, 0);
+        const todayMic = await tx.relationshipScoreLedger.aggregate({
+          where: {
+            relationshipId: rel.id,
+            source: 'mic',
+            createdAt: { gte: dayStart },
+          },
+          _sum: { contribution: true },
+        });
+        const already = Number(todayMic._sum.contribution ?? 0);
+        if (type.micExpDailyCap > 0 && already >= type.micExpDailyCap) continue;
+
+        const last = await tx.relationshipScoreLedger.findFirst({
+          where: { relationshipId: rel.id, source: 'mic' },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (last && now.getTime() - last.createdAt.getTime() < 5 * 60 * 1000) {
+          continue;
+        }
+
+        const remaining =
+          type.micExpDailyCap > 0
+            ? Math.max(type.micExpDailyCap - already, 0)
+            : Number(tick);
+        const contribution = BigInt(Math.min(Number(tick), remaining));
+        if (contribution <= 0n) continue;
+
+        const txId = `mic:${rel.id}:${Math.floor(now.getTime() / (5 * 60 * 1000))}`;
+        const existing = await tx.relationshipScoreLedger.findUnique({
+          where: { giftTransactionId: txId },
+        });
+        if (existing) continue;
+
+        await tx.userRelationship.update({
+          where: { id: rel.id },
+          data: { totalScore: { increment: contribution } },
+        });
+        await tx.relationshipScoreLedger.create({
+          data: {
+            relationshipId: rel.id,
+            giftTransactionId: txId,
+            senderId: rel.userLowId,
+            receiverId: rel.userHighId,
+            giftId: null,
+            quantity: 1,
+            pointValue: Number(contribution),
+            contribution,
+            source: 'mic',
+            roomId: input.roomId,
+          },
+        });
+        for (const period of PERIOD_TYPES) {
+          const key = periodKey(period, now);
+          await this.bumpPeriodScore(tx, rel.id, period, key, '', contribution);
+          await this.bumpPeriodScore(
+            tx,
+            rel.id,
+            period,
+            key,
+            input.roomId,
+            contribution,
+          );
+        }
+        await this.refreshLevelAndRings(tx, rel.id, type.id);
+        applied += 1;
+      }
+    }
+    return { applied };
+  }
+
   /** Seed / ensure CP + BCP types exist. */
   async ensureDefaultTypes(prisma: PrismaService | Tx = this.prisma) {
+    const db = prisma as PrismaService;
     const defaults = [
       {
         code: 'cp',
         name: 'CP',
         description: 'Couple relationship formed by qualifying CP gifts',
         sortOrder: 1,
+        maxPartners: null as number | null,
+        formationCostCoins: 0,
+        unbindCostCoins: 0,
+        micExpPerTick: 0,
+        micExpDailyCap: 0,
+        requiresAccept: false,
         visual: {
           color_primary: '#FF4D8D',
           color_accent: '#F5C542',
           motif: 'twin_hearts',
+          hub_label: 'CP',
+          hub_tabs: ['home', 'privileges', 'rings'],
         },
         leaderboard: {
           periods: ['daily', 'weekly', 'monthly', 'all_time'],
           scopes: ['global', 'room'],
         },
         rank1Rewards: { xp_bonus: 100, badge: true },
+        thresholds: [
+          { level: 1, minScore: 0, rewards: { privileges: ['room_emoji'] } },
+          { level: 2, minScore: 10000, rewards: { privileges: ['room_profile'] } },
+          { level: 3, minScore: 50000, rewards: { privileges: ['personal_profile'] } },
+          { level: 4, minScore: 150000, rewards: { privileges: ['broadcast'] } },
+          { level: 5, minScore: 400000, rewards: { privileges: ['ring'], ring_code: 'cp_lv5' } },
+          { level: 6, minScore: 1000000, rewards: { privileges: ['ring'], ring_code: 'cp_lv6' } },
+        ],
+        rings: [
+          { code: 'cp_lv5', name: 'CP Ring Lv.5', minLevel: 5, sortOrder: 1 },
+          { code: 'cp_lv6', name: 'CP Ring Lv.6', minLevel: 6, sortOrder: 2 },
+        ],
       },
       {
         code: 'bcp',
         name: 'BCP',
-        description: 'Best Couple relationship formed by qualifying BCP gifts',
+        description: 'BCP relationship formed by invite or qualifying BCP gifts',
         sortOrder: 2,
+        maxPartners: 9,
+        formationCostCoins: 600000,
+        unbindCostCoins: 300000,
+        micExpPerTick: 120,
+        micExpDailyCap: 12000,
+        requiresAccept: true,
         visual: {
-          color_primary: '#00E5FF',
+          color_primary: '#7C4DFF',
           color_accent: '#F5C542',
-          motif: 'linked_stars',
+          motif: 'golden_hands',
+          hub_label: 'BCP',
+          hub_tabs: ['home', 'privileges', 'rules'],
+          rules:
+            'How to become BCP?\n1. Click the Invite button on Profile or Me - CP/BCP, select the user you want to bind and send the invitation.\n2. You need to spend the type formation cost in coins to become BCP with others.\n\nHow to improve BCP level?\n1. Sending gifts, 1 coin = 1 intimacy point.\n2. On mic together in the same room, every 5 minutes = 120 Exp (maximum 12000 Exp per day).\n\nHow to remove BCP?\n1. On the BCP page, tap Remove and confirm.\n2. After removing, EXP cannot be restored.\n3. Unbind costs the type unbind cost in coins.\n\nHow to get BCP privileges?\nBy upgrading the BCP level, you can unlock more privileges.',
         },
         leaderboard: {
           periods: ['daily', 'weekly', 'monthly', 'all_time'],
           scopes: ['global', 'room'],
         },
         rank1Rewards: { xp_bonus: 100, badge: true },
+        thresholds: [
+          { level: 1, minScore: 0, rewards: { privileges: ['broadcast'] } },
+          { level: 2, minScore: 10000, rewards: { privileges: ['background'] } },
+          { level: 3, minScore: 50000, rewards: { privileges: ['gift'] } },
+          { level: 4, minScore: 150000, rewards: { privileges: ['room_emoji'] } },
+          { level: 5, minScore: 400000, rewards: { privileges: ['room_profile'] } },
+          { level: 6, minScore: 1000000, rewards: { privileges: ['personal_profile'] } },
+        ],
+        rings: [] as { code: string; name: string; minLevel: number; sortOrder: number }[],
       },
     ];
 
     for (const d of defaults) {
-      await (prisma as PrismaService).relationshipType.upsert({
+      const row = await db.relationshipType.upsert({
         where: { code: d.code },
         create: {
           code: d.code,
@@ -472,12 +702,17 @@ export class RelationshipEngineService {
           sortOrder: d.sortOrder,
           exclusivityMode: 'none',
           formationRule: 'first_qualifying_gift',
-          requiresAccept: false,
+          requiresAccept: d.requiresAccept,
           bidirectionalScoring: true,
           quantityMultipliesPoints: true,
-          levelsEnabled: false,
+          levelsEnabled: true,
           dmGiftsCount: true,
           roomGiftsCount: true,
+          maxPartners: d.maxPartners,
+          formationCostCoins: d.formationCostCoins,
+          unbindCostCoins: d.unbindCostCoins,
+          micExpPerTick: d.micExpPerTick,
+          micExpDailyCap: d.micExpDailyCap,
           visual: d.visual,
           leaderboard: d.leaderboard,
           rank1Rewards: d.rank1Rewards,
@@ -486,8 +721,59 @@ export class RelationshipEngineService {
           name: d.name,
           description: d.description,
           enabled: true,
+          levelsEnabled: true,
+          requiresAccept: d.requiresAccept,
+          maxPartners: d.maxPartners,
+          formationCostCoins: d.formationCostCoins,
+          unbindCostCoins: d.unbindCostCoins,
+          micExpPerTick: d.micExpPerTick,
+          micExpDailyCap: d.micExpDailyCap,
+          visual: d.visual,
         },
       });
+
+      for (const th of d.thresholds) {
+        await db.relationshipLevelThreshold.upsert({
+          where: {
+            relationshipTypeId_level: {
+              relationshipTypeId: row.id,
+              level: th.level,
+            },
+          },
+          create: {
+            relationshipTypeId: row.id,
+            level: th.level,
+            minScore: BigInt(th.minScore),
+            rewards: th.rewards,
+          },
+          update: {
+            minScore: BigInt(th.minScore),
+            rewards: th.rewards,
+          },
+        });
+      }
+      for (const ring of d.rings) {
+        await db.relationshipRing.upsert({
+          where: {
+            relationshipTypeId_code: {
+              relationshipTypeId: row.id,
+              code: ring.code,
+            },
+          },
+          create: {
+            relationshipTypeId: row.id,
+            code: ring.code,
+            name: ring.name,
+            minLevel: ring.minLevel,
+            sortOrder: ring.sortOrder,
+          },
+          update: {
+            name: ring.name,
+            minLevel: ring.minLevel,
+            sortOrder: ring.sortOrder,
+          },
+        });
+      }
     }
   }
 

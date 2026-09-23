@@ -258,11 +258,15 @@ async function main() {
     color_primary: '#FF4D8D',
     color_accent: '#F5C542',
     motif: 'twin_hearts',
+    hub_label: 'CP',
+    hub_tabs: ['home', 'privileges', 'rings'],
   };
   const bcpVisual = {
-    color_primary: '#00E5FF',
+    color_primary: '#7C4DFF',
     color_accent: '#F5C542',
-    motif: 'linked_stars',
+    motif: 'golden_hands',
+    hub_label: 'BCP',
+    hub_tabs: ['home', 'privileges', 'rules'],
   };
   for (const d of [
     {
@@ -290,12 +294,17 @@ async function main() {
         sortOrder: d.sortOrder,
         exclusivityMode: 'none',
         formationRule: 'first_qualifying_gift',
-        requiresAccept: false,
+        requiresAccept: d.code === 'bcp',
         bidirectionalScoring: true,
         quantityMultipliesPoints: true,
-        levelsEnabled: false,
+        levelsEnabled: true,
         dmGiftsCount: true,
         roomGiftsCount: true,
+        maxPartners: d.code === 'bcp' ? 9 : null,
+        formationCostCoins: d.code === 'bcp' ? 600000 : 0,
+        unbindCostCoins: d.code === 'bcp' ? 300000 : 0,
+        micExpPerTick: d.code === 'bcp' ? 120 : 0,
+        micExpDailyCap: d.code === 'bcp' ? 12000 : 0,
         visual: d.visual,
         leaderboard: {
           periods: ['daily', 'weekly', 'monthly', 'all_time'],
@@ -303,7 +312,18 @@ async function main() {
         },
         rank1Rewards: { xp_bonus: 100, badge: true },
       },
-      update: { enabled: true, name: d.name },
+      update: {
+        enabled: true,
+        name: d.name,
+        levelsEnabled: true,
+        requiresAccept: d.code === 'bcp',
+        maxPartners: d.code === 'bcp' ? 9 : null,
+        formationCostCoins: d.code === 'bcp' ? 600000 : 0,
+        unbindCostCoins: d.code === 'bcp' ? 300000 : 0,
+        micExpPerTick: d.code === 'bcp' ? 120 : 0,
+        micExpDailyCap: d.code === 'bcp' ? 12000 : 0,
+        visual: d.visual,
+      },
     });
   }
   const types = await prisma.relationshipType.findMany();
