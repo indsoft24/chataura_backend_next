@@ -145,8 +145,8 @@ export class AdminCatalogService {
           name: g.name,
           coin_cost: g.coinCost,
           category: normalizeGiftCategory(g.category),
-          image_url: g.imageUrl,
-          animation_url: g.animationUrl,
+          image_url: media.image_url,
+          animation_url: media.animation_url,
           media_type: media.media_type,
           loop: media.loop,
           is_active: g.isActive,
@@ -470,21 +470,24 @@ export class AdminCatalogService {
       orderBy: { id: 'asc' },
     });
     return {
-      frames: rows.map((f) => ({
-        id: Number(f.id),
-        name: f.name,
-        slug: f.slug,
-        category: f.category,
-        level_required: f.levelRequired,
-        coin_cost: f.coinCost,
-        is_premium: f.isPremium,
-        is_active: f.isActive,
-        image_url: f.imageUrl,
-        animation_url: f.animationUrl,
-        animation_key: f.animationKey,
-        composite_mode: f.compositeMode,
-        media_type: resolveCatalogMedia(f.imageUrl, f.animationUrl).media_type,
-      })),
+      frames: rows.map((f) => {
+        const media = resolveCatalogMedia(f.imageUrl, f.animationUrl);
+        return {
+          id: Number(f.id),
+          name: f.name,
+          slug: f.slug,
+          category: f.category,
+          level_required: f.levelRequired,
+          coin_cost: f.coinCost,
+          is_premium: f.isPremium,
+          is_active: f.isActive,
+          image_url: media.image_url,
+          animation_url: media.animation_url,
+          animation_key: f.animationKey,
+          composite_mode: f.compositeMode,
+          media_type: media.media_type,
+        };
+      }),
     };
   }
 
@@ -776,15 +779,18 @@ export class AdminCatalogService {
   async stickers() {
     const rows = await this.prisma.sticker.findMany({ orderBy: { id: 'asc' } });
     return {
-      stickers: rows.map((s) => ({
-        id: Number(s.id),
-        name: s.name,
-        coin_cost: s.coinCost,
-        image_url: s.imageUrl,
-        animation_url: s.animationUrl,
-        media_type: resolveCatalogMedia(s.imageUrl, s.animationUrl).media_type,
-        is_active: s.isActive,
-      })),
+      stickers: rows.map((s) => {
+        const media = resolveCatalogMedia(s.imageUrl, s.animationUrl);
+        return {
+          id: Number(s.id),
+          name: s.name,
+          coin_cost: s.coinCost,
+          image_url: media.image_url,
+          animation_url: media.animation_url,
+          media_type: media.media_type,
+          is_active: s.isActive,
+        };
+      }),
     };
   }
 

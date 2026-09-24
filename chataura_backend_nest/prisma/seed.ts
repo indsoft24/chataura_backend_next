@@ -67,35 +67,6 @@ async function main() {
     await prisma.level.createMany({ data: levels });
   }
 
-  const frameCount = await prisma.frame.count();
-  if (frameCount === 0) {
-    await prisma.frame.createMany({
-      data: [
-        {
-          name: 'Starter Glow',
-          slug: 'starter-glow',
-          levelRequired: 1,
-          coinCost: 0,
-          isPremium: false,
-        },
-        {
-          name: 'Gold Ring',
-          slug: 'gold-ring',
-          levelRequired: 5,
-          coinCost: 200,
-          isPremium: true,
-        },
-        {
-          name: 'Neon Pulse',
-          slug: 'neon-pulse',
-          levelRequired: 10,
-          coinCost: 500,
-          isPremium: true,
-        },
-      ],
-    });
-  }
-
   const barCount = await prisma.entryBar.count();
   if (barCount === 0) {
     await prisma.entryBar.createMany({
@@ -107,17 +78,6 @@ async function main() {
     });
   }
 
-  const giftCount = await prisma.gift.count();
-  if (giftCount === 0) {
-    await prisma.gift.createMany({
-      data: [
-        { name: 'Rose', coinCost: 10 },
-        { name: 'Heart', coinCost: 50 },
-        { name: 'Crown', coinCost: 200 },
-      ],
-    });
-  }
-
   const themeCount = await prisma.roomTheme.count();
   if (themeCount === 0) {
     await prisma.roomTheme.createMany({
@@ -125,17 +85,6 @@ async function main() {
         { name: 'Midnight Lounge', coinCost: 0 },
         { name: 'Neon Party', coinCost: 0 },
         { name: 'Gold VIP', coinCost: 200 },
-      ],
-    });
-  }
-
-  const stickerCount = await prisma.sticker.count();
-  if (stickerCount === 0) {
-    await prisma.sticker.createMany({
-      data: [
-        { name: 'Wave', coinCost: 0 },
-        { name: 'Fire', coinCost: 50 },
-        { name: 'Crown Sticker', coinCost: 100 },
       ],
     });
   }

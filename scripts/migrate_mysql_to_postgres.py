@@ -4,16 +4,18 @@ ChatAura MySQL (Laravel) → PostgreSQL (Nest) ETL.
 
 - Reads MySQL read-only; never deletes/modifies Laravel data.
 - --dry-run: counts + mapping report only
-- --apply: truncates Nest PG target tables only, then loads with transforms
+- --sync: upsert gifts/frames/stickers and insert missing users. Never deletes.
+- --apply: destructive truncate. Disabled unless ALLOW_DESTRUCTIVE_TRUNCATE=1.
 
 Usage:
   python3 scripts/migrate_mysql_to_postgres.py --dry-run
-  python3 scripts/migrate_mysql_to_postgres.py --apply
+  python3 scripts/migrate_mysql_to_postgres.py --sync
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from datetime import date, datetime
@@ -150,6 +152,18 @@ def pg_connect():
     )
 
 
+def rewrite_media_url(v: Any) -> Any:
+    """Rewrite dead Laravel host so admin/app previews keep working."""
+    if v is None or not isinstance(v, str):
+        return v
+    url = v.strip()
+    if not url:
+        return None
+    url = url.replace("https://chataura.indsoft24.com", "https://chataura.in")
+    url = url.replace("http://chataura.indsoft24.com", "https://chataura.in")
+    return url
+
+
 def to_pg(v: Any) -> Any:
     if isinstance(v, dict) or isinstance(v, list):
         return json.dumps(v, default=str)
@@ -197,6 +211,100 @@ def count_mysql(cur, name: str) -> int:
 def count_pg(cur, name: str) -> int:
     cur.execute(f"SELECT COUNT(*) FROM {name}")
     return int(cur.fetchone()[0])
+
+
+def upsert_by_id(
+    pg,
+    table: str,
+    columns: list[str],
+    rows: list[tuple],
+    update_cols: list[str],
+    page: int = 200,
+):
+    """Insert or update by primary key. Never deletes rows."""
+    if not rows:
+        return 0
+    cols = ",".join(columns)
+    updates = ", ".join(f"{c}=EXCLUDED.{c}" for c in update_cols)
+    sql = (
+        f"INSERT INTO {table} ({cols}) VALUES %s "
+        f"ON CONFLICT (id) DO UPDATE SET {updates}"
+    )
+    total = 0
+    with pg.cursor() as cur:
+        for i in range(0, len(rows), page):
+            chunk = rows[i : i + page]
+            psycopg2.extras.execute_values(cur, sql, chunk, page_size=page)
+            total += len(chunk)
+    return total
+
+
+def upsert_by_slug(
+    pg,
+    table: str,
+    columns: list[str],
+    rows: list[tuple],
+    update_cols: list[str],
+    page: int = 200,
+):
+    """Insert or update by unique slug. Id is omitted so sequences assign new rows."""
+    if not rows:
+        return 0
+    cols = ",".join(columns)
+    updates = ", ".join(f"{c}=EXCLUDED.{c}" for c in update_cols)
+    sql = (
+        f"INSERT INTO {table} ({cols}) VALUES %s "
+        f"ON CONFLICT (slug) DO UPDATE SET {updates}"
+    )
+    total = 0
+    with pg.cursor() as cur:
+        for i in range(0, len(rows), page):
+            chunk = rows[i : i + page]
+            psycopg2.extras.execute_values(cur, sql, chunk, page_size=page)
+            total += len(chunk)
+    return total
+
+
+def insert_ignore_by_id(
+    pg,
+    table: str,
+    columns: list[str],
+    rows: list[tuple],
+    page: int = 200,
+):
+    """Insert rows; skip when primary key already exists."""
+    if not rows:
+        return 0
+    cols = ",".join(columns)
+    sql = f"INSERT INTO {table} ({cols}) VALUES %s ON CONFLICT (id) DO NOTHING"
+    total = 0
+    with pg.cursor() as cur:
+        for i in range(0, len(rows), page):
+            chunk = rows[i : i + page]
+            psycopg2.extras.execute_values(cur, sql, chunk, page_size=page)
+            total += len(chunk)
+    return total
+
+
+def insert_ignore_unique(
+    pg,
+    table: str,
+    columns: list[str],
+    rows: list[tuple],
+    conflict: str,
+    page: int = 200,
+):
+    if not rows:
+        return 0
+    cols = ",".join(columns)
+    sql = f"INSERT INTO {table} ({cols}) VALUES %s ON CONFLICT {conflict} DO NOTHING"
+    total = 0
+    with pg.cursor() as cur:
+        for i in range(0, len(rows), page):
+            chunk = rows[i : i + page]
+            psycopg2.extras.execute_values(cur, sql, chunk, page_size=page)
+            total += len(chunk)
+    return total
 
 
 def insert_batch(pg, table: str, columns: list[str], rows: list[tuple], page: int = 500):
@@ -362,8 +470,8 @@ def transform_gifts(vg: list[dict], gt: list[dict]) -> tuple[list[str], list[tup
                 r["id"],
                 r.get("name") or f"gift-{r['id']}",
                 int(r.get("coin_cost") or 0),
-                r.get("image_url"),
-                r.get("animation_url"),
+                rewrite_media_url(r.get("image_url")),
+                rewrite_media_url(r.get("animation_url")),
                 boolish(r.get("is_active"), True),
                 to_pg(r.get("created_at") or datetime.utcnow()),
             )
@@ -380,8 +488,8 @@ def transform_gifts(vg: list[dict], gt: list[dict]) -> tuple[list[str], list[tup
                 next_id,
                 name,
                 int(r.get("coin_price") or 0),
-                r.get("image_url"),
-                r.get("animation_url"),
+                rewrite_media_url(r.get("image_url")),
+                rewrite_media_url(r.get("animation_url")),
                 boolish(r.get("is_active"), True),
                 to_pg(r.get("created_at") or datetime.utcnow()),
             )
@@ -575,7 +683,7 @@ def transform_frames(rows: list[dict]) -> tuple[list[str], list[tuple]]:
                 int(r.get("coin_cost") or r.get("price_coins") or 0),
                 boolish(r.get("is_premium")),
                 boolish(r.get("is_active"), True),
-                r.get("preview_url") or r.get("animation_url"),
+                rewrite_media_url(r.get("preview_url") or r.get("animation_url")),
                 r.get("animation_key"),
                 to_pg(r.get("created_at") or datetime.utcnow()),
             )
@@ -601,10 +709,10 @@ def transform_media_items(rows: list[dict]) -> tuple[list[str], list[tuple]]:
                 r["user_id"],
                 kind,
                 r.get("media_type") or "image",
-                r.get("file_url") or "",
-                r.get("thumbnail_url"),
+                rewrite_media_url(r.get("file_url") or "") or "",
+                rewrite_media_url(r.get("thumbnail_url")),
                 r.get("caption"),
-                r.get("music_url"),
+                rewrite_media_url(r.get("music_url")),
                 r.get("effect_name"),
                 r.get("duration"),
                 r.get("aspect_ratio"),
@@ -616,6 +724,57 @@ def transform_media_items(rows: list[dict]) -> tuple[list[str], list[tuple]]:
                 False,
                 to_pg(r.get("created_at") or datetime.utcnow()),
                 to_pg(r.get("updated_at") or datetime.utcnow()),
+            )
+        )
+    return cols, out
+
+
+def transform_role_frames(rows: list[dict]) -> tuple[list[str], list[tuple]]:
+    """Laravel role_frames → Nest frames(category=role). Slugs are prefixed to avoid avatar slug collisions."""
+    cols = [
+        "name",
+        "slug",
+        "category",
+        "level_required",
+        "coin_cost",
+        "is_premium",
+        "is_active",
+        "image_url",
+        "animation_url",
+        "animation_key",
+        "composite_mode",
+        "created_at",
+    ]
+    out = []
+    used_slugs: set[str] = set()
+    for r in rows:
+        role_key = (r.get("role_key") or "role").strip().lower() or "role"
+        raw_slug = (r.get("slug") or "").strip()
+        if raw_slug:
+            slug = f"role-{raw_slug}"[:128]
+        else:
+            slug = f"role-{role_key}-{int(r['id'])}"[:128]
+        base = slug
+        n = 2
+        while slug.lower() in used_slugs:
+            slug = f"{base[:120]}-{n}"[:128]
+            n += 1
+        used_slugs.add(slug.lower())
+        name = (r.get("label") or role_key or f"role-{r['id']}").strip()[:128]
+        out.append(
+            (
+                name,
+                slug,
+                "role",
+                1,
+                0,
+                False,
+                boolish(r.get("is_active"), True),
+                rewrite_media_url(r.get("preview_url")),
+                rewrite_media_url(r.get("animation_url") or r.get("animation_url_lite")),
+                role_key[:128],
+                "alpha",
+                to_pg(r.get("created_at") or datetime.utcnow()),
             )
         )
     return cols, out
@@ -1517,12 +1676,358 @@ def run(dry_run: bool) -> int:
         pg.close()
 
 
+def run_sync() -> int:
+    """Upsert catalog and insert missing Laravel users. Never truncates or deletes."""
+    print("=== ChatAura sync (no deletes) ===")
+    my = mysql_connect()
+    pg = pg_connect()
+    my_cur = my.cursor()
+    try:
+        mysql_users = count_mysql(my_cur, "users")
+        if mysql_users <= 0:
+            print("Refusing sync: Laravel returned 0 users.", file=sys.stderr)
+            return 2
+
+        def pg_count(table: str) -> int:
+            with pg.cursor() as cur:
+                return count_pg(cur, table)
+
+        before = {
+            "users": pg_count("users"),
+            "gifts": pg_count("gifts"),
+            "frames": pg_count("frames"),
+            "stickers": pg_count("stickers"),
+            "media_items": pg_count("media_items"),
+        }
+        with pg.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM frames WHERE category = 'role'")
+            before["role_frames"] = int(cur.fetchone()[0])
+        print("Nest before:", before)
+
+        vg = fetch_all(my_cur, "SELECT * FROM virtual_gifts") if table_exists(my_cur, "virtual_gifts") else []
+        # gift_types use synthetic ids and must not overwrite real gift rows.
+        g_cols, g_rows = transform_gifts(vg, [])
+        n_gifts = upsert_by_id(
+            pg,
+            "gifts",
+            g_cols,
+            g_rows,
+            ["name", "coin_cost", "image_url", "animation_url", "is_active"],
+        )
+        pg.commit()
+        print(f"  gifts upserted: {n_gifts}")
+
+        f_cols, f_rows = transform_frames(fetch_all(my_cur, "SELECT * FROM frames"))
+        n_frames = upsert_by_id(
+            pg,
+            "frames",
+            f_cols,
+            f_rows,
+            [
+                "name", "slug", "category", "level_required", "coin_cost",
+                "is_premium", "is_active", "image_url", "animation_key",
+            ],
+        )
+        pg.commit()
+        print(f"  frames upserted: {n_frames}")
+
+        raw_stickers = fetch_all(my_cur, "SELECT * FROM stickers") if table_exists(my_cur, "stickers") else []
+        s_cols, s_rows = copy_intersect(
+            raw_stickers,
+            ["id", "name", "coin_cost", "image_url", "animation_url", "is_active", "created_at"],
+            defaults={"coin_cost": 0, "is_active": True, "created_at": datetime.utcnow},
+            coerce={
+                "is_active": boolish,
+                "coin_cost": lambda v: int(v or 0),
+                "image_url": rewrite_media_url,
+                "animation_url": rewrite_media_url,
+            },
+        )
+        n_stickers = upsert_by_id(
+            pg,
+            "stickers",
+            s_cols,
+            s_rows,
+            ["name", "coin_cost", "image_url", "animation_url", "is_active"],
+        )
+        pg.commit()
+        print(f"  stickers upserted: {n_stickers}")
+
+        with pg.cursor() as cur:
+            cur.execute("SELECT id FROM frames")
+            frame_ids = {int(r[0]) for r in cur.fetchall()}
+            cur.execute("SELECT id FROM entry_bars")
+            bar_ids = {int(r[0]) for r in cur.fetchall()}
+            cur.execute("SELECT id, lower(email), phone, invite_code FROM users")
+            taken_ids: set[int] = set()
+            taken_emails: set[str] = set()
+            taken_phones: set[str] = set()
+            taken_invites: set[str] = set()
+            for uid, email, phone, invite in cur.fetchall():
+                taken_ids.add(int(uid))
+                if email:
+                    taken_emails.add(email)
+                if phone:
+                    taken_phones.add(str(phone))
+                if invite:
+                    taken_invites.add(str(invite))
+            cur.execute("SELECT COALESCE(MAX(id), 0) FROM users")
+            next_id = int(cur.fetchone()[0]) + 1
+
+        u_cols, u_rows = transform_users(fetch_all(my_cur, "SELECT * FROM users"))
+        idx = {name: i for i, name in enumerate(u_cols)}
+        to_insert: list[tuple] = []
+        skipped_email = 0
+        remapped = 0
+        for row in u_rows:
+            values = list(row)
+            email = values[idx["email"]]
+            if email and str(email).lower() in taken_emails:
+                skipped_email += 1
+                continue
+            uid = int(values[idx["id"]])
+            if uid in taken_ids:
+                values[idx["id"]] = next_id
+                next_id += 1
+                remapped += 1
+            phone = values[idx["phone"]]
+            if phone and str(phone) in taken_phones:
+                values[idx["phone"]] = None
+            elif phone:
+                taken_phones.add(str(phone))
+            invite = values[idx["invite_code"]]
+            if invite and str(invite) in taken_invites:
+                values[idx["invite_code"]] = None
+            elif invite:
+                taken_invites.add(str(invite))
+            frame_id = values[idx["selected_frame_id"]]
+            if frame_id is not None and int(frame_id) not in frame_ids:
+                values[idx["selected_frame_id"]] = None
+            bar_id = values[idx["selected_entry_bar_id"]]
+            if bar_id is not None and int(bar_id) not in bar_ids:
+                values[idx["selected_entry_bar_id"]] = None
+            # Avoid FK failures when the referrer is not on Nest yet.
+            values[idx["invited_by"]] = None
+            taken_ids.add(int(values[idx["id"]]))
+            if email:
+                taken_emails.add(str(email).lower())
+            to_insert.append(tuple(values))
+
+        inserted = insert_batch(pg, "users", u_cols, to_insert)
+        pg.commit()
+        print(f"  users inserted: {inserted} skipped_existing_email: {skipped_email} remapped_id: {remapped}")
+
+        # laravel_user_id → nest_user_id via email (covers skipped Nest-owned emails)
+        with pg.cursor() as cur:
+            cur.execute("SELECT id, lower(email) FROM users WHERE email IS NOT NULL")
+            nest_by_email = {email: int(uid) for uid, email in cur.fetchall() if email}
+            cur.execute("SELECT id FROM users")
+            nest_user_ids = {int(r[0]) for r in cur.fetchall()}
+        laravel_users = fetch_all(my_cur, "SELECT id, email FROM users")
+        user_map: dict[int, int] = {}
+        for u in laravel_users:
+            lid = int(u["id"])
+            email = (u.get("email") or "").strip().lower()
+            if email and email in nest_by_email:
+                user_map[lid] = nest_by_email[email]
+            elif lid in nest_user_ids:
+                user_map[lid] = lid
+
+        # --- media posts / reels ---
+        media_upserted = 0
+        likes_n = comments_n = saves_n = 0
+        if table_exists(my_cur, "media_posts"):
+            raw_media = fetch_all(my_cur, "SELECT * FROM media_posts")
+            kept = []
+            for r in raw_media:
+                lid = int(r["user_id"])
+                nest_uid = user_map.get(lid)
+                if nest_uid is None:
+                    continue
+                r = dict(r)
+                r["user_id"] = nest_uid
+                kept.append(r)
+            m_cols, m_rows = transform_media_items(kept)
+            media_upserted = upsert_by_id(
+                pg,
+                "media_items",
+                m_cols,
+                m_rows,
+                [
+                    "user_id", "kind", "media_type", "file_url", "thumbnail_url", "caption",
+                    "music_url", "effect_name", "duration", "aspect_ratio", "is_camera_recorded",
+                    "likes_count", "comments_count", "shares_count", "is_deleted", "updated_at",
+                ],
+            )
+            pg.commit()
+            media_ids = {int(r["id"]) for r in kept}
+            print(f"  media_items upserted: {media_upserted} (skipped authors: {len(raw_media) - len(kept)})")
+
+            if table_exists(my_cur, "post_likes"):
+                likes = fetch_all(my_cur, "SELECT * FROM post_likes")
+                like_rows = []
+                seen_pairs: set[tuple[int, int]] = set()
+                for r in likes:
+                    mid = int(r["media_post_id"])
+                    uid = user_map.get(int(r["user_id"]))
+                    if mid not in media_ids or uid is None:
+                        continue
+                    pair = (mid, uid)
+                    if pair in seen_pairs:
+                        continue
+                    seen_pairs.add(pair)
+                    like_rows.append(
+                        (
+                            int(r["id"]),
+                            mid,
+                            uid,
+                            to_pg(r.get("created_at") or datetime.utcnow()),
+                        )
+                    )
+                likes_n = insert_ignore_unique(
+                    pg,
+                    "media_likes",
+                    ["id", "media_id", "user_id", "created_at"],
+                    like_rows,
+                    "",  # any unique violation (id or media_id+user_id)
+                )
+                pg.commit()
+                print(f"  media_likes inserted: {likes_n}")
+
+            if table_exists(my_cur, "post_comments"):
+                comments = fetch_all(my_cur, "SELECT * FROM post_comments")
+                comment_rows = []
+                for r in comments:
+                    mid = int(r["media_post_id"])
+                    uid = user_map.get(int(r["user_id"]))
+                    if mid not in media_ids or uid is None:
+                        continue
+                    comment_rows.append(
+                        (
+                            int(r["id"]),
+                            mid,
+                            uid,
+                            r.get("comment") or "",
+                            to_pg(r.get("created_at") or datetime.utcnow()),
+                        )
+                    )
+                comments_n = upsert_by_id(
+                    pg,
+                    "media_comments",
+                    ["id", "media_id", "user_id", "comment", "created_at"],
+                    comment_rows,
+                    ["media_id", "user_id", "comment"],
+                )
+                pg.commit()
+                print(f"  media_comments upserted: {comments_n}")
+
+            if table_exists(my_cur, "post_saves"):
+                saves = fetch_all(my_cur, "SELECT * FROM post_saves")
+                save_rows = []
+                seen_save: set[tuple[int, int]] = set()
+                for r in saves:
+                    mid = int(r["media_post_id"])
+                    uid = user_map.get(int(r["user_id"]))
+                    if mid not in media_ids or uid is None:
+                        continue
+                    pair = (mid, uid)
+                    if pair in seen_save:
+                        continue
+                    seen_save.add(pair)
+                    save_rows.append(
+                        (
+                            int(r["id"]),
+                            mid,
+                            uid,
+                            to_pg(r.get("created_at") or datetime.utcnow()),
+                        )
+                    )
+                saves_n = insert_ignore_unique(
+                    pg,
+                    "media_saves",
+                    ["id", "media_id", "user_id", "created_at"],
+                    save_rows,
+                    "",  # any unique violation (id or media_id+user_id)
+                )
+                pg.commit()
+                print(f"  media_saves inserted: {saves_n}")
+
+        # --- role frames (Nest frames.category = role; slug-prefixed) ---
+        role_n = 0
+        if table_exists(my_cur, "role_frames"):
+            rf_cols, rf_rows = transform_role_frames(fetch_all(my_cur, "SELECT * FROM role_frames"))
+            role_n = upsert_by_slug(
+                pg,
+                "frames",
+                rf_cols,
+                rf_rows,
+                [
+                    "name", "category", "level_required", "coin_cost", "is_premium",
+                    "is_active", "image_url", "animation_url", "animation_key", "composite_mode",
+                ],
+            )
+            pg.commit()
+            print(f"  role_frames upserted: {role_n}")
+
+        reset_sequences(pg)
+        pg.commit()
+
+        with pg.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM media_items WHERE kind = 'post'")
+            posts = int(cur.fetchone()[0])
+            cur.execute("SELECT COUNT(*) FROM media_items WHERE kind = 'reel'")
+            reels = int(cur.fetchone()[0])
+            cur.execute("SELECT COUNT(*) FROM media_likes")
+            likes_c = int(cur.fetchone()[0])
+            cur.execute("SELECT COUNT(*) FROM media_comments")
+            comments_c = int(cur.fetchone()[0])
+            cur.execute("SELECT COUNT(*) FROM media_saves")
+            saves_c = int(cur.fetchone()[0])
+            cur.execute("SELECT COUNT(*) FROM frames WHERE category = 'role'")
+            role_c = int(cur.fetchone()[0])
+            cur.execute("SELECT id, name FROM stickers WHERE lower(name)='lion'")
+            lion = cur.fetchone()
+
+        after = {
+            "users": pg_count("users"),
+            "gifts": pg_count("gifts"),
+            "frames": pg_count("frames"),
+            "stickers": pg_count("stickers"),
+            "posts": posts,
+            "reels": reels,
+            "media_likes": likes_c,
+            "media_comments": comments_c,
+            "media_saves": saves_c,
+            "role_frames": role_c,
+        }
+        print("Nest after:", after)
+        print("sticker lion:", lion)
+        return 0
+    except Exception:
+        pg.rollback()
+        raise
+    finally:
+        my_cur.close()
+        my.close()
+        pg.close()
+
+
 def main():
     ap = argparse.ArgumentParser()
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--dry-run", action="store_true")
+    g.add_argument("--sync", action="store_true")
     g.add_argument("--apply", action="store_true")
     args = ap.parse_args()
+    if args.apply and os.environ.get("ALLOW_DESTRUCTIVE_TRUNCATE") != "1":
+        print(
+            "TRUNCATE is disabled. Use --sync. "
+            "Set ALLOW_DESTRUCTIVE_TRUNCATE=1 only for a deliberate wipe.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    if args.sync:
+        sys.exit(run_sync())
     sys.exit(run(dry_run=args.dry_run))
 
 

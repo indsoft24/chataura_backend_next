@@ -13,10 +13,13 @@ import {
 import { Throttle, seconds } from '@nestjs/throttler';
 import type { FastifyRequest } from 'fastify';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { MediaService } from '../media/media.service';
 import { AdminCatalogService } from './admin-catalog.service';
 import { AdminService } from './admin.service';
 import {
+  AdjustBalanceDto,
   CreateEntryBarDto,
   CreateFrameDto,
   CreateGiftDto,
@@ -107,6 +110,15 @@ export class AdminController {
   @Post('users/:id/deactivate')
   deactivate(@Param('id') id: string, @Body() body?: SuspendDto) {
     return this.admin.deactivate(BigInt(id), body?.reason);
+  }
+
+  @Post('users/:id/adjust-balance')
+  adjustBalance(
+    @CurrentUser() admin: AuthUser,
+    @Param('id') id: string,
+    @Body() body: AdjustBalanceDto,
+  ) {
+    return this.admin.adjustBalance(BigInt(id), body, admin.id);
   }
 
   @Post('users/:id/link')

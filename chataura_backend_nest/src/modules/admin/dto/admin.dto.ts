@@ -434,3 +434,21 @@ export class StarDto {
   @IsBoolean()
   is_star?: boolean;
 }
+
+export class AdjustBalanceDto {
+  @IsIn(['coins', 'gems'])
+  asset!: 'coins' | 'gems';
+
+  /** add = credit, deduct = debit */
+  @IsIn(['add', 'deduct', 'credit', 'debit'])
+  action!: 'add' | 'deduct' | 'credit' | 'debit';
+
+  @IsInt()
+  @Min(1)
+  amount!: number;
+
+  /** Required when deducting; recommended when crediting. */
+  @IsOptional()
+  @IsString()
+  note?: string;
+}

@@ -1,11 +1,19 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { bandForXp, ensureLaravelLevelBands } from '../gamification/level-bands';
+import { LedgerService } from '../wallet/ledger.service';
 import { userForApi } from '../user/user.serializer';
+
+const PLATFORM_WALLET_EMAIL =
+  process.env.PLATFORM_WALLET_EMAIL?.trim().toLowerCase() ||
+  'platform@chataura.local';
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ledger: LedgerService,
+  ) {}
 
   async dashboard(period = 'weekly', fromStr?: string, toStr?: string) {
     const validPeriod = ['daily', 'weekly', 'monthly'].includes(period) ? period : 'weekly';
@@ -370,6 +378,187 @@ export class AdminService {
       data: { isSuspended: false, suspendedReason: null },
     });
     return userForApi(u);
+  }
+
+  /**
+   * Manual admin credit/debit for coins or gems.
+   * Debit requires a note. Coins go through the ledger; gems update users.gems
+   * and leave an audit row on coin_transactions (amount 0, meta.gems_delta).
+   */
+  async adjustBalance(
+    targetId: bigint,
+    body: {
+      asset: 'coins' | 'gems';
+      action: 'add' | 'deduct' | 'credit' | 'debit';
+      amount: number;
+      note?: string;
+    },
+    adminId?: bigint,
+  ) {
+    const asset = body.asset;
+    const action =
+      body.action === 'credit' || body.action === 'add' ? 'add' : 'deduct';
+    const amount = Math.floor(Number(body.amount));
+    const note = String(body.note ?? '').trim();
+
+    if (!Number.isFinite(amount) || amount < 1) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'INVALID_AMOUNT', message: 'Amount must be a positive integer' },
+      });
+    }
+    if (action === 'deduct' && !note) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'NOTE_REQUIRED',
+          message: 'A note is required when deducting coins or gems',
+        },
+      });
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: targetId } });
+    if (!user || user.deletedAt) {
+      throw new NotFoundException({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'User not found' },
+      });
+    }
+    if ((user.email ?? '').trim().toLowerCase() === PLATFORM_WALLET_EMAIL) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Cannot adjust the platform wallet account',
+        },
+      });
+    }
+
+    const ref = `admin_adjust_${asset}_${action}_${targetId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const titleBase =
+      action === 'add'
+        ? `Admin credit ${amount} ${asset}`
+        : `Admin debit ${amount} ${asset}`;
+    const title = note ? `${titleBase}: ${note.slice(0, 180)}` : titleBase;
+    const meta = {
+      source: 'admin_adjust',
+      asset,
+      action,
+      amount,
+      note: note || null,
+      admin_id: adminId != null ? Number(adminId) : null,
+    };
+
+    try {
+      const result = await this.prisma.$transaction(async (tx) => {
+        if (asset === 'coins') {
+          if (action === 'add') {
+            const after = await this.ledger.creditCoins(
+              tx,
+              targetId,
+              amount,
+              'ADMIN_CREDIT',
+              title,
+              ref,
+              null,
+              meta,
+            );
+            return {
+              coin_balance: Number(after),
+              wallet_balance: Number(after),
+              gems: Number(user.gems),
+            };
+          }
+          const { after } = await this.ledger.debitCoins(
+            tx,
+            targetId,
+            amount,
+            'ADMIN_DEBIT',
+            title,
+            ref,
+            null,
+            meta,
+          );
+          return {
+            coin_balance: Number(after),
+            wallet_balance: Number(after),
+            gems: Number(user.gems),
+          };
+        }
+
+        // gems
+        const locked = await this.ledger.lockUser(tx, targetId);
+        if (!locked) throw new Error('USER_NOT_FOUND');
+        const gemsBefore = BigInt(locked.gems);
+        if (action === 'deduct' && gemsBefore < BigInt(amount)) {
+          throw Object.assign(new Error('INSUFFICIENT_GEMS'), {
+            code: 'INSUFFICIENT_GEMS',
+            available: Number(gemsBefore),
+          });
+        }
+        const gemsAfter =
+          action === 'add'
+            ? gemsBefore + BigInt(amount)
+            : gemsBefore - BigInt(amount);
+        await tx.user.update({
+          where: { id: targetId },
+          data: {
+            gems:
+              action === 'add'
+                ? { increment: BigInt(amount) }
+                : { decrement: BigInt(amount) },
+          },
+        });
+        await this.ledger.writeLedger(tx, {
+          userId: targetId,
+          type: action === 'add' ? 'ADMIN_GEM_CREDIT' : 'ADMIN_GEM_DEBIT',
+          title,
+          coinAmount: 0,
+          balanceAfter: BigInt(locked.wallet_balance),
+          referenceId: ref,
+          meta: { ...meta, gems_before: Number(gemsBefore), gems_after: Number(gemsAfter) },
+        });
+        return {
+          coin_balance: Number(locked.coin_balance),
+          wallet_balance: Number(locked.wallet_balance),
+          gems: Number(gemsAfter),
+        };
+      });
+
+      return {
+        message:
+          action === 'add'
+            ? `Added ${amount} ${asset} to user #${Number(targetId)}`
+            : `Deducted ${amount} ${asset} from user #${Number(targetId)}`,
+        user_id: Number(targetId),
+        asset,
+        action,
+        amount,
+        note: note || null,
+        balances: result,
+      };
+    } catch (e: unknown) {
+      const err = e as { code?: string; message?: string; available?: number };
+      if (err.code === 'INSUFFICIENT_BALANCE') {
+        throw new BadRequestException({
+          success: false,
+          error: {
+            code: 'INSUFFICIENT_BALANCE',
+            message: 'User does not have enough coins',
+          },
+        });
+      }
+      if (err.code === 'INSUFFICIENT_GEMS') {
+        throw new BadRequestException({
+          success: false,
+          error: {
+            code: 'INSUFFICIENT_GEMS',
+            message: `User only has ${err.available ?? 0} gems available`,
+          },
+        });
+      }
+      throw e;
+    }
   }
 
   async setStar(id: bigint, isStar: boolean) {
