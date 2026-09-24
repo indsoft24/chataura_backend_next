@@ -11,6 +11,7 @@ import { LedgerService } from '../wallet/ledger.service';
 import { RelationshipEngineService } from '../relationship/relationship-engine.service';
 import { resolveAgencyRoomMeta } from './agency-room-meta';
 import { RoomEvents } from './room.events';
+import { RocketLaunchService } from './rocket-launch.service';
 
 @Injectable()
 export class RoomGiftingService {
@@ -19,6 +20,7 @@ export class RoomGiftingService {
     private readonly ledger: LedgerService,
     private readonly events: RoomEvents,
     private readonly relationships: RelationshipEngineService,
+    private readonly rockets: RocketLaunchService,
   ) {}
 
   async giftTypes() {
@@ -207,9 +209,16 @@ export class RoomGiftingService {
         quantity,
       });
     }
+    const rocket = await this.rockets.applyGiftContribution(
+      room.id,
+      senderId,
+      Number(cost),
+      result.transaction_id,
+    );
     return {
       ...result,
       agency_cashback: agency.agency_cashback,
+      rocket,
     };
   }
 
@@ -410,9 +419,19 @@ export class RoomGiftingService {
       room.ownerId,
       room.id,
     );
+    const rocketTx =
+      result.transaction_ids?.[0] ??
+      `batch_${room.id}_${senderId}_${Date.now()}`;
+    const rocket = await this.rockets.applyGiftContribution(
+      room.id,
+      senderId,
+      Number(totalCost),
+      rocketTx,
+    );
     return {
       ...result,
       agency_cashback: agency.agency_cashback,
+      rocket,
     };
   }
 

@@ -323,6 +323,22 @@ export class RoomController {
     return this.rockets.launch(user.id, id);
   }
 
+  @Throttle({ default: { limit: 20, ttl: seconds(60) } })
+  @Post('rooms/:id/rocket/contribute')
+  contributeRocket(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body()
+    body: { coins: number | string; idempotency_key?: string },
+  ) {
+    return this.rockets.contribute(
+      user.id,
+      id,
+      Number(body.coins),
+      String(body.idempotency_key ?? ''),
+    );
+  }
+
   @Get('rooms/:id/rocket/launches/:launchId')
   rocketLaunch(
     @Param('id') id: string,

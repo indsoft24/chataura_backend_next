@@ -23,6 +23,6 @@ import { RoomService } from './room.service';
     RoomEvents,
     RoomGateway,
   ],
-  exports: [RoomService, RoomGiftingService],
+  exports: [RoomService, RoomGiftingService, RocketLaunchService],
 })
 export class RoomModule {}

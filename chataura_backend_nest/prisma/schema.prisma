@@ -112,6 +112,7 @@ model User {
   rocketAdminSeats    RoomRocketAdmin[]
   rocketLaunches      RocketLaunch[]        @relation("RocketLauncher")
   rocketRewards       RocketReward[]
+  rocketContributions RocketContribution[]
   seatsOccupied       Seat[]
   roomBlocks          RoomBlock[]
   greedyBets          GreedyBet[]
@@ -534,6 +535,7 @@ model Room {
   members        RoomMember[]
   rocketAdmins   RoomRocketAdmin[]
   rocketLaunches RocketLaunch[]
+  rocketEvents   RocketEvent[]
   seats          Seat[]
   blocks      RoomBlock[]
   affiliations AgencyAffiliation[]
@@ -584,6 +586,9 @@ model RocketLaunch {
   coinPool    Int      @map("coin_pool")
   joinedCount Int      @map("joined_count")
   winnerCount Int      @map("winner_count")
+  /// Jet skin LV 1–5 chosen from top contributor user.level (identical for all clients)
+  jetLevel    Int      @default(3) @map("jet_level")
+  topContributorId BigInt? @map("top_contributor_id")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   room     Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
@@ -609,6 +614,67 @@ model RocketReward {
 
   @@index([launchId])
   @@map("rocket_rewards")
+}
+
+/// Admin-configured crowdfund campaign (Rockit).
+model RocketCampaignConfig {
+  id                        BigInt   @id @default(autoincrement())
+  name                      String   @default("Rockit") @db.VarChar(128)
+  launchThresholdCoins      Int      @map("launch_threshold_coins")
+  rewardPoolPercentage      Float    @default(50) @map("reward_pool_percentage")
+  maxWinnersCount           Int      @default(7) @map("max_winners_count")
+  /// e.g. [40,25,15,10,5,3,2] — percentages for top N; should sum ~100
+  rewardDistributionRules   Json     @map("reward_distribution_rules")
+  minimumContributionRequired Int    @default(1) @map("minimum_contribution_required")
+  /// e.g. ["all"] | ["public","permanent","vip"]
+  eligibleRoomTypes         Json     @default("[\"all\"]") @map("eligible_room_types")
+  rockitDurationSeconds     Int      @default(3600) @map("rockit_duration_seconds")
+  status                    Boolean  @default(true)
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  events RocketEvent[]
+
+  @@map("rocket_campaign_configs")
+}
+
+model RocketEvent {
+  id               String   @id @default(uuid()) @db.Uuid
+  roomId           String   @map("room_id") @db.Uuid
+  configId         BigInt   @map("config_id")
+  accumulatedCoins Int      @default(0) @map("accumulated_coins")
+  /// PENDING | LAUNCHING | LAUNCHED | EXPIRED
+  status           String   @default("PENDING") @db.VarChar(16)
+  expiresAt        DateTime @map("expires_at") @db.Timestamptz(6)
+  launchId         String?  @map("launch_id") @db.Uuid
+  version          Int      @default(0)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  room          Room                   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  config        RocketCampaignConfig   @relation(fields: [configId], references: [id])
+  contributions RocketContribution[]
+
+  @@index([roomId, status])
+  @@index([expiresAt])
+  @@map("rocket_events")
+}
+
+model RocketContribution {
+  id        BigInt   @id @default(autoincrement())
+  eventId   String   @map("event_id") @db.Uuid
+  userId    BigInt   @map("user_id")
+  coins     Int
+  /// GIFT | DIRECT
+  source    String   @db.VarChar(16)
+  txId      String   @unique @map("tx_id") @db.VarChar(191)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  event RocketEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, userId])
+  @@map("rocket_contributions")
 }
 
 model Seat {

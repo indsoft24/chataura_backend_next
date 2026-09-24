@@ -16,6 +16,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { MediaService } from '../media/media.service';
+import { RocketLaunchService } from '../room/rocket-launch.service';
 import { AdminCatalogService } from './admin-catalog.service';
 import { AdminService } from './admin.service';
 import {
@@ -47,6 +48,7 @@ export class AdminController {
     private readonly admin: AdminService,
     private readonly catalog: AdminCatalogService,
     private readonly media: MediaService,
+    private readonly rockets: RocketLaunchService,
   ) {}
 
   @Throttle({ default: { limit: 60, ttl: seconds(60) } })
@@ -571,5 +573,35 @@ export class AdminController {
   @Get('transactions/export')
   exportTransactionsCsv() {
     return this.admin.exportTransactionsCsv();
+  }
+
+  // Rockit crowdfund campaigns
+  @Get('rockit/campaigns')
+  listRockitCampaigns() {
+    return this.rockets.listCampaigns();
+  }
+
+  @Post('rockit/campaigns')
+  upsertRockitCampaign(
+    @Body()
+    body: {
+      id?: number | string;
+      name?: string;
+      launch_threshold_coins: number;
+      reward_pool_percentage?: number;
+      max_winners_count?: number;
+      reward_distribution_rules?: number[];
+      minimum_contribution_required?: number;
+      eligible_room_types?: string[];
+      rockit_duration_seconds?: number;
+      status?: boolean;
+    },
+  ) {
+    return this.rockets.upsertCampaign(body);
+  }
+
+  @Delete('rockit/campaigns/:id')
+  deleteRockitCampaign(@Param('id') id: string) {
+    return this.rockets.deleteCampaign(BigInt(id));
   }
 }
