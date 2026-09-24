@@ -76,7 +76,9 @@ model User {
   audioCallRate    Int?           @map("audio_call_rate")
   videoCallRate    Int?           @map("video_call_rate")
   selectedFrameId  BigInt?        @map("selected_frame_id")
+  selectedRoleFrameId BigInt?     @map("selected_role_frame_id")
   selectedEntryBarId BigInt?      @map("selected_entry_bar_id")
+  staffBadgeType   String?        @map("staff_badge_type") @db.VarChar(32)
   lastClientCountry String?       @map("last_client_country") @db.VarChar(8)
   streakCount      Int            @default(0) @map("streak_count")
   lastStreakAt     DateTime?      @map("last_streak_at") @db.Timestamptz(6)
@@ -101,6 +103,7 @@ model User {
   withdrawals         WithdrawalRequest[]
   unlockedFrames      UserUnlockedFrame[]
   selectedFrame       Frame?          @relation("SelectedFrame", fields: [selectedFrameId], references: [id])
+  selectedRoleFrame   Frame?          @relation("SelectedRoleFrame", fields: [selectedRoleFrameId], references: [id])
   selectedEntryBar    EntryBar?       @relation("SelectedEntryBar", fields: [selectedEntryBarId], references: [id])
   roomsOwned          Room[]          @relation("RoomOwner")
   roomsHosted         Room[]          @relation("RoomHost")
@@ -408,8 +411,9 @@ model Frame {
   compositeMode String   @default("alpha") @map("composite_mode") @db.VarChar(16)
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  unlocks         UserUnlockedFrame[]
-  selectedByUsers User[]              @relation("SelectedFrame")
+  unlocks              UserUnlockedFrame[]
+  selectedByUsers      User[]              @relation("SelectedFrame")
+  selectedByRoleUsers  User[]              @relation("SelectedRoleFrame")
 
   @@index([isActive, levelRequired])
   @@map("frames")

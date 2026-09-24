@@ -20,6 +20,7 @@ type Frame = {
   is_active: boolean;
   image_url: string | null;
   animation_url: string | null;
+  animation_key: string | null;
   composite_mode: 'alpha' | 'screen' | null;
 };
 
@@ -31,7 +32,15 @@ export default function RoleFramesPage() {
 
   // Form states
   const [name, setName] = useState('');
-  const [roleType, setRoleType] = useState('Admin Privilege');
+  const [roleType, setRoleType] = useState('admin');
+  const ROLE_KEYS: { value: string; label: string }[] = [
+    { value: 'admin', label: 'Admin' },
+    { value: 'ceo', label: 'CEO' },
+    { value: 'manager', label: 'Manager' },
+    { value: 'superadmin', label: 'Superadmin' },
+    { value: 'agency', label: 'Agency' },
+    { value: 'coin_seller', label: 'Coin Seller' },
+  ];
   const [imageUrl, setImageUrl] = useState('');
   const [animationUrl, setAnimationUrl] = useState('');
   const [composite, setComposite] = useState<'alpha' | 'screen'>('alpha');
@@ -42,6 +51,7 @@ export default function RoleFramesPage() {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingFrame, setEditingFrame] = useState<Frame | null>(null);
   const [editName, setEditName] = useState('');
+  const [editRoleKey, setEditRoleKey] = useState('admin');
   const [editImageUrl, setEditImageUrl] = useState('');
   const [editAnimationUrl, setEditAnimationUrl] = useState('');
   const [editComposite, setEditComposite] = useState<'alpha' | 'screen'>('alpha');
@@ -80,10 +90,12 @@ export default function RoleFramesPage() {
       const json = await api<{ success: boolean; error?: { message?: string } }>('/admin/frames', token, {
         method: 'POST',
         body: JSON.stringify({
-          name: `${name.trim()} (${roleType})`,
+          name: name.trim(),
           category: 'role',
           level_required: 1,
           is_premium: true,
+          animation_key: roleType,
+          slug: `role_${roleType}_${Date.now()}`,
           image_url: imageUrl.trim(),
           animation_url: animationUrl.trim(),
           composite_mode: composite,
@@ -108,6 +120,7 @@ export default function RoleFramesPage() {
   function openEdit(frame: Frame) {
     setEditingFrame(frame);
     setEditName(frame.name);
+    setEditRoleKey(frame.animation_key || 'admin');
     setEditImageUrl(frame.image_url ?? '');
     setEditAnimationUrl(frame.animation_url ?? '');
     setEditComposite(frame.composite_mode === 'screen' ? 'screen' : 'alpha');
@@ -131,6 +144,7 @@ export default function RoleFramesPage() {
         method: 'PATCH',
         body: JSON.stringify({
           name: editName.trim(),
+          animation_key: editRoleKey,
           image_url: editImageUrl.trim(),
           animation_url: editAnimationUrl.trim(),
           composite_mode: editComposite,
@@ -203,11 +217,9 @@ export default function RoleFramesPage() {
               onChange={(e) => setRoleType(e.target.value)}
               style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem', backgroundColor: '#fff' }}
             >
-              <option value="Admin Privilege">Admin Privilege</option>
-              <option value="CEO Privilege">CEO Privilege</option>
-              <option value="Manager Privilege">Manager Privilege</option>
-              <option value="Agency Head">Agency Head</option>
-              <option value="Host VIP">Host VIP</option>
+              {ROLE_KEYS.map((r) => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
             </select>
           </div>
         </div>
@@ -407,6 +419,19 @@ export default function RoleFramesPage() {
                 onChange={(e) => setEditName(e.target.value)}
                 style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
               />
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Role Key</label>
+              <select
+                value={editRoleKey}
+                onChange={(e) => setEditRoleKey(e.target.value)}
+                style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem', backgroundColor: '#fff' }}
+              >
+                {ROLE_KEYS.map((r) => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
+              </select>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>

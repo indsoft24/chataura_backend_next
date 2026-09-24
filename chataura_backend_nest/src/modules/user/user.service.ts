@@ -212,7 +212,7 @@ export class UserService {
   async me(userId: bigint) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      include: { selectedFrame: true },
+      include: { selectedFrame: true, selectedRoleFrame: true },
     });
     const counts = await this.countsFor(userId);
     return { ...userForApi(user, user.selectedFrame), ...counts };
@@ -222,7 +222,7 @@ export class UserService {
     const bands = await ensureLaravelLevelBands(this.prisma);
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      include: { selectedFrame: true },
+      include: { selectedFrame: true, selectedRoleFrame: true },
     });
     const counts = await this.rawCounts(userId);
     const band = bandForXp(Number(user.xp), bands);
@@ -244,7 +244,7 @@ export class UserService {
           : {}),
         ...(body.country !== undefined ? { country: body.country } : {}),
       },
-      include: { selectedFrame: true },
+      include: { selectedFrame: true, selectedRoleFrame: true },
     });
     return userForApi(user, user.selectedFrame);
   }
@@ -344,7 +344,7 @@ export class UserService {
           ? { showOnlineStatus: body.show_online_status }
           : {}),
       },
-      include: { selectedFrame: true },
+      include: { selectedFrame: true, selectedRoleFrame: true },
     });
     return userForApi(user, user.selectedFrame);
   }
@@ -464,7 +464,7 @@ export class UserService {
       skip,
       take,
       orderBy: { id: 'desc' },
-      include: { selectedFrame: true },
+      include: { selectedFrame: true, selectedRoleFrame: true },
     });
     return users.map((user) => userForApi(user, user.selectedFrame));
   }
@@ -472,7 +472,7 @@ export class UserService {
   async show(viewerId: bigint | null, targetId: bigint) {
     const user = await this.prisma.user.findFirst({
       where: { id: targetId, deletedAt: null },
-      include: { selectedFrame: true },
+      include: { selectedFrame: true, selectedRoleFrame: true },
     });
     if (!user) {
       throw new NotFoundException({
@@ -768,7 +768,7 @@ export class UserService {
     const skip = (Math.max(page, 1) - 1) * take;
     const rows = await this.prisma.userFollower.findMany({
       where: { followingId: userId, status: 'accepted' },
-      include: { follower: { include: { selectedFrame: true } } },
+      include: { follower: { include: { selectedFrame: true, selectedRoleFrame: true } } },
       skip,
       take,
     });
@@ -780,7 +780,7 @@ export class UserService {
     const skip = (Math.max(page, 1) - 1) * take;
     const rows = await this.prisma.userFollower.findMany({
       where: { followerId: userId, status: 'accepted' },
-      include: { following: { include: { selectedFrame: true } } },
+      include: { following: { include: { selectedFrame: true, selectedRoleFrame: true } } },
       skip,
       take,
     });
@@ -792,7 +792,7 @@ export class UserService {
     const skip = (Math.max(page, 1) - 1) * take;
     const rows = await this.prisma.friendship.findMany({
       where: { userId },
-      include: { friend: { include: { selectedFrame: true } } },
+      include: { friend: { include: { selectedFrame: true, selectedRoleFrame: true } } },
       skip,
       take,
     });
@@ -897,7 +897,7 @@ export class UserService {
     const skip = (Math.max(page, 1) - 1) * take;
     const users = await this.prisma.user.findMany({
       where: { isStarAccount: true, accountStatus: 'active', deletedAt: null },
-      include: { selectedFrame: true },
+      include: { selectedFrame: true, selectedRoleFrame: true },
       orderBy: [{ starRank: 'asc' }, { id: 'desc' }],
       skip,
       take,
@@ -921,7 +921,7 @@ export class UserService {
   async starAccount(userId: bigint) {
     const u = await this.prisma.user.findFirst({
       where: { id: userId, isStarAccount: true, deletedAt: null },
-      include: { selectedFrame: true },
+      include: { selectedFrame: true, selectedRoleFrame: true },
     });
     if (!u) {
       throw new NotFoundException({

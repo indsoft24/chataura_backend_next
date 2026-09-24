@@ -25,7 +25,8 @@ export default function StaffPage() {
   const { token } = useAdminAuth();
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [userId, setUserId] = useState('');
-  const [role, setRole] = useState<'admin' | 'seller'>('admin');
+  const [role, setRole] = useState<'admin' | 'seller' | 'agency'>('admin');
+  const [badgeType, setBadgeType] = useState<'admin' | 'ceo' | 'manager' | 'superadmin'>('admin');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -57,7 +58,10 @@ export default function StaffPage() {
       const json = await api<{ success: boolean; error?: { message?: string } }>(
         `/admin/users/${userId}/link`,
         token,
-        { method: 'POST', body: JSON.stringify({ role }) },
+        { method: 'POST', body: JSON.stringify({
+          role,
+          ...(role === 'admin' ? { staff_badge_type: badgeType } : {}),
+        }) },
       );
       if (!json.success) {
         setError(json.error?.message ?? 'Link failed');
@@ -109,13 +113,29 @@ export default function StaffPage() {
             <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 600 }}>Role</div>
             <select
               value={role}
-              onChange={(e) => setRole(e.target.value as 'admin' | 'seller')}
+              onChange={(e) => setRole(e.target.value as 'admin' | 'seller' | 'agency')}
               style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', background: '#fff', fontSize: '0.95rem', margin: 0, height: '42px' }}
             >
               <option value="admin">Administrator</option>
               <option value="seller">Coin Seller</option>
+              <option value="agency">Agency</option>
             </select>
           </div>
+          {role === 'admin' ? (
+            <div>
+              <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 600 }}>Staff Badge</div>
+              <select
+                value={badgeType}
+                onChange={(e) => setBadgeType(e.target.value as 'admin' | 'ceo' | 'manager' | 'superadmin')}
+                style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', background: '#fff', fontSize: '0.95rem', margin: 0, height: '42px' }}
+              >
+                <option value="admin">Admin</option>
+                <option value="ceo">CEO</option>
+                <option value="manager">Manager</option>
+                <option value="superadmin">Superadmin</option>
+              </select>
+            </div>
+          ) : null}
           <div style={{ display: 'flex', alignItems: 'flex-end', height: '62px' }}>
             <button type="button" onClick={() => void linkExisting()} style={{ width: 'auto', height: '42px' }}>
               Assign Role
@@ -156,13 +176,13 @@ export default function StaffPage() {
                       <span style={{
                         padding: '4px 8px',
                         borderRadius: '4px',
-                        background: s.role === 'admin' ? '#fee2e2' : '#fef3c7',
-                        color: s.role === 'admin' ? '#991b1b' : '#92400e',
+                        background: s.role === 'admin' ? '#fee2e2' : s.role === 'agency' ? '#dbeafe' : '#fef3c7',
+                        color: s.role === 'admin' ? '#991b1b' : s.role === 'agency' ? '#1e40af' : '#92400e',
                         fontSize: '0.75rem',
                         fontWeight: 600,
                         textTransform: 'uppercase'
                       }}>
-                        {s.role === 'admin' ? 'Administrator' : 'Coin Seller'}
+                        {s.role === 'admin' ? 'Administrator' : s.role === 'agency' ? 'Agency' : 'Coin Seller'}
                       </span>
                     </td>
                     <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'right', fontWeight: 600, color: '#2563eb' }}>

@@ -414,12 +414,12 @@ export class AuthService {
   private async authPayload(user: User) {
     const withFrame = await this.prisma.user.findUnique({
       where: { id: user.id },
-      include: { selectedFrame: true },
+      include: { selectedFrame: true, selectedRoleFrame: true },
     });
     const access_token = this.tokens.generateAccessToken(user);
     const refresh_token = await this.tokens.generateRefreshToken(user);
     return {
-      user: userForApi(withFrame ?? user, withFrame?.selectedFrame),
+      user: userForApi(withFrame ?? user, withFrame?.selectedFrame, withFrame?.selectedRoleFrame),
       access_token,
       refresh_token,
       expires_in: this.tokens.getAccessExpiresIn(),

@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { presentFrameMedia } from '../../common/utils/catalog-media';
 import { LedgerService } from '../wallet/ledger.service';
+import { buildRoleBadge } from '../user/user.serializer';
 import {
   bandForXp,
   ensureLaravelLevelBands,
@@ -154,6 +155,8 @@ export class GamificationService {
       where: { isActive: true },
       orderBy: [{ levelRequired: 'asc' }, { id: 'asc' }],
     });
+    // Role frames are managed via /role-frames, not the shop catalog.
+    all = all.filter((f) => f.category !== 'role');
 
     if (all.length === 0) {
       const defaultFrames = [
@@ -285,6 +288,19 @@ export class GamificationService {
   }
 
   async selectFrame(userId: bigint, frameId: bigint) {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
+    const staffRole = ['agency', 'seller', 'admin'].includes(user.role);
+    if (staffRole || user.staffBadgeType) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'STAFF_ROLE_FRAMES_ONLY',
+          message: 'Staff accounts use role frames only',
+        },
+      });
+    }
     const frame = await this.prisma.frame.findFirst({
       where: { id: frameId, isActive: true },
     });
@@ -292,6 +308,15 @@ export class GamificationService {
       throw new NotFoundException({
         success: false,
         error: { code: 'FRAME_NOT_FOUND', message: 'Frame not found' },
+      });
+    }
+    if (frame.category === 'role') {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'ROLE_FRAME_SHOP_REJECTED',
+          message: 'Role frames cannot be selected via shop',
+        },
       });
     }
     const unlocked = await this.prisma.userUnlockedFrame.findUnique({
@@ -573,17 +598,21 @@ export class GamificationService {
       });
     }
 
+    const defaultByKey = new Set<string>();
     const items = roleFrames.map((f) => {
       const media = presentFrameMedia(f.imageUrl, f.animationUrl, f.compositeMode);
       const preview = media.preview_url || media.image_url;
       const animation = media.animation_url || preview;
+      const roleKey = f.animationKey || 'agency';
+      const isDefault = !defaultByKey.has(roleKey);
+      if (isDefault) defaultByKey.add(roleKey);
       return {
         id: Number(f.id),
-        role_key: f.animationKey || 'agency',
+        role_key: roleKey,
         slug: f.slug,
         motion_type: 'hq',
         label: f.name,
-        is_default: true,
+        is_default: isDefault,
         animation_url: animation,
         animation_url_lite: media.animation_url_lite || preview,
         preview_url: preview,
@@ -598,22 +627,27 @@ export class GamificationService {
     return { role_frames: items };
   }
 
+  private resolveStaffRoleKey(user: {
+    role: string;
+    staffBadgeType?: string | null;
+  }): string | null {
+    const userRole = user.role.toString().toLowerCase();
+    if (userRole === 'agency') return 'agency';
+    if (userRole === 'seller') return 'coin_seller';
+    if (userRole === 'admin') {
+      const badge = (user.staffBadgeType ?? 'admin').toLowerCase().trim();
+      return badge || 'admin';
+    }
+    return null;
+  }
+
   async myRoleFrames(userId: bigint) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
     });
 
     const catalog = await this.roleFramesCatalog();
-    const userRole = user.role.toString().toLowerCase();
-
-    const roleKey =
-      userRole === 'agency'
-        ? 'agency'
-        : userRole === 'seller'
-          ? 'coin_seller'
-          : userRole === 'admin'
-            ? 'admin'
-            : null;
+    const roleKey = this.resolveStaffRoleKey(user);
 
     const unlocked = await this.prisma.userUnlockedFrame.findMany({
       where: { userId },
@@ -623,13 +657,19 @@ export class GamificationService {
 
     const eligible = catalog.role_frames.filter((f) => {
       if (roleKey && f.role_key === roleKey) return true;
-      if (roleKey === 'admin' && f.role_key === 'superadmin') return true;
+      // Admins may also use the superadmin / admin catalog keys.
+      if (
+        user.role === 'admin' &&
+        (f.role_key === 'admin' || f.role_key === 'superadmin')
+      ) {
+        return true;
+      }
       if (unlockedIds.has(String(f.id))) return true;
       return false;
     });
 
-    const selectedId = user.selectedFrameId
-      ? Number(user.selectedFrameId)
+    const selectedId = user.selectedRoleFrameId
+      ? Number(user.selectedRoleFrameId)
       : null;
     const selectedFrame = eligible.find((f) => f.id === selectedId) || null;
 
@@ -640,17 +680,15 @@ export class GamificationService {
       selected: f.id === selectedId,
     }));
 
+    const badge = buildRoleBadge(user, null);
+    const roleBadge = badge
+      ? { ...badge, frame: selectedFrame }
+      : null;
+
     return {
       role_frames: mapped,
       selected_role_frame_id: selectedId,
-      role_badge: roleKey
-        ? {
-            type: roleKey,
-            country: user.country,
-            label: userRole.toUpperCase(),
-            frame: selectedFrame,
-          }
-        : null,
+      role_badge: roleBadge,
       role_frame_url: selectedFrame?.animation_url ?? null,
       role_frame_url_lite: selectedFrame?.animation_url_lite ?? null,
       role_frame_url_hq: selectedFrame?.animation_url ?? null,
@@ -680,10 +718,38 @@ export class GamificationService {
         error: { code: 'FRAME_NOT_FOUND', message: 'Role frame not found' },
       });
     }
+    if (frame.category !== 'role') {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'NOT_ROLE_FRAME',
+          message: 'Frame is not a role frame',
+        },
+      });
+    }
+
+    const unlocked = await this.prisma.userUnlockedFrame.findUnique({
+      where: { userId_frameId: { userId, frameId } },
+    });
+    if (!this.frameOwned(unlocked)) {
+      await this.prisma.userUnlockedFrame.upsert({
+        where: { userId_frameId: { userId, frameId } },
+        create: {
+          userId,
+          frameId,
+          coinsPaid: 0,
+          unlockType: 'role',
+        },
+        update: {
+          unlockType: 'role',
+          expiresAt: null,
+        },
+      });
+    }
 
     await this.prisma.user.update({
       where: { id: userId },
-      data: { selectedFrameId: frameId },
+      data: { selectedRoleFrameId: frameId },
     });
 
     return this.myRoleFrames(userId);

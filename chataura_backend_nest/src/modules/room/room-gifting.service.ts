@@ -9,6 +9,7 @@ import { normalizeGiftCategory } from '../../common/utils/gift-category';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { RelationshipEngineService } from '../relationship/relationship-engine.service';
+import { resolveAgencyRoomMeta } from './agency-room-meta';
 import { RoomEvents } from './room.events';
 
 @Injectable()
@@ -192,6 +193,11 @@ export class RoomGiftingService {
         throw e;
       }
     });
+    const agency = await resolveAgencyRoomMeta(
+      this.prisma,
+      room.ownerId,
+      room.id,
+    );
     {
       this.events.emitGiftOverlay(room.id, {
         gift_id: Number(gift.id),
@@ -201,7 +207,10 @@ export class RoomGiftingService {
         quantity,
       });
     }
-    return result;
+    return {
+      ...result,
+      agency_cashback: agency.agency_cashback,
+    };
   }
 
   async sendBatchGift(
@@ -396,7 +405,15 @@ export class RoomGiftingService {
       }
     }
 
-    return result;
+    const agency = await resolveAgencyRoomMeta(
+      this.prisma,
+      room.ownerId,
+      room.id,
+    );
+    return {
+      ...result,
+      agency_cashback: agency.agency_cashback,
+    };
   }
 
   async giftStats(userId: bigint, id: string) {

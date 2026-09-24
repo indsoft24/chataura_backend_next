@@ -421,12 +421,20 @@ export class RejectWithdrawalDto {
 
 export class LinkUserDto {
   @IsOptional()
-  @IsIn(['user', 'seller', 'admin'])
-  role?: 'user' | 'seller' | 'admin';
+  @IsIn(['agency', 'user', 'seller', 'admin'])
+  role?: 'agency' | 'user' | 'seller' | 'admin';
 
   @IsOptional()
   @IsEmail()
   email?: string;
+
+  @IsOptional()
+  @IsString()
+  staff_badge_type?: string;
+
+  @IsOptional()
+  @IsString()
+  badge_type?: string;
 }
 
 export class StarDto {

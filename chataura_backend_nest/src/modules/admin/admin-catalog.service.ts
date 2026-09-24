@@ -535,6 +535,7 @@ export class AdminCatalogService {
       is_premium: f.isPremium,
       image_url: f.imageUrl,
       animation_url: f.animationUrl,
+      animation_key: f.animationKey,
       composite_mode: f.compositeMode,
       is_active: f.isActive,
     };
@@ -622,6 +623,7 @@ export class AdminCatalogService {
       category: f.category,
       image_url: f.imageUrl,
       animation_url: f.animationUrl,
+      animation_key: f.animationKey,
       composite_mode: f.compositeMode,
       is_active: f.isActive,
     };

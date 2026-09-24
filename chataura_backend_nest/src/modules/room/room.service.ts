@@ -16,14 +16,21 @@ import {
 } from '../../common/utils/catalog-media';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
+import { buildRoleBadge } from '../user/user.serializer';
 import { AgoraService } from './agora.service';
+import {
+  resolveAgencyRoomMeta,
+  type AgencyRoomMeta,
+} from './agency-room-meta';
 import { PresenceService } from './presence.service';
 import { RoomEvents } from './room.events';
 
 const STALE_MS = 90_000;
 const KICK_SECONDS = 600;
 
-const personWithFrame = { include: { selectedFrame: true } } as const;
+const personWithFrame = {
+  include: { selectedFrame: true, selectedRoleFrame: true },
+} as const;
 
 type UserLite = {
   id: bigint;
@@ -31,8 +38,13 @@ type UserLite = {
   displayName: string | null;
   avatarUrl: string | null;
   level: number;
+  role?: string;
+  country?: string | null;
+  staffBadgeType?: string | null;
   selectedFrameId: bigint | null;
+  selectedRoleFrameId?: bigint | null;
   selectedFrame?: FrameAsset | null;
+  selectedRoleFrame?: FrameAsset | null;
 };
 
 function coverUrlFromBody(body: {
@@ -152,7 +164,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       take,
     });
     const globalVideo = await this.isGlobalVideoEnabled();
-    return rooms.map((r) => this.serializeRoom(r, globalVideo));
+    return Promise.all(
+      rooms.map(async (r) => {
+        const agency = await this.enrichRoomAgencyFields(r.id, r.ownerId);
+        return this.serializeRoom(r, globalVideo, agency);
+      }),
+    );
   }
 
   async mine(userId: bigint, page = 1, limit = 50) {
@@ -171,7 +188,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       orderBy: { createdAt: 'desc' },
     });
     const globalVideo = await this.isGlobalVideoEnabled();
-    return rooms.map((r) => this.serializeRoom(r, globalVideo));
+    return Promise.all(
+      rooms.map(async (r) => {
+        const agency = await this.enrichRoomAgencyFields(r.id, r.ownerId);
+        return this.serializeRoom(r, globalVideo, agency);
+      }),
+    );
   }
 
   async themes() {
@@ -190,7 +212,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   async show(id: string) {
     const room = await this.findRoom(id, true);
     const globalVideo = await this.isGlobalVideoEnabled();
-    return this.serializeRoom(room, globalVideo);
+    const agency = await this.enrichRoomAgencyFields(room.id, room.ownerId);
+    return this.serializeRoom(room, globalVideo, agency);
   }
 
   async create(
@@ -382,7 +405,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      include: { selectedFrame: true },
+      include: { selectedFrame: true, selectedRoleFrame: true },
     });
     const agoraUid = this.agoraUid(userId);
     const member = await this.prisma.$transaction(async (tx) => {
@@ -439,8 +462,10 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     );
     const fresh = await this.findRoom(room.id, true);
     const globalVideo = await this.isGlobalVideoEnabled();
+    const agency = await this.enrichRoomAgencyFields(fresh.id, fresh.ownerId);
+    const roleFields = this.roleBadgeFields(user);
     return {
-      room: this.serializeRoom(fresh, globalVideo),
+      room: this.serializeRoom(fresh, globalVideo, agency),
       member: this.serializeMember(member, user),
       ...token,
       media_defaults: { mic_on: false, camera_on: false },
@@ -456,6 +481,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
           ? Number(user.selectedFrameId)
           : null,
         ...selectedFrameClientFields(user.selectedFrame),
+        ...roleFields,
         suppressed: false,
       },
     };
@@ -538,12 +564,13 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       });
     }
     const presence = await this.presence.heartbeat(userId, room.id);
+    const agency = await this.enrichRoomAgencyFields(room.id, room.ownerId);
     return {
       ok: true,
       bonus_earned: presence.bonus_earned,
       accumulated_seconds: presence.accumulated_seconds,
-      agency_linked: false,
-      agency_cashback: null,
+      agency_linked: agency.agency_linked,
+      agency_cashback: agency.agency_cashback,
     };
   }
 
@@ -563,7 +590,9 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     const room = await this.findRoom(id);
     const members = await this.prisma.roomMember.findMany({
       where: { roomId: room.id, isActive: true },
-      include: { user: { include: { selectedFrame: true } } },
+      include: {
+        user: { include: { selectedFrame: true, selectedRoleFrame: true } },
+      },
     });
     return {
       users: members.map((m) => this.serializeMember(m, m.user)),
@@ -1519,6 +1548,65 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     return Number(userId % 2_147_483_647n);
   }
 
+  async enrichRoomAgencyFields(
+    roomId: string,
+    ownerId: bigint,
+  ): Promise<AgencyRoomMeta> {
+    return resolveAgencyRoomMeta(this.prisma, ownerId, roomId);
+  }
+
+  private roleBadgeFields(user: UserLite) {
+    const role = String(user.role ?? '').toLowerCase();
+    if (!['agency', 'seller', 'admin'].includes(role) && !user.staffBadgeType) {
+      return {
+        role_badge: null as ReturnType<typeof buildRoleBadge>,
+        role_badge_type: null as string | null,
+        role_badge_label: null as string | null,
+        role_frame: null as Record<string, unknown> | null,
+        role_frame_url: null as string | null,
+        role_frame_url_lite: null as string | null,
+        role_frame_url_hq: null as string | null,
+      };
+    }
+    const badge = buildRoleBadge(
+      {
+        role: (user.role as 'user' | 'seller' | 'admin' | 'agency') ?? 'user',
+        country: user.country ?? null,
+        staffBadgeType: user.staffBadgeType ?? null,
+      },
+      user.selectedRoleFrame,
+    );
+    let roleFrame: Record<string, unknown> | null = badge?.frame ?? null;
+    let roleFrameUrl: string | null = null;
+    let roleFrameUrlLite: string | null = null;
+    if (user.selectedRoleFrame) {
+      const media = presentFrameMedia(
+        user.selectedRoleFrame.imageUrl,
+        user.selectedRoleFrame.animationUrl,
+        user.selectedRoleFrame.compositeMode,
+      );
+      roleFrame = {
+        animation_url: media.animation_url,
+        animation_url_lite: media.animation_url_lite,
+        preview_url: media.preview_url,
+        media_type: media.media_type,
+        loop: media.loop,
+        composite: media.composite,
+      };
+      roleFrameUrl = media.animation_url;
+      roleFrameUrlLite = media.animation_url_lite;
+    }
+    return {
+      role_badge: badge ? { ...badge, frame: roleFrame } : null,
+      role_badge_type: badge?.type ?? null,
+      role_badge_label: badge?.label ?? null,
+      role_frame: roleFrame,
+      role_frame_url: roleFrameUrl,
+      role_frame_url_lite: roleFrameUrlLite,
+      role_frame_url_hq: roleFrameUrl,
+    };
+  }
+
   private serializeMember(
     member: {
       id: bigint;
@@ -1544,6 +1632,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         ? Number(user.selectedFrameId)
         : null,
       ...selectedFrameClientFields(user.selectedFrame),
+      ...this.roleBadgeFields(user),
       joined_at: member.joinedAt?.toISOString(),
     };
   }
@@ -1572,6 +1661,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         ? Number(user.selectedFrameId)
         : null,
       ...selectedFrameClientFields(user.selectedFrame),
+      ...this.roleBadgeFields(user),
     };
   }
 
@@ -1603,6 +1693,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       _count?: { members: number };
     },
     globalVideoEnabled = true,
+    agencyMeta: AgencyRoomMeta = { agency_linked: false, agency_cashback: null },
   ) {
     const rawSettings = (room.settings as Record<string, unknown>) ?? {};
     const allowVideo = globalVideoEnabled && rawSettings.audio_only !== true;
@@ -1639,8 +1730,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       min_age: room.minAge,
       max_age: room.maxAge,
       members_count: room._count?.members ?? 0,
-      agency_linked: false,
-      agency_cashback: null,
+      agency_linked: agencyMeta.agency_linked,
+      agency_cashback: agencyMeta.agency_cashback,
       gift_animation: {
         big_threshold_coins: 5000,
         banner_duration_small_ms: 3000,

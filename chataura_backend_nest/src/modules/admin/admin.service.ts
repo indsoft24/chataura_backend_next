@@ -653,7 +653,12 @@ export class AdminService {
 
   async linkExistingUser(
     userId: bigint,
-    body: { role?: 'user' | 'seller' | 'admin'; email?: string },
+    body: {
+      role?: 'agency' | 'user' | 'seller' | 'admin';
+      email?: string;
+      staff_badge_type?: string;
+      badge_type?: string;
+    },
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
@@ -662,11 +667,16 @@ export class AdminService {
         error: { code: 'NOT_FOUND', message: 'User not found' },
       });
     }
+    const staffBadge =
+      body.staff_badge_type ?? body.badge_type ?? undefined;
     const updated = await this.prisma.user.update({
       where: { id: userId },
       data: {
         role: body.role ?? 'admin',
         ...(body.email ? { email: body.email } : {}),
+        ...(staffBadge !== undefined
+          ? { staffBadgeType: staffBadge || null }
+          : {}),
         accountStatus: 'active',
         isSuspended: false,
         deletedAt: null,
@@ -677,7 +687,7 @@ export class AdminService {
 
   async staff() {
     const rows = await this.prisma.user.findMany({
-      where: { role: { in: ['admin', 'seller'] }, deletedAt: null },
+      where: { role: { in: ['admin', 'seller', 'agency'] }, deletedAt: null },
       orderBy: { id: 'asc' },
     });
     const today = this.startOfDay();
