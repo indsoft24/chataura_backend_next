@@ -3,8 +3,10 @@
 ChatAura MySQL (Laravel) → PostgreSQL (Nest) ETL.
 
 - Reads MySQL read-only; never deletes/modifies Laravel data.
+- --sync: non-destructive upsert only (catalog, media, role frames, social,
+  staff/CEO badges, coin ledger, purchases, rooms for analytics).
+  Never TRUNCATE / DELETE. Nest-native rows are preserved.
 - --dry-run: counts + mapping report only
-- --sync: upsert gifts/frames/stickers and insert missing users. Never deletes.
 - --apply: destructive truncate. Disabled unless ALLOW_DESTRUCTIVE_TRUNCATE=1.
 
 Usage:
@@ -213,6 +215,34 @@ def count_pg(cur, name: str) -> int:
     return int(cur.fetchone()[0])
 
 
+def upsert_on_conflict(
+    pg,
+    table: str,
+    columns: list[str],
+    rows: list[tuple],
+    conflict_cols: list[str],
+    update_cols: list[str],
+    page: int = 200,
+):
+    """Insert or update on a unique constraint. Never deletes rows."""
+    if not rows:
+        return 0
+    cols = ",".join(columns)
+    conflict = ", ".join(conflict_cols)
+    updates = ", ".join(f"{c}=EXCLUDED.{c}" for c in update_cols)
+    sql = (
+        f"INSERT INTO {table} ({cols}) VALUES %s "
+        f"ON CONFLICT ({conflict}) DO UPDATE SET {updates}"
+    )
+    total = 0
+    with pg.cursor() as cur:
+        for i in range(0, len(rows), page):
+            chunk = rows[i : i + page]
+            psycopg2.extras.execute_values(cur, sql, chunk, page_size=page)
+            total += len(chunk)
+    return total
+
+
 def upsert_by_id(
     pg,
     table: str,
@@ -222,21 +252,7 @@ def upsert_by_id(
     page: int = 200,
 ):
     """Insert or update by primary key. Never deletes rows."""
-    if not rows:
-        return 0
-    cols = ",".join(columns)
-    updates = ", ".join(f"{c}=EXCLUDED.{c}" for c in update_cols)
-    sql = (
-        f"INSERT INTO {table} ({cols}) VALUES %s "
-        f"ON CONFLICT (id) DO UPDATE SET {updates}"
-    )
-    total = 0
-    with pg.cursor() as cur:
-        for i in range(0, len(rows), page):
-            chunk = rows[i : i + page]
-            psycopg2.extras.execute_values(cur, sql, chunk, page_size=page)
-            total += len(chunk)
-    return total
+    return upsert_on_conflict(pg, table, columns, rows, ["id"], update_cols, page=page)
 
 
 def upsert_by_slug(
@@ -498,7 +514,11 @@ def transform_gifts(vg: list[dict], gt: list[dict]) -> tuple[list[str], list[tup
     return cols, out
 
 
-def transform_coin_transactions(rows: list[dict]) -> tuple[list[str], list[tuple], dict]:
+def transform_coin_transactions(
+    rows: list[dict],
+    *,
+    stable_legacy_refs: bool = False,
+) -> tuple[list[str], list[tuple], dict]:
     """Laravel sender/receiver row → Nest per-user ledger rows (often 1→2)."""
     cols = [
         "user_id", "type", "title", "coin_amount", "net_amount", "commission_amount",
@@ -513,11 +533,12 @@ def transform_coin_transactions(rows: list[dict]) -> tuple[list[str], list[tuple
         gross = int(r.get("gross_coins_deducted") or 0)
         commission = int(r.get("admin_commission_coins") or 0)
         net = int(r.get("net_coins_received") or 0)
-        ref = str(r.get("reference_id") or r.get("id"))
+        base_ref = str(r.get("reference_id") or r.get("id"))
+        legacy_id = r.get("id")
         created = to_pg(r.get("created_at") or datetime.utcnow())
         meta = json.dumps(
             {
-                "legacy_id": r.get("id"),
+                "legacy_id": legacy_id,
                 "sender_id": sender,
                 "receiver_id": receiver,
                 "transaction_type": ttype,
@@ -525,6 +546,11 @@ def transform_coin_transactions(rows: list[dict]) -> tuple[list[str], list[tuple
         )
         emitted = False
         if sender:
+            debit_ref = (
+                f"legacy:{legacy_id}:debit"[:128]
+                if stable_legacy_refs
+                else base_ref[:128]
+            )
             out.append(
                 (
                     sender,
@@ -534,7 +560,7 @@ def transform_coin_transactions(rows: list[dict]) -> tuple[list[str], list[tuple
                     -abs(net) if net and sender == receiver else None,
                     commission if commission else None,
                     None,
-                    ref[:128],
+                    debit_ref,
                     "success",
                     meta,
                     created,
@@ -542,6 +568,11 @@ def transform_coin_transactions(rows: list[dict]) -> tuple[list[str], list[tuple
             )
             emitted = True
         if receiver and (receiver != sender or not sender):
+            credit_ref = (
+                f"legacy:{legacy_id}:credit"[:128]
+                if stable_legacy_refs
+                else base_ref[:128]
+            )
             out.append(
                 (
                     receiver,
@@ -551,7 +582,7 @@ def transform_coin_transactions(rows: list[dict]) -> tuple[list[str], list[tuple
                     abs(net) if net else None,
                     commission if commission else None,
                     None,
-                    ref[:128],
+                    credit_ref,
                     "success",
                     meta,
                     created,
@@ -729,6 +760,24 @@ def transform_media_items(rows: list[dict]) -> tuple[list[str], list[tuple]]:
     return cols, out
 
 
+def role_frame_slug_for_laravel(r: dict, used_slugs: set[str] | None = None) -> str:
+    """Same slug rules as transform_role_frames (prefix role- to avoid avatar collisions)."""
+    role_key = (r.get("role_key") or "role").strip().lower() or "role"
+    raw_slug = (r.get("slug") or "").strip()
+    if raw_slug:
+        slug = f"role-{raw_slug}"[:128]
+    else:
+        slug = f"role-{role_key}-{int(r['id'])}"[:128]
+    if used_slugs is not None:
+        base = slug
+        n = 2
+        while slug.lower() in used_slugs:
+            slug = f"{base[:120]}-{n}"[:128]
+            n += 1
+        used_slugs.add(slug.lower())
+    return slug
+
+
 def transform_role_frames(rows: list[dict]) -> tuple[list[str], list[tuple]]:
     """Laravel role_frames → Nest frames(category=role). Slugs are prefixed to avoid avatar slug collisions."""
     cols = [
@@ -749,17 +798,7 @@ def transform_role_frames(rows: list[dict]) -> tuple[list[str], list[tuple]]:
     used_slugs: set[str] = set()
     for r in rows:
         role_key = (r.get("role_key") or "role").strip().lower() or "role"
-        raw_slug = (r.get("slug") or "").strip()
-        if raw_slug:
-            slug = f"role-{raw_slug}"[:128]
-        else:
-            slug = f"role-{role_key}-{int(r['id'])}"[:128]
-        base = slug
-        n = 2
-        while slug.lower() in used_slugs:
-            slug = f"{base[:120]}-{n}"[:128]
-            n += 1
-        used_slugs.add(slug.lower())
+        slug = role_frame_slug_for_laravel(r, used_slugs)
         name = (r.get("label") or role_key or f"role-{r['id']}").strip()[:128]
         out.append(
             (
@@ -778,6 +817,493 @@ def transform_role_frames(rows: list[dict]) -> tuple[list[str], list[tuple]]:
             )
         )
     return cols, out
+
+
+def build_laravel_role_frame_to_nest(pg, laravel_rows: list[dict]) -> dict[int, int]:
+    """Map Laravel role_frames.id → Nest frames.id via slug."""
+    used: set[str] = set()
+    laravel_slug_by_id: dict[int, str] = {}
+    for r in laravel_rows:
+        laravel_slug_by_id[int(r["id"])] = role_frame_slug_for_laravel(r, used)
+    with pg.cursor() as cur:
+        cur.execute("SELECT id, slug FROM frames WHERE category = 'role' AND slug IS NOT NULL")
+        nest_by_slug = {str(slug): int(fid) for fid, slug in cur.fetchall() if slug}
+    out: dict[int, int] = {}
+    for lid, slug in laravel_slug_by_id.items():
+        nid = nest_by_slug.get(slug)
+        if nid is not None:
+            out[lid] = nid
+    return out
+
+
+def sync_staff_badges(pg, my_cur, user_map: dict[int, int], role_frame_map: dict[int, int]) -> int:
+    """Denormalize Laravel admin_staff into Nest users.role + staff_badge_type + selected_role_frame_id."""
+    if not table_exists(my_cur, "admin_staff"):
+        print("  staff badges: admin_staff missing, skipped")
+        return 0
+    staff_rows = fetch_all(my_cur, "SELECT id, role, linked_user_id FROM admin_staff")
+    staff_by_id = {int(s["id"]): s for s in staff_rows}
+    # laravel_user_id → staff role string
+    badge_for_user: dict[int, str] = {}
+    for s in staff_rows:
+        linked = s.get("linked_user_id")
+        if linked is None:
+            continue
+        badge_for_user[int(linked)] = (s.get("role") or "admin").strip().lower() or "admin"
+    laravel_users = fetch_all(
+        my_cur,
+        "SELECT id, admin_staff_id, selected_role_frame_id FROM users",
+    )
+    updates = 0
+    with pg.cursor() as cur:
+        for u in laravel_users:
+            lid = int(u["id"])
+            nest_uid = user_map.get(lid)
+            if nest_uid is None:
+                continue
+            badge = badge_for_user.get(lid)
+            staff_id = u.get("admin_staff_id")
+            if badge is None and staff_id is not None and int(staff_id) in staff_by_id:
+                badge = (staff_by_id[int(staff_id)].get("role") or "admin").strip().lower() or "admin"
+            if not badge:
+                continue
+            nest_frame = None
+            lrf = u.get("selected_role_frame_id")
+            if lrf is not None:
+                nest_frame = role_frame_map.get(int(lrf))
+            if nest_frame is None:
+                # fallback: first Nest role frame matching animation_key = badge
+                cur.execute(
+                    "SELECT id FROM frames WHERE category = 'role' AND lower(animation_key) = %s ORDER BY id LIMIT 1",
+                    (badge,),
+                )
+                row = cur.fetchone()
+                if row:
+                    nest_frame = int(row[0])
+            cur.execute(
+                """
+                UPDATE users
+                SET role = 'admin',
+                    staff_badge_type = %s,
+                    selected_role_frame_id = COALESCE(%s, selected_role_frame_id),
+                    updated_at = NOW()
+                WHERE id = %s
+                """,
+                (badge[:32], nest_frame, nest_uid),
+            )
+            updates += cur.rowcount
+    pg.commit()
+    print(f"  staff badges updated: {updates}")
+    return updates
+
+
+def sync_social_graph(pg, my_cur, user_map: dict[int, int]) -> dict[str, int]:
+    """Upsert friendships / followers / friend_requests / blocked_users with remapped user ids."""
+    stats: dict[str, int] = {}
+    nest_ids = set(user_map.values())
+
+    def map_uid(v) -> int | None:
+        if v is None:
+            return None
+        return user_map.get(int(v))
+
+    if table_exists(my_cur, "friendships"):
+        rows = []
+        seen: set[tuple[int, int]] = set()
+        for r in fetch_all(my_cur, "SELECT * FROM friendships"):
+            uid = map_uid(r.get("user_id"))
+            fid = map_uid(r.get("friend_id"))
+            if uid is None or fid is None or uid not in nest_ids or fid not in nest_ids:
+                continue
+            pair = (uid, fid)
+            if pair in seen:
+                continue
+            seen.add(pair)
+            rows.append(
+                (
+                    int(r["id"]),
+                    uid,
+                    fid,
+                    to_pg(r.get("created_at") or datetime.utcnow()),
+                )
+            )
+        stats["friendships"] = insert_ignore_unique(
+            pg, "friendships", ["id", "user_id", "friend_id", "created_at"], rows, ""
+        )
+        pg.commit()
+        print(f"  friendships inserted: {stats['friendships']}")
+
+    if table_exists(my_cur, "user_followers"):
+        rows = []
+        seen = set()
+        for r in fetch_all(my_cur, "SELECT * FROM user_followers"):
+            a = map_uid(r.get("follower_id"))
+            b = map_uid(r.get("following_id"))
+            if a is None or b is None:
+                continue
+            pair = (a, b)
+            if pair in seen:
+                continue
+            seen.add(pair)
+            status = (r.get("status") or "accepted").strip().lower()
+            if status not in ("accepted", "pending"):
+                status = "accepted"
+            rows.append(
+                (
+                    int(r["id"]),
+                    a,
+                    b,
+                    status,
+                    to_pg(r.get("created_at") or datetime.utcnow()),
+                )
+            )
+        stats["user_followers"] = insert_ignore_unique(
+            pg,
+            "user_followers",
+            ["id", "follower_id", "following_id", "status", "created_at"],
+            rows,
+            "",
+        )
+        pg.commit()
+        print(f"  user_followers inserted: {stats['user_followers']}")
+
+    if table_exists(my_cur, "friend_requests"):
+        rows = []
+        for r in fetch_all(my_cur, "SELECT * FROM friend_requests"):
+            a = map_uid(r.get("sender_id"))
+            b = map_uid(r.get("receiver_id"))
+            if a is None or b is None:
+                continue
+            status = (r.get("status") or "pending").strip().lower()
+            if status not in ("pending", "accepted", "rejected", "cancelled"):
+                status = "pending"
+            rows.append(
+                (
+                    int(r["id"]),
+                    a,
+                    b,
+                    status,
+                    to_pg(r.get("created_at") or datetime.utcnow()),
+                    to_pg(r.get("updated_at") or r.get("created_at") or datetime.utcnow()),
+                )
+            )
+        stats["friend_requests"] = upsert_by_id(
+            pg,
+            "friend_requests",
+            ["id", "sender_id", "receiver_id", "status", "created_at", "updated_at"],
+            rows,
+            ["sender_id", "receiver_id", "status", "updated_at"],
+        )
+        pg.commit()
+        print(f"  friend_requests upserted: {stats['friend_requests']}")
+
+    if table_exists(my_cur, "blocked_users"):
+        rows = []
+        seen = set()
+        for r in fetch_all(my_cur, "SELECT * FROM blocked_users"):
+            a = map_uid(r.get("blocker_id"))
+            b = map_uid(r.get("blocked_id"))
+            if a is None or b is None:
+                continue
+            pair = (a, b)
+            if pair in seen:
+                continue
+            seen.add(pair)
+            rows.append(
+                (
+                    int(r["id"]),
+                    a,
+                    b,
+                    to_pg(r.get("created_at") or datetime.utcnow()),
+                )
+            )
+        stats["blocked_users"] = insert_ignore_unique(
+            pg, "blocked_users", ["id", "blocker_id", "blocked_id", "created_at"], rows, ""
+        )
+        pg.commit()
+        print(f"  blocked_users inserted: {stats['blocked_users']}")
+
+    return stats
+
+
+def sync_coin_ledger(pg, my_cur, user_map: dict[int, int]) -> int:
+    """Upsert Laravel coin_transactions into Nest ledger. Never deletes Nest-native rows."""
+    if not table_exists(my_cur, "coin_transactions"):
+        print("  coin_transactions: missing in MySQL, skipped")
+        return 0
+    raw = fetch_all(my_cur, "SELECT * FROM coin_transactions")
+    remapped: list[dict] = []
+    for r in raw:
+        row = dict(r)
+        sid = row.get("sender_id")
+        rid = row.get("receiver_id")
+        row["sender_id"] = user_map.get(int(sid)) if sid is not None else None
+        row["receiver_id"] = user_map.get(int(rid)) if rid is not None else None
+        if row["sender_id"] is None and row["receiver_id"] is None:
+            continue
+        remapped.append(row)
+    cols, data, stats = transform_coin_transactions(remapped, stable_legacy_refs=True)
+    n = upsert_on_conflict(
+        pg,
+        "coin_transactions",
+        cols,
+        data,
+        ["user_id", "reference_id"],
+        [
+            "type", "title", "coin_amount", "net_amount", "commission_amount",
+            "balance_after", "status", "meta", "created_at",
+        ],
+        page=500,
+    )
+    pg.commit()
+    print(
+        f"  coin_transactions upserted: {n} "
+        f"(mysql={stats['source']} skipped_parties={stats['source'] - len(remapped)} "
+        f"emitted={stats['emitted']})"
+    )
+    return n
+
+
+def sync_coin_purchases(pg, my_cur, user_map: dict[int, int]) -> int:
+    """Upsert coin_purchase_transactions by id. Never deletes."""
+    if not table_exists(my_cur, "coin_purchase_transactions"):
+        print("  coin_purchase_transactions: missing in MySQL, skipped")
+        return 0
+    with pg.cursor() as cur:
+        cur.execute("SELECT id FROM coin_packages")
+        pkg_ids = {int(r[0]) for r in cur.fetchall()}
+    raw = fetch_all(my_cur, "SELECT * FROM coin_purchase_transactions")
+    kept = []
+    for r in raw:
+        uid = user_map.get(int(r["user_id"])) if r.get("user_id") is not None else None
+        if uid is None:
+            continue
+        row = dict(r)
+        row["user_id"] = uid
+        pkg = row.get("package_id")
+        if pkg is not None and int(pkg) not in pkg_ids:
+            row["package_id"] = None
+        kept.append(row)
+    cols, data = transform_coin_purchases(kept)
+    # Deduplicate razorpay ids within batch
+    if data:
+        idx = {name: i for i, name in enumerate(cols)}
+        seen_order, seen_pay = set(), set()
+        cleaned = []
+        for row in data:
+            order_id, pay_id = row[idx["razorpay_order_id"]], row[idx["razorpay_payment_id"]]
+            if order_id and order_id in seen_order:
+                continue
+            if pay_id and pay_id in seen_pay:
+                continue
+            if order_id:
+                seen_order.add(order_id)
+            if pay_id:
+                seen_pay.add(pay_id)
+            cleaned.append(row)
+        data = cleaned
+    n = upsert_by_id(
+        pg,
+        "coin_purchase_transactions",
+        cols,
+        data,
+        [
+            "user_id", "package_id", "razorpay_order_id", "razorpay_payment_id",
+            "razorpay_signature", "amount_minor", "currency", "coins_credited",
+            "status", "payment_source", "country", "updated_at",
+        ],
+    )
+    pg.commit()
+    print(f"  coin_purchase_transactions upserted: {n}")
+    return n
+
+
+def sync_rooms(pg, my_cur, user_map: dict[int, int]) -> int:
+    """Upsert Laravel rooms for analytics/history. Never deletes Nest rooms."""
+    if not table_exists(my_cur, "rooms"):
+        print("  rooms: missing in MySQL, skipped")
+        return 0
+    with pg.cursor() as cur:
+        cur.execute("SELECT id FROM room_themes")
+        theme_ids = {int(r[0]) for r in cur.fetchall()}
+        cur.execute("SELECT id, display_id FROM rooms")
+        existing_by_display = {str(did): str(rid) for rid, did in cur.fetchall() if did}
+    raw = fetch_all(my_cur, "SELECT * FROM rooms")
+    kept = []
+    for r in raw:
+        owner = user_map.get(int(r["owner_id"])) if r.get("owner_id") is not None else None
+        if owner is None:
+            continue
+        row = dict(r)
+        row["owner_id"] = owner
+        for key in ("host_id", "co_host_id"):
+            v = row.get(key)
+            if v is None:
+                continue
+            mapped = user_map.get(int(v))
+            row[key] = mapped  # may become None if unmapped
+        tid = row.get("theme_id")
+        if tid is not None and int(tid) not in theme_ids:
+            row["theme_id"] = None
+        if row.get("cover_image_url"):
+            row["cover_image_url"] = rewrite_media_url(row.get("cover_image_url"))
+        kept.append(row)
+    cols, data = transform_rooms(kept)
+    # Avoid display_id collisions with a different Nest room UUID
+    if data:
+        did_idx = cols.index("display_id")
+        id_idx = cols.index("id")
+        fixed = []
+        claimed = set(existing_by_display.keys())
+        for row in data:
+            values = list(row)
+            rid = str(values[id_idx])
+            did = str(values[did_idx])
+            owner_of = existing_by_display.get(did)
+            if owner_of and owner_of != rid:
+                base = did[:6]
+                n = 1
+                cand = f"{base}{n}"[:8]
+                while cand in claimed and existing_by_display.get(cand) not in (None, rid):
+                    n += 1
+                    cand = f"{base}{n}"[:8]
+                values[did_idx] = cand
+                did = cand
+            claimed.add(did)
+            existing_by_display[did] = rid
+            fixed.append(tuple(values))
+        data = fixed
+    n = upsert_by_id(
+        pg,
+        "rooms",
+        cols,
+        data,
+        [
+            "display_id", "title", "owner_id", "host_id", "co_host_id",
+            "agora_channel_name", "max_seats", "is_live", "is_permanent",
+            "cover_image_url", "description", "tags", "settings", "theme_id",
+            "country_code", "allowed_country", "allowed_gender", "min_age", "max_age",
+            "last_activity_at", "host_last_heartbeat_at", "ended_at", "updated_at",
+        ],
+        page=200,
+    )
+    pg.commit()
+    print(f"  rooms upserted: {n} (skipped owners: {len(raw) - len(kept)})")
+    return n
+
+
+def print_sync_verification(my_cur, pg, user_map: dict[int, int]) -> None:
+    """MySQL vs Nest count matrix + user 853 spot check."""
+    # (label, mysql_table_or_None, nest_sql_or_table)
+    checks: list[tuple[str, str | None, str]] = [
+        ("users", "users", "users"),
+        ("gifts", "virtual_gifts", "gifts"),
+        ("frames_avatar", "frames", "frames"),  # Nest frames includes role; flagged separately
+        ("stickers", "stickers", "stickers"),
+        ("media_posts", "media_posts", None),
+        ("media_items", None, "media_items"),
+        ("friendships", "friendships", "friendships"),
+        ("user_followers", "user_followers", "user_followers"),
+        ("friend_requests", "friend_requests", "friend_requests"),
+        ("blocked_users", "blocked_users", "blocked_users"),
+        ("levels", "levels", "levels"),
+        ("coin_packages", "coin_packages", "coin_packages"),
+        ("rooms", "rooms", "rooms"),
+        ("coin_transactions", "coin_transactions", "coin_transactions"),
+    ]
+    print("=== Verify counts (MySQL vs Nest) ===")
+    print(f"{'table':<22} {'mysql':>8} {'nest':>8} {'status':<12}")
+    gaps: list[str] = []
+    with pg.cursor() as cur:
+        for label, my_table, nest_table in checks:
+            my_c = None
+            if my_table and table_exists(my_cur, my_table):
+                my_c = count_mysql(my_cur, my_table)
+            nest_c = None
+            if nest_table:
+                try:
+                    nest_c = count_pg(cur, nest_table)
+                except Exception:
+                    pg.rollback()
+                    nest_c = None
+            if label == "media_posts" and my_c is not None:
+                cur.execute("SELECT COUNT(*) FROM media_items")
+                nest_c = int(cur.fetchone()[0])
+            if label == "frames_avatar" and nest_c is not None:
+                cur.execute("SELECT COUNT(*) FROM frames WHERE category IS DISTINCT FROM 'role'")
+                nest_c = int(cur.fetchone()[0])
+            status = "ok"
+            if my_c is not None and nest_c is not None:
+                if nest_c == 0 and my_c > 0:
+                    status = "GAP"
+                    gaps.append(label)
+                elif label == "coin_transactions":
+                    # Laravel 1 row → Nest 1–2 ledger lines; Nest also keeps native rows.
+                    cur.execute(
+                        "SELECT COUNT(*) FROM coin_transactions WHERE reference_id LIKE 'legacy:%%'"
+                    )
+                    legacy_c = int(cur.fetchone()[0])
+                    if legacy_c < my_c:
+                        status = "GAP"
+                        gaps.append(label)
+                    else:
+                        status = "ok"
+                        nest_c = legacy_c
+                elif label == "rooms":
+                    # Some Laravel rooms skip when owner was never mapped into Nest.
+                    if nest_c >= int(my_c * 0.75):
+                        status = "ok"
+                    else:
+                        status = "DIVERGE"
+                        gaps.append(label)
+                elif abs(my_c - nest_c) > max(5, int(my_c * 0.05)):
+                    status = "DIVERGE"
+                    gaps.append(label)
+            elif my_c is None and nest_c is not None:
+                status = "nest-only"
+            extra = ""
+            if label == "coin_transactions" and nest_c is not None:
+                cur.execute("SELECT COUNT(*) FROM coin_transactions")
+                total_c = int(cur.fetchone()[0])
+                extra = f" (total nest={total_c})"
+            print(
+                f"{label:<22} {my_c if my_c is not None else '-':>8} "
+                f"{nest_c if nest_c is not None else '-':>8} {status:<12}{extra}"
+            )
+        # role frames
+        rf_my = count_mysql(my_cur, "role_frames") if table_exists(my_cur, "role_frames") else None
+        cur.execute("SELECT COUNT(*) FROM frames WHERE category = 'role'")
+        rf_nest = int(cur.fetchone()[0])
+        rf_status = "ok"
+        if rf_my is not None and rf_nest == 0 and rf_my > 0:
+            rf_status = "GAP"
+            gaps.append("role_frames")
+        print(f"{'role_frames':<22} {rf_my if rf_my is not None else '-':>8} {rf_nest:>8} {rf_status:<12}")
+
+        # user 853
+        nest_853 = user_map.get(853, 853)
+        cur.execute(
+            """
+            SELECT id, role, staff_badge_type, selected_role_frame_id,
+                   (SELECT COUNT(*) FROM friendships WHERE user_id = u.id) AS friends
+            FROM users u WHERE id = %s
+            """,
+            (nest_853,),
+        )
+        spot = cur.fetchone()
+        print("=== Spot check user 853 ===")
+        if spot:
+            print(
+                f"  id={spot[0]} role={spot[1]} staff_badge_type={spot[2]} "
+                f"selected_role_frame_id={spot[3]} friends(user_id)={spot[4]}"
+            )
+        else:
+            print("  user 853 not found in Nest")
+            gaps.append("user_853")
+    if gaps:
+        print("VERIFY GAPS:", ", ".join(gaps))
+    else:
+        print("VERIFY: no material gaps in checked tables")
 
 
 def transform_gem_conversions(rows: list[dict]) -> tuple[list[str], list[tuple]]:
@@ -1677,7 +2203,7 @@ def run(dry_run: bool) -> int:
 
 
 def run_sync() -> int:
-    """Upsert catalog and insert missing Laravel users. Never truncates or deletes."""
+    """Non-destructive upsert of catalog/social/staff/ledger/rooms. Never truncates or deletes."""
     print("=== ChatAura sync (no deletes) ===")
     my = mysql_connect()
     pg = pg_connect()
@@ -1698,6 +2224,9 @@ def run_sync() -> int:
             "frames": pg_count("frames"),
             "stickers": pg_count("stickers"),
             "media_items": pg_count("media_items"),
+            "friendships": pg_count("friendships"),
+            "coin_transactions": pg_count("coin_transactions"),
+            "rooms": pg_count("rooms"),
         }
         with pg.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM frames WHERE category = 'role'")
@@ -1954,8 +2483,10 @@ def run_sync() -> int:
 
         # --- role frames (Nest frames.category = role; slug-prefixed) ---
         role_n = 0
+        laravel_role_frames: list[dict] = []
         if table_exists(my_cur, "role_frames"):
-            rf_cols, rf_rows = transform_role_frames(fetch_all(my_cur, "SELECT * FROM role_frames"))
+            laravel_role_frames = fetch_all(my_cur, "SELECT * FROM role_frames")
+            rf_cols, rf_rows = transform_role_frames(laravel_role_frames)
             role_n = upsert_by_slug(
                 pg,
                 "frames",
@@ -1968,6 +2499,18 @@ def run_sync() -> int:
             )
             pg.commit()
             print(f"  role_frames upserted: {role_n}")
+
+        # --- staff / CEO badges (denormalize admin_staff → users) ---
+        role_frame_map = build_laravel_role_frame_to_nest(pg, laravel_role_frames)
+        sync_staff_badges(pg, my_cur, user_map, role_frame_map)
+
+        # --- social graph ---
+        sync_social_graph(pg, my_cur, user_map)
+
+        # --- coin ledger + purchases + rooms (analytics); never deletes ---
+        sync_coin_ledger(pg, my_cur, user_map)
+        sync_coin_purchases(pg, my_cur, user_map)
+        sync_rooms(pg, my_cur, user_map)
 
         reset_sequences(pg)
         pg.commit()
@@ -1985,6 +2528,14 @@ def run_sync() -> int:
             saves_c = int(cur.fetchone()[0])
             cur.execute("SELECT COUNT(*) FROM frames WHERE category = 'role'")
             role_c = int(cur.fetchone()[0])
+            cur.execute("SELECT COUNT(*) FROM friendships")
+            friends_c = int(cur.fetchone()[0])
+            cur.execute("SELECT COUNT(*) FROM user_followers")
+            followers_c = int(cur.fetchone()[0])
+            cur.execute("SELECT COUNT(*) FROM coin_transactions")
+            coin_tx_c = int(cur.fetchone()[0])
+            cur.execute("SELECT COUNT(*) FROM rooms")
+            rooms_c = int(cur.fetchone()[0])
             cur.execute("SELECT id, name FROM stickers WHERE lower(name)='lion'")
             lion = cur.fetchone()
 
@@ -1999,9 +2550,14 @@ def run_sync() -> int:
             "media_comments": comments_c,
             "media_saves": saves_c,
             "role_frames": role_c,
+            "friendships": friends_c,
+            "user_followers": followers_c,
+            "coin_transactions": coin_tx_c,
+            "rooms": rooms_c,
         }
         print("Nest after:", after)
         print("sticker lion:", lion)
+        print_sync_verification(my_cur, pg, user_map)
         return 0
     except Exception:
         pg.rollback()
