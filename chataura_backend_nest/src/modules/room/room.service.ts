@@ -709,29 +709,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
               data: { role: 'host' },
             });
           } else if (room.isPermanent) {
-            // Host left with no successor. If nobody remains, free the public
-            // permanent slot (do not leave isLive+isPermanent zombies).
-            const remaining = await tx.roomMember.count({
-              where: { roomId: room.id, isActive: true },
+            // Leave never dissolves a Public permanent room — only Delete Room does.
+            // Keep isLive+isPermanent; clear host so the room stays open.
+            await tx.room.update({
+              where: { id: room.id },
+              data: { hostId: null },
             });
-            if (remaining === 0) {
-              await tx.room.update({
-                where: { id: room.id },
-                data: {
-                  isLive: false,
-                  isPermanent: false,
-                  endedAt: new Date(),
-                  hostId: null,
-                  passwordHash: null,
-                },
-              });
-              roomEnded = true;
-            } else {
-              await tx.room.update({
-                where: { id: room.id },
-                data: { hostId: null },
-              });
-            }
           } else {
             await tx.room.update({
               where: { id: room.id },
@@ -1600,7 +1583,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   /**
    * When the host stops heartbeating: deactivate the stale host member,
    * promote a fresh successor if one exists, otherwise soft-end the room
-   * (empty permanent rooms free the public slot; occupied ones keep live with null host).
+   * (permanent rooms stay live with a null host — only Delete frees the slot).
    */
   private async expireStaleHostRoom(
     room: { id: string; hostId: bigint | null; isPermanent: boolean },
@@ -1681,12 +1664,9 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      // No successor: end the room. Permanent public slots must be freed when empty
-      // so owners are not blocked by hostId=null / isLive=true zombies.
-      const remaining = await tx.roomMember.count({
-        where: { roomId: room.id, isActive: true },
-      });
-      if (row.is_permanent && remaining > 0) {
+      // No successor: permanent Public stays open (hostId null). Non-permanent soft-ends.
+      // Create-time heal still frees empty hostless permanent slots when owner creates again.
+      if (row.is_permanent) {
         await tx.room.update({
           where: { id: room.id },
           data: { hostId: null },
@@ -1698,10 +1678,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         where: { id: room.id },
         data: {
           isLive: false,
-          isPermanent: false,
           endedAt: new Date(),
           hostId: null,
-          passwordHash: null,
         },
       });
       await tx.roomMember.updateMany({
