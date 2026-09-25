@@ -10,6 +10,7 @@ import { PresenceService } from './presence.service';
 import { RoomGiftingService } from './room-gifting.service';
 import { RocketLaunchService } from './rocket-launch.service';
 import { RoomService } from './room.service';
+import { CpAffectionGiftsService } from './cp-affection-gifts.service';
 
 @Module({
   imports: [WalletModule, AuthModule, RelationshipModule],
@@ -19,6 +20,7 @@ import { RoomService } from './room.service';
     PresenceService,
     RoomGiftingService,
     RocketLaunchService,
+    CpAffectionGiftsService,
     AgoraService,
     RoomEvents,
     RoomGateway,

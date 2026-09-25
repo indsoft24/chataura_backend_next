@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import { join } from 'path';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, copyFileSync, readdirSync } from 'fs';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { ResponseTransformInterceptor } from './common/interceptors/response-transform.interceptor';
@@ -44,6 +44,25 @@ async function bootstrap() {
   app.useWebSocketAdapter(new IoAdapter(app));
   const uploadsDir = join(process.cwd(), 'uploads');
   if (!existsSync(uploadsDir)) mkdirSync(uploadsDir, { recursive: true });
+  const cpGiftsDir = join(uploadsDir, 'cp', 'gifts');
+  if (!existsSync(cpGiftsDir)) mkdirSync(cpGiftsDir, { recursive: true });
+  // Prefer committed affection gift icons (deploy-safe) over empty uploads/.
+  const bundledCpGifts = join(process.cwd(), 'assets', 'cp-gifts');
+  if (existsSync(bundledCpGifts)) {
+    for (const name of readdirSync(bundledCpGifts)) {
+      if (!name.endsWith('.png')) continue;
+      copyFileSync(join(bundledCpGifts, name), join(cpGiftsDir, name));
+    }
+  }
+  const cpFxDir = join(uploadsDir, 'cp', 'fx');
+  if (!existsSync(cpFxDir)) mkdirSync(cpFxDir, { recursive: true });
+  const bundledCpFx = join(process.cwd(), 'assets', 'cp-fx');
+  if (existsSync(bundledCpFx)) {
+    for (const name of readdirSync(bundledCpFx)) {
+      if (!name.endsWith('.json') && !name.endsWith('.webm') && !name.endsWith('.mp4')) continue;
+      copyFileSync(join(bundledCpFx, name), join(cpFxDir, name));
+    }
+  }
   await app.register(multipart, { limits: { fileSize: 80 * 1024 * 1024 } });
   await app.register(fastifyStatic, {
     root: uploadsDir,

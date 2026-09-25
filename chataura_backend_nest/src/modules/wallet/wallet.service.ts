@@ -13,6 +13,7 @@ import Razorpay from 'razorpay';
 import { catalogClientFields } from '../../common/utils/catalog-media';
 import { normalizeGiftCategory } from '../../common/utils/gift-category';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { ensureCpAffectionGiftCatalog } from '../room/cp-affection-gifts.catalog';
 import { RelationshipEngineService } from '../relationship/relationship-engine.service';
 import { LedgerService } from './ledger.service';
 
@@ -883,6 +884,12 @@ export class WalletService {
   }
 
   async listGifts() {
+    const publicBase = this.config.get<string>(
+      'PUBLIC_BASE_URL',
+      this.config.get<string>('APP_PUBLIC_URL', 'https://chataura.in'),
+    );
+    await ensureCpAffectionGiftCatalog(this.prisma, publicBase);
+
     let gifts = await this.prisma.gift.findMany({
       where: { isActive: true },
       orderBy: { id: 'asc' },

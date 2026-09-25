@@ -12,6 +12,7 @@ import { RelationshipEngineService } from '../relationship/relationship-engine.s
 import { resolveAgencyRoomMeta } from './agency-room-meta';
 import { RoomEvents } from './room.events';
 import { RocketLaunchService } from './rocket-launch.service';
+import { CpAffectionGiftsService } from './cp-affection-gifts.service';
 
 @Injectable()
 export class RoomGiftingService {
@@ -21,9 +22,11 @@ export class RoomGiftingService {
     private readonly events: RoomEvents,
     private readonly relationships: RelationshipEngineService,
     private readonly rockets: RocketLaunchService,
+    private readonly cpAffectionGifts: CpAffectionGiftsService,
   ) {}
 
   async giftTypes() {
+    await this.cpAffectionGifts.ensureCatalog();
     let gifts = await this.prisma.gift.findMany({
       where: { isActive: true },
       orderBy: { id: 'asc' },
@@ -209,12 +212,15 @@ export class RoomGiftingService {
         quantity,
       });
     }
-    const rocket = await this.rockets.applyGiftContribution(
-      room.id,
-      senderId,
-      Number(cost),
-      result.transaction_id,
-    );
+    const rocket =
+      gift.category === 'cp' || gift.category === 'bcp'
+        ? null
+        : await this.rockets.applyGiftContribution(
+            room.id,
+            senderId,
+            Number(cost),
+            result.transaction_id,
+          );
     return {
       ...result,
       agency_cashback: agency.agency_cashback,
@@ -428,12 +434,15 @@ export class RoomGiftingService {
     const rocketTx =
       result.transaction_ids?.[0] ??
       `batch_${room.id}_${senderId}_${Date.now()}`;
-    const rocket = await this.rockets.applyGiftContribution(
-      room.id,
-      senderId,
-      Number(totalCost),
-      rocketTx,
-    );
+    const rocket =
+      gift.category === 'cp' || gift.category === 'bcp'
+        ? null
+        : await this.rockets.applyGiftContribution(
+            room.id,
+            senderId,
+            Number(totalCost),
+            rocketTx,
+          );
     return {
       ...result,
       agency_cashback: agency.agency_cashback,
