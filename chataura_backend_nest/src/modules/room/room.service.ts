@@ -322,6 +322,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       });
 
       // 2) Free abandoned "live" public rooms (no active members, host gone/stale).
+      // Use explicit active-member counts — safer than filtered Prisma _count.
       const candidates = await this.prisma.room.findMany({
         where: {
           ownerId: userId,
@@ -333,15 +334,18 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
           id: true,
           hostId: true,
           hostLastHeartbeatAt: true,
-          _count: { select: { members: { where: { isActive: true } } } },
         },
       });
       const abandonedBefore = Date.now() - STALE_MS * 10; // ~15 min
       for (const r of candidates) {
+        const activeMembers = await this.prisma.roomMember.count({
+          where: { roomId: r.id, isActive: true },
+        });
+        if (activeMembers > 0) continue;
         const hb = r.hostLastHeartbeatAt?.getTime() ?? 0;
-        const empty = r._count.members === 0;
+        // No host → abandoned immediately. Otherwise require stale heartbeat.
         const hostGone = !r.hostId || !hb || hb < abandonedBefore;
-        if (empty && hostGone) {
+        if (hostGone) {
           await this.prisma.room.update({
             where: { id: r.id },
             data: {
@@ -349,6 +353,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
               isPermanent: false,
               endedAt: new Date(),
               hostId: null,
+              passwordHash: null,
             },
           });
         }
@@ -704,10 +709,29 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
               data: { role: 'host' },
             });
           } else if (room.isPermanent) {
-            await tx.room.update({
-              where: { id: room.id },
-              data: { hostId: null },
+            // Host left with no successor. If nobody remains, free the public
+            // permanent slot (do not leave isLive+isPermanent zombies).
+            const remaining = await tx.roomMember.count({
+              where: { roomId: room.id, isActive: true },
             });
+            if (remaining === 0) {
+              await tx.room.update({
+                where: { id: room.id },
+                data: {
+                  isLive: false,
+                  isPermanent: false,
+                  endedAt: new Date(),
+                  hostId: null,
+                  passwordHash: null,
+                },
+              });
+              roomEnded = true;
+            } else {
+              await tx.room.update({
+                where: { id: room.id },
+                data: { hostId: null },
+              });
+            }
           } else {
             await tx.room.update({
               where: { id: room.id },
@@ -1576,7 +1600,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   /**
    * When the host stops heartbeating: deactivate the stale host member,
    * promote a fresh successor if one exists, otherwise soft-end the room
-   * (permanent rooms stay live with a null host).
+   * (empty permanent rooms free the public slot; occupied ones keep live with null host).
    */
   private async expireStaleHostRoom(
     room: { id: string; hostId: bigint | null; isPermanent: boolean },
@@ -1657,7 +1681,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      if (row.is_permanent) {
+      // No successor: end the room. Permanent public slots must be freed when empty
+      // so owners are not blocked by hostId=null / isLive=true zombies.
+      const remaining = await tx.roomMember.count({
+        where: { roomId: room.id, isActive: true },
+      });
+      if (row.is_permanent && remaining > 0) {
         await tx.room.update({
           where: { id: room.id },
           data: { hostId: null },
@@ -1667,7 +1696,13 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
       await tx.room.update({
         where: { id: room.id },
-        data: { isLive: false, endedAt: new Date(), hostId: null },
+        data: {
+          isLive: false,
+          isPermanent: false,
+          endedAt: new Date(),
+          hostId: null,
+          passwordHash: null,
+        },
       });
       await tx.roomMember.updateMany({
         where: { roomId: room.id, isActive: true },
