@@ -2239,6 +2239,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       rocket_threshold_coins: rocketSummary?.rocket_threshold_coins ?? 0,
       rocket_progress_percent: rocketSummary?.rocket_progress_percent ?? 0,
       rocket_near_launch: rocketSummary?.rocket_near_launch === true,
+      rocket_launching: rocketSummary?.rocket_launching === true,
     };
   }
 }

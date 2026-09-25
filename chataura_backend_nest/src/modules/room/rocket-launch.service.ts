@@ -42,9 +42,13 @@ export type RocketListSummary = {
   rocket_threshold_coins: number;
   rocket_progress_percent: number;
   rocket_near_launch: boolean;
+  /** True while an event is LAUNCHING or a launch just completed (Home badge / strip). */
+  rocket_launching: boolean;
 };
 
 const NEAR_LAUNCH_RATIO = 0.7;
+/** Keep Home rocket badge visible briefly after LAUNCHED so PiP launch still shows on the card. */
+const LAUNCHED_BADGE_MS = 90_000;
 
 @Injectable()
 export class RocketLaunchService {
@@ -81,6 +85,7 @@ export class RocketLaunchService {
       rocket_threshold_coins: 0,
       rocket_progress_percent: 0,
       rocket_near_launch: false,
+      rocket_launching: false,
     };
     const out = new Map<string, RocketListSummary>();
     if (rooms.length === 0) return out;
@@ -120,31 +125,55 @@ export class RocketLaunchService {
 
     if (eligibleIds.length === 0) return out;
 
+    const launchedAfter = new Date(Date.now() - LAUNCHED_BADGE_MS);
     const events = await this.prisma.rocketEvent.findMany({
       where: {
         roomId: { in: eligibleIds },
-        status: 'PENDING',
-        expiresAt: { gt: new Date() },
+        OR: [
+          { status: 'PENDING', expiresAt: { gt: new Date() } },
+          { status: 'LAUNCHING' },
+          { status: 'LAUNCHED', updatedAt: { gte: launchedAfter } },
+        ],
       },
       select: {
         roomId: true,
         accumulatedCoins: true,
-        configId: true,
+        status: true,
+        updatedAt: true,
       },
+      orderBy: { updatedAt: 'desc' },
     });
-    const byRoom = new Map(events.map((e) => [e.roomId, e]));
+    // Prefer the most recent active event per room.
+    const byRoom = new Map<string, (typeof events)[number]>();
+    for (const e of events) {
+      if (!byRoom.has(e.roomId)) byRoom.set(e.roomId, e);
+    }
 
     for (const id of eligibleIds) {
       const ev = byRoom.get(id);
-      const coins = ev?.accumulatedCoins ?? 0;
-      const percent =
-        threshold > 0 ? Math.min(100, Math.floor((coins / threshold) * 100)) : 0;
+      if (!ev) {
+        out.set(id, empty);
+        continue;
+      }
+      const launching =
+        ev.status === 'LAUNCHING' ||
+        (ev.status === 'LAUNCHED' && ev.updatedAt.getTime() >= launchedAfter.getTime());
+      const coins = ev.accumulatedCoins ?? 0;
+      const percent = launching
+        ? 100
+        : threshold > 0
+          ? Math.min(100, Math.floor((coins / threshold) * 100))
+          : 0;
       out.set(id, {
         rocket_progress_coins: coins,
         rocket_threshold_coins: threshold,
         rocket_progress_percent: percent,
         rocket_near_launch:
-          Boolean(ev) && threshold > 0 && coins / threshold >= NEAR_LAUNCH_RATIO,
+          launching ||
+          (ev.status === 'PENDING' &&
+            threshold > 0 &&
+            coins / threshold >= NEAR_LAUNCH_RATIO),
+        rocket_launching: launching,
       });
     }
     return out;
