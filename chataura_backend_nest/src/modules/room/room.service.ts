@@ -309,22 +309,31 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         });
       }
     } else {
+      // Free the one public slot: live permanent public rooms only.
+      // Also heal stale rows left isPermanent after soft-close/leave bugs.
       const existingPublic = await this.prisma.room.findFirst({
         where: {
           ownerId: userId,
           isPermanent: true,
           isPrivate: false,
         },
-        select: { id: true },
+        select: { id: true, isLive: true },
       });
       if (existingPublic) {
-        throw new ForbiddenException({
-          success: false,
-          error: {
-            code: 'PUBLIC_ROOM_LIMIT',
-            message:
-              'You already own a Public Room. You can only have one at a time. Delete your existing room to create a new one, or select Private.',
-          },
+        if (existingPublic.isLive) {
+          throw new ForbiddenException({
+            success: false,
+            error: {
+              code: 'PUBLIC_ROOM_LIMIT',
+              message:
+                'You already own a Public Room. You can only have one at a time. Delete your existing room to create a new one, or select Private.',
+            },
+          });
+        }
+        // Dead permanent slot (ended / abandoned) — free it so the owner can recreate.
+        await this.prisma.room.update({
+          where: { id: existingPublic.id },
+          data: { isPermanent: false, isLive: false, endedAt: new Date() },
         });
       }
     }
@@ -467,7 +476,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       });
     }
     // Public permanent rooms: owner/host may consciously delete (frees the 1-public slot).
-    // Soft-end + clear permanent so the room leaves discovery and rankings.
+    // Soft-end + clear permanent so the room leaves discovery, rankings, and create quota.
     await this.prisma.room.update({
       where: { id: room.id },
       data: {
@@ -475,6 +484,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         isPermanent: false,
         endedAt: new Date(),
         hostId: null,
+        passwordHash: null,
       },
     });
     await this.prisma.$transaction(async (tx) => {
