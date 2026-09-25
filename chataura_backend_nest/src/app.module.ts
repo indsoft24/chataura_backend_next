@@ -24,6 +24,7 @@ import { GamificationModule } from './modules/gamification/gamification.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { RelationshipModule } from './modules/relationship/relationship.module';
 import { RankingsModule } from './modules/rankings/rankings.module';
+import { FxAssetsModule } from './modules/fx-assets/fx-assets.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { RankingsModule } from './modules/rankings/rankings.module';
     GamificationModule,
     RelationshipModule,
     RankingsModule,
+    FxAssetsModule,
     AdminModule,
   ],
   controllers: [HealthController],

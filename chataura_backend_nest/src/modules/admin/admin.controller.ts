@@ -17,6 +17,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { MediaService } from '../media/media.service';
 import { RocketLaunchService } from '../room/rocket-launch.service';
+import { FxAssetsService } from '../fx-assets/fx-assets.service';
 import { AdminCatalogService } from './admin-catalog.service';
 import { AdminService } from './admin.service';
 import {
@@ -49,6 +50,7 @@ export class AdminController {
     private readonly catalog: AdminCatalogService,
     private readonly media: MediaService,
     private readonly rockets: RocketLaunchService,
+    private readonly fxAssets: FxAssetsService,
   ) {}
 
   @Throttle({ default: { limit: 60, ttl: seconds(60) } })
@@ -68,6 +70,31 @@ export class AdminController {
       success: true,
       url,
       data: { url },
+    };
+  }
+
+  /** Re-import FX pack from a server directory containing MANIFEST.json. */
+  @Throttle({ default: { limit: 2, ttl: seconds(300) } })
+  @Post('fx-assets/import')
+  async importFxAssets(@Body() body: { dir?: string; out?: string }) {
+    const dir = body?.dir?.trim();
+    if (!dir) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'FX_DIR_REQUIRED',
+          message: 'Body.dir must point to an extracted FX pack on this server',
+        },
+      });
+    }
+    const result = await this.fxAssets.importFromDir(dir, {
+      writeUrlsPath: body?.out?.trim() || undefined,
+    });
+    return {
+      ok: result.ok,
+      failed: result.failed,
+      version: result.version,
+      map: result.map,
     };
   }
 
