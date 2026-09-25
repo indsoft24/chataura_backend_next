@@ -321,14 +321,15 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         data: { isPermanent: false },
       });
 
-      // 2) Free abandoned "live" public rooms (no active members, host gone/stale).
-      // Use explicit active-member counts — safer than filtered Prisma _count.
+      // 2) Legacy zombies only: live permanent with no host and no members.
+      // Do not auto-end rooms that still have an owner host — Leave keeps those alive.
       const candidates = await this.prisma.room.findMany({
         where: {
           ownerId: userId,
           isPermanent: true,
           isPrivate: false,
           isLive: true,
+          hostId: null,
         },
         select: {
           id: true,
@@ -336,27 +337,21 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
           hostLastHeartbeatAt: true,
         },
       });
-      const abandonedBefore = Date.now() - STALE_MS * 10; // ~15 min
       for (const r of candidates) {
         const activeMembers = await this.prisma.roomMember.count({
           where: { roomId: r.id, isActive: true },
         });
         if (activeMembers > 0) continue;
-        const hb = r.hostLastHeartbeatAt?.getTime() ?? 0;
-        // No host → abandoned immediately. Otherwise require stale heartbeat.
-        const hostGone = !r.hostId || !hb || hb < abandonedBefore;
-        if (hostGone) {
-          await this.prisma.room.update({
-            where: { id: r.id },
-            data: {
-              isLive: false,
-              isPermanent: false,
-              endedAt: new Date(),
-              hostId: null,
-              passwordHash: null,
-            },
-          });
-        }
+        await this.prisma.room.update({
+          where: { id: r.id },
+          data: {
+            isLive: false,
+            isPermanent: false,
+            endedAt: new Date(),
+            hostId: null,
+            passwordHash: null,
+          },
+        });
       }
 
       // 3) Block only if a real live public permanent room remains.
@@ -699,7 +694,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         >`SELECT id, host_id, is_permanent FROM rooms WHERE id = ${room.id}::uuid FOR UPDATE`;
         if (lockedRoom[0]?.host_id === userId) {
           const successor = await this.pickHostSuccessor(room.id, userId, tx);
-          if (successor) {
+          if (successor && !room.isPermanent) {
             await tx.room.update({
               where: { id: room.id },
               data: { hostId: successor, hostLastHeartbeatAt: new Date() },
@@ -709,11 +704,11 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
               data: { role: 'host' },
             });
           } else if (room.isPermanent) {
-            // Leave never dissolves a Public permanent room — only Delete Room does.
-            // Keep isLive+isPermanent; clear host so the room stays open.
+            // Public permanent: Leave only removes this member. Owner stays host;
+            // room stays live until explicit Delete Room.
             await tx.room.update({
               where: { id: room.id },
-              data: { hostId: null },
+              data: { hostId: room.ownerId },
             });
           } else {
             await tx.room.update({
@@ -1583,7 +1578,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   /**
    * When the host stops heartbeating: deactivate the stale host member,
    * promote a fresh successor if one exists, otherwise soft-end the room
-   * (permanent rooms stay live with a null host — only Delete frees the slot).
+   * (permanent Public keeps the owner as host — only Delete ends it).
    */
   private async expireStaleHostRoom(
     room: { id: string; hostId: bigint | null; isPermanent: boolean },
@@ -1594,11 +1589,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         Array<{
           id: string;
           host_id: bigint | null;
+          owner_id: bigint;
           is_permanent: boolean;
           is_live: boolean;
           host_last_heartbeat_at: Date | null;
         }>
-      >`SELECT id, host_id, is_permanent, is_live, host_last_heartbeat_at
+      >`SELECT id, host_id, owner_id, is_permanent, is_live, host_last_heartbeat_at
         FROM rooms WHERE id = ${room.id}::uuid FOR UPDATE`;
       const row = locked[0];
       if (!row || !row.is_live) return;
@@ -1648,7 +1644,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         ? await this.pickFreshHostSuccessor(room.id, staleHostId, cutoff, tx)
         : await this.pickFreshHostSuccessor(room.id, BigInt(0), cutoff, tx);
 
-      if (successor) {
+      if (successor && !row.is_permanent) {
         await tx.room.update({
           where: { id: room.id },
           data: {
@@ -1664,12 +1660,11 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      // No successor: permanent Public stays open (hostId null). Non-permanent soft-ends.
-      // Create-time heal still frees empty hostless permanent slots when owner creates again.
+      // Permanent Public: keep owner as host; room stays live until Delete.
       if (row.is_permanent) {
         await tx.room.update({
           where: { id: room.id },
-          data: { hostId: null },
+          data: { hostId: row.owner_id },
         });
         return;
       }
