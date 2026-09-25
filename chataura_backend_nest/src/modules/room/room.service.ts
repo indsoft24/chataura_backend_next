@@ -309,31 +309,68 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         });
       }
     } else {
-      // Free the one public slot: live permanent public rooms only.
-      // Also heal stale rows left isPermanent after soft-close/leave bugs.
+      // One public permanent room per owner.
+      // 1) Free soft-closed slots that still have isPermanent=true.
+      await this.prisma.room.updateMany({
+        where: {
+          ownerId: userId,
+          isPermanent: true,
+          isPrivate: false,
+          isLive: false,
+        },
+        data: { isPermanent: false },
+      });
+
+      // 2) Free abandoned "live" public rooms (no active members, host gone/stale).
+      const candidates = await this.prisma.room.findMany({
+        where: {
+          ownerId: userId,
+          isPermanent: true,
+          isPrivate: false,
+          isLive: true,
+        },
+        select: {
+          id: true,
+          hostId: true,
+          hostLastHeartbeatAt: true,
+          _count: { select: { members: { where: { isActive: true } } } },
+        },
+      });
+      const abandonedBefore = Date.now() - STALE_MS * 10; // ~15 min
+      for (const r of candidates) {
+        const hb = r.hostLastHeartbeatAt?.getTime() ?? 0;
+        const empty = r._count.members === 0;
+        const hostGone = !r.hostId || !hb || hb < abandonedBefore;
+        if (empty && hostGone) {
+          await this.prisma.room.update({
+            where: { id: r.id },
+            data: {
+              isLive: false,
+              isPermanent: false,
+              endedAt: new Date(),
+              hostId: null,
+            },
+          });
+        }
+      }
+
+      // 3) Block only if a real live public permanent room remains.
       const existingPublic = await this.prisma.room.findFirst({
         where: {
           ownerId: userId,
           isPermanent: true,
           isPrivate: false,
+          isLive: true,
         },
-        select: { id: true, isLive: true },
+        select: { id: true, title: true, displayId: true },
       });
       if (existingPublic) {
-        if (existingPublic.isLive) {
-          throw new ForbiddenException({
-            success: false,
-            error: {
-              code: 'PUBLIC_ROOM_LIMIT',
-              message:
-                'You already own a Public Room. You can only have one at a time. Delete your existing room to create a new one, or select Private.',
-            },
-          });
-        }
-        // Dead permanent slot (ended / abandoned) — free it so the owner can recreate.
-        await this.prisma.room.update({
-          where: { id: existingPublic.id },
-          data: { isPermanent: false, isLive: false, endedAt: new Date() },
+        throw new ForbiddenException({
+          success: false,
+          error: {
+            code: 'PUBLIC_ROOM_LIMIT',
+            message: `You already own Public Room "${existingPublic.title}" (#${existingPublic.displayId}). Open it → Exit → Delete Room, then create again — or choose Private.`,
+          },
         });
       }
     }
