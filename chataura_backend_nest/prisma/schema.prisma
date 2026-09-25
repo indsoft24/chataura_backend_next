@@ -110,6 +110,7 @@ model User {
   roomsCohosted       Room[]          @relation("RoomCoHost")
   roomMemberships     RoomMember[]
   rocketAdminSeats    RoomRocketAdmin[]
+  roomStaffAdminSeats RoomStaffAdmin[]
   rocketLaunches      RocketLaunch[]        @relation("RocketLauncher")
   rocketRewards       RocketReward[]
   rocketContributions RocketContribution[]
@@ -540,6 +541,7 @@ model Room {
   theme   RoomTheme? @relation(fields: [themeId], references: [id])
   members        RoomMember[]
   rocketAdmins   RoomRocketAdmin[]
+  staffAdmins    RoomStaffAdmin[]
   rocketLaunches RocketLaunch[]
   rocketEvents   RocketEvent[]
   seats          Seat[]
@@ -570,6 +572,21 @@ model RoomMember {
   @@unique([roomId, userId])
   @@index([roomId, isActive])
   @@map("room_members")
+}
+
+/** Host-appointed room staff admins (separate from co-host and rocket admins). */
+model RoomStaffAdmin {
+  id        BigInt   @id @default(autoincrement())
+  roomId    String   @map("room_id") @db.Uuid
+  userId    BigInt   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId])
+  @@map("room_staff_admins")
 }
 
 model RoomRocketAdmin {
