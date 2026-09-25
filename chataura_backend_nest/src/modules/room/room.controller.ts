@@ -95,6 +95,12 @@ export class RoomController {
       min_age?: number;
       max_age?: number;
       theme_id?: number;
+      /** public | private — default public */
+      visibility?: string;
+      is_private?: boolean | string;
+      password?: string;
+      /** direct | request — default request */
+      seat_mode?: string;
     },
   ) {
     return this.rooms.create(user.id, body);
@@ -115,8 +121,12 @@ export class RoomController {
   }
 
   @Post('rooms/:id/join')
-  join(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.rooms.join(user.id, id);
+  join(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body?: { password?: string; rtc_role?: string },
+  ) {
+    return this.rooms.join(user.id, id, body);
   }
 
   @Post('rooms/:id/leave')
