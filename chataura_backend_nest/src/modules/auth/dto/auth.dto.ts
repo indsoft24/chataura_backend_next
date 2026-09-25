@@ -68,6 +68,14 @@ export class GoogleLoginDto {
   @IsString()
   @MaxLength(4)
   country?: string;
+
+  @IsOptional()
+  @IsString()
+  invite_code?: string;
+
+  @IsOptional()
+  @IsString()
+  referral_code?: string;
 }
 
 export class RefreshTokenDto {

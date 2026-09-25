@@ -97,6 +97,12 @@ function roleFrameClientFields(frame: FrameAsset | null | undefined) {
 type UserWithRoleFrame = User & {
   selectedRoleFrame?: FrameAsset | null;
   staffBadgeType?: string | null;
+  selectedEntryBar?: {
+    id: bigint;
+    name: string;
+    imageUrl: string | null;
+    animationUrl?: string | null;
+  } | null;
 };
 
 /** Serialize User for Android-compatible API payloads. */
@@ -109,7 +115,21 @@ export function userForApi(
   const resolvedRoleFrame =
     roleFrame ?? user.selectedRoleFrame ?? null;
   const badge = buildRoleBadge(user, resolvedRoleFrame);
-  const roleMedia = roleFrameClientFields(resolvedRoleFrame);
+  // Never emit leftover role-frame URLs when the user is no longer staff/seller/agency.
+  const roleMedia = badge
+    ? roleFrameClientFields(resolvedRoleFrame)
+    : roleFrameClientFields(null);
+  const entry = user.selectedEntryBar;
+  const entryAnim =
+    entry?.animationUrl?.trim() ||
+    (entry?.imageUrl &&
+    /\.(json|svga|mp4|webm)(\?|$)/i.test(entry.imageUrl)
+      ? entry.imageUrl
+      : null);
+  const entryImage =
+    entry?.imageUrl && !/\.(json|svga)(\?|$)/i.test(entry.imageUrl)
+      ? entry.imageUrl
+      : null;
   return {
     id: Number(user.id),
     user_id: Number(user.id),
@@ -149,18 +169,30 @@ export function userForApi(
     star_bio_tag: user.starBioTag,
     audio_call_rate: user.audioCallRate,
     video_call_rate: user.videoCallRate,
-    staff_badge_type: user.staffBadgeType ?? null,
+    staff_badge_type: badge ? (user.staffBadgeType ?? null) : null,
     selected_frame_id: user.selectedFrameId
       ? Number(user.selectedFrameId)
       : null,
-    selected_role_frame_id: user.selectedRoleFrameId
-      ? Number(user.selectedRoleFrameId)
-      : null,
+    selected_role_frame_id:
+      badge && user.selectedRoleFrameId
+        ? Number(user.selectedRoleFrameId)
+        : null,
     ...selectedFrameClientFields(selected),
     role_badge: badge,
     role_badge_type: badge?.type ?? null,
     role_badge_label: badge?.label ?? null,
     ...roleMedia,
+    selected_entry_bar_id: user.selectedEntryBarId
+      ? Number(user.selectedEntryBarId)
+      : null,
+    selected_entry_bar: entry
+      ? {
+          id: Number(entry.id),
+          name: entry.name,
+          image_url: entryImage ?? entry.imageUrl,
+          animation_url: entryAnim,
+        }
+      : null,
     created_at: user.createdAt.toISOString(),
   };
 }

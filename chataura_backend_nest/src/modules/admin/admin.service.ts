@@ -645,6 +645,8 @@ export class AdminService {
           deletedAt: new Date(),
           isOnline: false,
           fcmToken: null,
+          staffBadgeType: null,
+          selectedRoleFrameId: null,
         },
       });
     });
@@ -667,16 +669,20 @@ export class AdminService {
         error: { code: 'NOT_FOUND', message: 'User not found' },
       });
     }
+    const nextRole = body.role ?? 'admin';
     const staffBadge =
       body.staff_badge_type ?? body.badge_type ?? undefined;
+    const demoting = nextRole === 'user';
     const updated = await this.prisma.user.update({
       where: { id: userId },
       data: {
-        role: body.role ?? 'admin',
+        role: nextRole,
         ...(body.email ? { email: body.email } : {}),
-        ...(staffBadge !== undefined
-          ? { staffBadgeType: staffBadge || null }
-          : {}),
+        ...(demoting
+          ? { staffBadgeType: null, selectedRoleFrameId: null }
+          : staffBadge !== undefined
+            ? { staffBadgeType: staffBadge || null }
+            : {}),
         accountStatus: 'active',
         isSuspended: false,
         deletedAt: null,

@@ -442,6 +442,7 @@ model EntryBar {
   name          String   @db.VarChar(128)
   levelRequired Int      @default(1) @map("level_required")
   imageUrl      String?  @map("image_url") @db.Text
+  animationUrl  String?  @map("animation_url") @db.Text
   isActive      Boolean  @default(true) @map("is_active")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -512,6 +513,11 @@ model Room {
   maxSeats         Int       @default(8) @map("max_seats")
   isLive           Boolean   @default(true) @map("is_live")
   isPermanent      Boolean   @default(false) @map("is_permanent")
+  /** Private rooms require password; excluded from discovery + rankings. */
+  isPrivate        Boolean   @default(false) @map("is_private")
+  passwordHash     String?   @map("password_hash") @db.VarChar(255)
+  /** Seat entry: "direct" (self takeSeat) or "request" (host approval). */
+  seatMode         String    @default("request") @map("seat_mode") @db.VarChar(16)
   coverImageUrl    String?   @map("cover_image_url") @db.Text
   description      String?   @db.Text
   tags             Json?
@@ -543,6 +549,7 @@ model Room {
 
   @@index([isLive, lastActivityAt])
   @@index([ownerId])
+  @@index([ownerId, isPermanent, isPrivate])
   @@map("rooms")
 }
 

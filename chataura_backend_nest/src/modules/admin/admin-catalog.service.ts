@@ -20,6 +20,18 @@ function blankToNull(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
+function looksLikeAnimationUrl(url?: string | null): boolean {
+  if (!url) return false;
+  const path = url.split(/[?#]/)[0].toLowerCase();
+  return (
+    path.endsWith('.json') ||
+    path.endsWith('.svga') ||
+    path.endsWith('.mp4') ||
+    path.endsWith('.webm') ||
+    path.endsWith('.gif')
+  );
+}
+
 @Injectable()
 export class AdminCatalogService {
   constructor(
@@ -76,7 +88,7 @@ export class AdminCatalogService {
         coins: Number(body.coins),
         price: body.price,
         currency: body.currency ?? 'INR',
-        audience: body.audience ?? 'user',
+        audience: this.normalizePackageAudience(body.audience),
         originalPrice: body.original_price ?? null,
       },
     });
@@ -98,10 +110,22 @@ export class AdminCatalogService {
         ...(body.coins !== undefined ? { coins: Number(body.coins) } : {}),
         ...(body.price !== undefined ? { price: body.price } : {}),
         ...(body.is_active !== undefined ? { isActive: body.is_active } : {}),
-        ...(body.audience !== undefined ? { audience: body.audience } : {}),
+        ...(body.audience !== undefined
+          ? { audience: this.normalizePackageAudience(body.audience) }
+          : {}),
       },
     });
     return this.serializePackage(p);
+  }
+
+  /** Map legacy "reseller" labels to wallet filter key `coin_seller`. */
+  private normalizePackageAudience(audience?: string): string {
+    const raw = (audience ?? 'user').trim().toLowerCase();
+    if (raw === 'reseller' || raw === 'seller' || raw === 'authorized_seller') {
+      return 'coin_seller';
+    }
+    if (raw === 'coin_seller') return 'coin_seller';
+    return raw || 'user';
   }
 
   async deletePackage(id: bigint) {
@@ -648,6 +672,7 @@ export class AdminCatalogService {
         name: eb.name,
         level_required: eb.levelRequired,
         image_url: eb.imageUrl,
+        animation_url: eb.animationUrl,
         is_active: eb.isActive,
       })),
     };
@@ -657,12 +682,21 @@ export class AdminCatalogService {
     name: string;
     level_required?: number;
     image_url?: string;
+    animation_url?: string;
   }) {
+    const anim =
+      body.animation_url?.trim() ||
+      (looksLikeAnimationUrl(body.image_url) ? body.image_url : undefined);
+    const image =
+      body.image_url && !looksLikeAnimationUrl(body.image_url)
+        ? body.image_url
+        : undefined;
     const eb = await this.prisma.entryBar.create({
       data: {
         name: body.name,
         levelRequired: Number(body.level_required ?? 1),
-        imageUrl: body.image_url ?? null,
+        imageUrl: image ?? body.image_url ?? null,
+        animationUrl: anim ?? null,
       },
     });
     return {
@@ -670,6 +704,7 @@ export class AdminCatalogService {
       name: eb.name,
       level_required: eb.levelRequired,
       image_url: eb.imageUrl,
+      animation_url: eb.animationUrl,
       is_active: eb.isActive,
     };
   }
@@ -680,23 +715,35 @@ export class AdminCatalogService {
       name?: string;
       level_required?: number;
       image_url?: string;
+      animation_url?: string;
       is_active?: boolean;
     },
   ) {
+    const data: Record<string, unknown> = {};
+    if (body.name !== undefined) data.name = body.name;
+    if (body.level_required !== undefined)
+      data.levelRequired = Number(body.level_required);
+    if (body.image_url !== undefined) data.imageUrl = body.image_url;
+    if (body.animation_url !== undefined) data.animationUrl = body.animation_url;
+    if (
+      body.animation_url === undefined &&
+      body.image_url !== undefined &&
+      looksLikeAnimationUrl(body.image_url)
+    ) {
+      data.animationUrl = body.image_url;
+    }
+    if (body.is_active !== undefined) data.isActive = Boolean(body.is_active);
     const eb = await this.prisma.entryBar.update({
       where: { id },
-      data: {
-        ...(body.name !== undefined ? { name: body.name } : {}),
-        ...(body.level_required !== undefined
-          ? { levelRequired: Number(body.level_required) }
-          : {}),
-        ...(body.image_url !== undefined ? { imageUrl: body.image_url } : {}),
-        ...(body.is_active !== undefined
-          ? { isActive: Boolean(body.is_active) }
-          : {}),
-      },
+      data,
     });
-    return { id: Number(eb.id), name: eb.name, is_active: eb.isActive };
+    return {
+      id: Number(eb.id),
+      name: eb.name,
+      image_url: eb.imageUrl,
+      animation_url: eb.animationUrl,
+      is_active: eb.isActive,
+    };
   }
 
   async deleteEntryBar(id: bigint) {

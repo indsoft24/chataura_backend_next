@@ -176,7 +176,7 @@ export default function PackagesPage() {
             <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Target Audience</div>
             <select value={audience} onChange={(e) => setAudience(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem', backgroundColor: '#fff' }}>
               <option value="user">Standard User</option>
-              <option value="reseller">Authorized Seller</option>
+              <option value="coin_seller">Authorized Seller</option>
             </select>
           </div>
 
@@ -362,7 +362,7 @@ export default function PackagesPage() {
                 style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem', backgroundColor: '#fff' }}
               >
                 <option value="user">Standard User</option>
-                <option value="reseller">Authorized Seller</option>
+                <option value="coin_seller">Authorized Seller</option>
               </select>
             </div>
 

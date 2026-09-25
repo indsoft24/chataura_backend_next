@@ -8,6 +8,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { Prisma, RoomMemberRole } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
 import {
   catalogClientFields,
   presentFrameMedia,
@@ -24,9 +25,17 @@ import {
 } from './agency-room-meta';
 import { PresenceService } from './presence.service';
 import { RoomEvents } from './room.events';
+import {
+  RocketLaunchService,
+  type RocketListSummary,
+} from './rocket-launch.service';
 
 const STALE_MS = 90_000;
 const KICK_SECONDS = 600;
+/** Max party-room staff admins (host + up to 5 admins + 1 co-host). */
+const STAFF_ADMIN_LIMIT = 5;
+const SEAT_MODE_DIRECT = 'direct';
+const SEAT_MODE_REQUEST = 'request';
 
 const personWithFrame = {
   include: { selectedFrame: true, selectedRoleFrame: true },
@@ -76,6 +85,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     private readonly agora: AgoraService,
     private readonly events: RoomEvents,
     private readonly presence: PresenceService,
+    private readonly rockets: RocketLaunchService,
   ) {}
 
   onModuleInit() {
@@ -105,8 +115,10 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     const freshCutoff = new Date(Date.now() - STALE_MS);
     // Non-permanent rooms need a fresh host heartbeat or at least one fresh
     // active member. Permanent rooms stay listed while isLive.
+    // Private rooms never appear in public discovery / global room rankings.
     const where: Prisma.RoomWhereInput = {
       isLive: true,
+      isPrivate: false,
       OR: [
         { isPermanent: true },
         { hostLastHeartbeatAt: { gte: freshCutoff } },
@@ -164,10 +176,23 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       take,
     });
     const globalVideo = await this.isGlobalVideoEnabled();
+    const rocketByRoom = await this.rockets.summariesForRooms(
+      rooms.map((r) => ({
+        id: r.id,
+        isPermanent: r.isPermanent,
+        isPrivate: r.isPrivate,
+        settings: r.settings,
+      })),
+    );
     return Promise.all(
       rooms.map(async (r) => {
         const agency = await this.enrichRoomAgencyFields(r.id, r.ownerId);
-        return this.serializeRoom(r, globalVideo, agency);
+        return this.serializeRoom(
+          r,
+          globalVideo,
+          agency,
+          rocketByRoom.get(r.id),
+        );
       }),
     );
   }
@@ -188,10 +213,23 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       orderBy: { createdAt: 'desc' },
     });
     const globalVideo = await this.isGlobalVideoEnabled();
+    const rocketByRoom = await this.rockets.summariesForRooms(
+      rooms.map((r) => ({
+        id: r.id,
+        isPermanent: r.isPermanent,
+        isPrivate: r.isPrivate,
+        settings: r.settings,
+      })),
+    );
     return Promise.all(
       rooms.map(async (r) => {
         const agency = await this.enrichRoomAgencyFields(r.id, r.ownerId);
-        return this.serializeRoom(r, globalVideo, agency);
+        return this.serializeRoom(
+          r,
+          globalVideo,
+          agency,
+          rocketByRoom.get(r.id),
+        );
       }),
     );
   }
@@ -240,9 +278,60 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       min_age?: number;
       max_age?: number;
       theme_id?: number;
+      /** public | private — default public */
+      visibility?: string;
+      is_private?: boolean | string;
+      password?: string;
+      /** direct | request — default request */
+      seat_mode?: string;
     },
   ) {
     const maxSeats = Math.min(Math.max(Number(body.max_seats ?? 8), 1), 20);
+    const isPrivate =
+      body.is_private === true ||
+      body.is_private === 'true' ||
+      String(body.visibility ?? '').toLowerCase() === 'private';
+    const seatMode =
+      String(body.seat_mode ?? SEAT_MODE_REQUEST).toLowerCase() ===
+      SEAT_MODE_DIRECT
+        ? SEAT_MODE_DIRECT
+        : SEAT_MODE_REQUEST;
+
+    if (isPrivate) {
+      const pw = String(body.password ?? '').trim();
+      if (pw.length < 4) {
+        throw new BadRequestException({
+          success: false,
+          error: {
+            code: 'PASSWORD_REQUIRED',
+            message: 'Private rooms require a password (min 4 characters)',
+          },
+        });
+      }
+    } else {
+      const existingPublic = await this.prisma.room.findFirst({
+        where: {
+          ownerId: userId,
+          isPermanent: true,
+          isPrivate: false,
+        },
+        select: { id: true },
+      });
+      if (existingPublic) {
+        throw new ForbiddenException({
+          success: false,
+          error: {
+            code: 'PUBLIC_ROOM_LIMIT',
+            message:
+              'You already own a Public Room. You can only have one at a time. Delete your existing room to create a new one, or select Private.',
+          },
+        });
+      }
+    }
+
+    const passwordHash = isPrivate
+      ? await bcrypt.hash(String(body.password).trim(), 10)
+      : null;
     const displayId = await this.uniqueDisplayId();
     const globalVideo = await this.isGlobalVideoEnabled();
     const isAudioOnly = body.settings?.allow_video === false;
@@ -254,11 +343,18 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         hostId: userId,
         agoraChannelName: `room_${displayId}`,
         maxSeats,
+        isPermanent: !isPrivate,
+        isPrivate,
+        passwordHash,
+        seatMode,
         settings: {
           allow_video: globalVideo && !isAudioOnly,
           audio_only: isAudioOnly,
-          allow_gifts: body.settings?.allow_gifts ?? true,
+          // Gifts always on for public + private rooms (no agency gate).
+          allow_gifts: true,
           allow_games: body.settings?.allow_games ?? true,
+          private: isPrivate,
+          seat_mode: seatMode,
         },
         coverImageUrl: coverUrlFromBody(body) ?? null,
         description: body.description ?? null,
@@ -370,18 +466,16 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         error: { code: 'FORBIDDEN', message: 'Only host can close this room' },
       });
     }
-    if (room.isPermanent) {
-      throw new ForbiddenException({
-        success: false,
-        error: {
-          code: 'ROOM_PERMANENT',
-          message: 'This room cannot be closed',
-        },
-      });
-    }
+    // Public permanent rooms: owner/host may consciously delete (frees the 1-public slot).
+    // Soft-end + clear permanent so the room leaves discovery and rankings.
     await this.prisma.room.update({
       where: { id: room.id },
-      data: { isLive: false, endedAt: new Date() },
+      data: {
+        isLive: false,
+        isPermanent: false,
+        endedAt: new Date(),
+        hostId: null,
+      },
     });
     await this.prisma.$transaction(async (tx) => {
       await tx.roomMember.updateMany({
@@ -390,10 +484,19 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       });
       await this.presence.closeAll(tx, room.id, 'room_ended');
     });
-    return { message: 'Room closed' };
+    if (room.isPrivate) {
+      // Private rooms are fully removed once closed.
+      await this.prisma.room.delete({ where: { id: room.id } }).catch(() => null);
+      return { message: 'Private room deleted' };
+    }
+    return { message: room.isPermanent ? 'Public room deleted' : 'Room closed' };
   }
 
-  async join(userId: bigint, id: string) {
+  async join(
+    userId: bigint,
+    id: string,
+    body?: { password?: string; rtc_role?: string },
+  ) {
     const room = await this.findRoom(id, true);
     if (!room.isLive) {
       throw new ForbiddenException({
@@ -402,6 +505,37 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       });
     }
     await this.assertNotBlocked(room.id, userId);
+
+    const isOwnerOrHost =
+      room.ownerId === userId || room.hostId === userId;
+
+    if (!isOwnerOrHost) {
+      if (room.isPrivate) {
+        const pw = String(body?.password ?? '').trim();
+        if (!pw) {
+          throw new ForbiddenException({
+            success: false,
+            error: {
+              code: 'ROOM_PASSWORD_REQUIRED',
+              message: 'This private room requires a password',
+            },
+          });
+        }
+        if (
+          !room.passwordHash ||
+          !(await bcrypt.compare(pw, room.passwordHash))
+        ) {
+          throw new ForbiddenException({
+            success: false,
+            error: {
+              code: 'INVALID_ROOM_PASSWORD',
+              message: 'Incorrect room password',
+            },
+          });
+        }
+      }
+      await this.assertJoinFilters(room, userId);
+    }
 
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
@@ -465,7 +599,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     const agency = await this.enrichRoomAgencyFields(fresh.id, fresh.ownerId);
     const roleFields = this.roleBadgeFields(user);
     return {
-      room: this.serializeRoom(fresh, globalVideo, agency),
+      room: await this.serializeRoom(fresh, globalVideo, agency),
       member: this.serializeMember(member, user),
       ...token,
       media_defaults: { mic_on: false, camera_on: false },
@@ -476,6 +610,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         displayName: user.displayName ?? user.name,
         display_name: user.displayName ?? user.name,
         avatar: user.avatarUrl,
+        avatarUrl: user.avatarUrl,
         avatar_url: user.avatarUrl,
         selected_frame_id: user.selectedFrameId
           ? Number(user.selectedFrameId)
@@ -490,6 +625,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   async leave(userId: bigint, id: string) {
     const room = await this.findRoom(id);
     let roomEnded = false;
+    let roomDeleted = false;
     let bonusEarned: Array<{
       tier_id: number;
       duration_minutes: number;
@@ -539,10 +675,26 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         await this.presence.closeAll(tx, room.id, 'room_ended');
       }
     });
+
+    // Private rooms: hard-delete when host left and nobody remains.
+    if (room.isPrivate) {
+      const activeLeft = await this.prisma.roomMember.count({
+        where: { roomId: room.id, isActive: true },
+      });
+      if (activeLeft === 0 || roomEnded) {
+        await this.prisma.room
+          .delete({ where: { id: room.id } })
+          .catch(() => null);
+        roomDeleted = true;
+        roomEnded = true;
+      }
+    }
+
     return {
-      message: 'Left room',
+      message: roomDeleted ? 'Private room deleted' : 'Left room',
       bonus_earned: bonusEarned,
       room_ended: roomEnded,
+      room_deleted: roomDeleted,
       is_permanent: room.isPermanent,
     };
   }
@@ -682,6 +834,30 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   async setCoHost(actorId: bigint, id: string, targetId: bigint) {
     const room = await this.findRoom(id);
     this.assertHost(room, actorId);
+    if (targetId === room.hostId || targetId === room.ownerId) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Host and room owner cannot be co-host',
+        },
+      });
+    }
+    await this.requireActiveMember(room.id, targetId);
+
+    // Single co-host slot: demote previous co-host member role if any.
+    if (room.coHostId && room.coHostId !== targetId) {
+      await this.prisma.roomMember.updateMany({
+        where: { roomId: room.id, userId: room.coHostId, role: 'co_host' },
+        data: { role: 'speaker' },
+      });
+    }
+
+    // Co-host is not a staff admin — clear staff-admin seat if present.
+    await this.prisma.roomStaffAdmin.deleteMany({
+      where: { roomId: room.id, userId: targetId },
+    });
+
     await this.prisma.room.update({
       where: { id: room.id },
       data: { coHostId: targetId },
@@ -690,7 +866,100 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       where: { roomId: room.id, userId: targetId },
       data: { role: 'co_host' },
     });
-    return { message: 'Co-host assigned' };
+    return {
+      message: 'Co-host assigned',
+      co_host_id: Number(targetId),
+      admin_ids: await this.staffAdminIds(room.id),
+    };
+  }
+
+  async clearCoHost(actorId: bigint, id: string) {
+    const room = await this.findRoom(id);
+    this.assertHost(room, actorId);
+    if (!room.coHostId) {
+      return { message: 'No co-host', co_host_id: null, admin_ids: await this.staffAdminIds(room.id) };
+    }
+    const previous = room.coHostId;
+    await this.prisma.roomMember.updateMany({
+      where: { roomId: room.id, userId: previous, role: 'co_host' },
+      data: { role: 'speaker' },
+    });
+    await this.prisma.room.update({
+      where: { id: room.id },
+      data: { coHostId: null },
+    });
+    return {
+      message: 'Co-host removed',
+      co_host_id: null,
+      admin_ids: await this.staffAdminIds(room.id),
+    };
+  }
+
+  /** Host-only: appoint up to STAFF_ADMIN_LIMIT room staff admins (separate from 1 co-host). */
+  async addStaffAdmin(actorId: bigint, id: string, targetId: bigint) {
+    const room = await this.findRoom(id);
+    this.assertHost(room, actorId);
+    if (
+      targetId === room.hostId ||
+      targetId === room.ownerId ||
+      targetId === room.coHostId
+    ) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Host, owner, and co-host already have elevated access — pick another member',
+        },
+      });
+    }
+    await this.requireActiveMember(room.id, targetId);
+    const existing = await this.prisma.roomStaffAdmin.findUnique({
+      where: { roomId_userId: { roomId: room.id, userId: targetId } },
+    });
+    if (!existing) {
+      const count = await this.prisma.roomStaffAdmin.count({ where: { roomId: room.id } });
+      if (count >= STAFF_ADMIN_LIMIT) {
+        throw new BadRequestException({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: `A room can have at most ${STAFF_ADMIN_LIMIT} admins (plus 1 co-host)`,
+          },
+        });
+      }
+      await this.prisma.roomStaffAdmin.create({
+        data: { roomId: room.id, userId: targetId },
+      });
+    }
+    return {
+      message: 'Admin assigned',
+      admin_ids: await this.staffAdminIds(room.id),
+      admin_limit: STAFF_ADMIN_LIMIT,
+      co_host_id: room.coHostId ? Number(room.coHostId) : null,
+    };
+  }
+
+  async removeStaffAdmin(actorId: bigint, id: string, targetId: bigint) {
+    const room = await this.findRoom(id);
+    this.assertHost(room, actorId);
+    await this.prisma.roomStaffAdmin.deleteMany({
+      where: { roomId: room.id, userId: targetId },
+    });
+    return {
+      message: 'Admin removed',
+      admin_ids: await this.staffAdminIds(room.id),
+      admin_limit: STAFF_ADMIN_LIMIT,
+      co_host_id: room.coHostId ? Number(room.coHostId) : null,
+    };
+  }
+
+  private async staffAdminIds(roomId: string): Promise<number[]> {
+    const rows = await this.prisma.roomStaffAdmin.findMany({
+      where: { roomId },
+      orderBy: { id: 'asc' },
+      select: { userId: true },
+    });
+    return rows.map((r) => Number(r.userId));
   }
 
   async transferHost(actorId: bigint, id: string, targetId: bigint) {
@@ -735,7 +1004,11 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   async takeSeat(userId: bigint, id: string, seatIndex: number) {
     const room = await this.findRoom(id);
     const member = await this.requireActiveMember(room.id, userId);
-    if (!['host', 'co_host', 'speaker'].includes(member.role)) {
+    const seatMode = (room.seatMode || SEAT_MODE_REQUEST).toLowerCase();
+    const canSelfSeat =
+      ['host', 'co_host', 'speaker'].includes(member.role) ||
+      (seatMode === SEAT_MODE_DIRECT && member.role === 'listener');
+    if (!canSelfSeat) {
       throw new ForbiddenException({
         success: false,
         error: {
@@ -744,7 +1017,13 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         },
       });
     }
-    await this.occupySeat(room, userId, seatIndex, member.role);
+    if (member.role === 'listener' && seatMode === SEAT_MODE_DIRECT) {
+      await this.prisma.roomMember.updateMany({
+        where: { roomId: room.id, userId, role: 'listener' },
+        data: { role: 'speaker' },
+      });
+    }
+    await this.occupySeat(room, userId, seatIndex, 'speaker');
     const snap = await this.seatsSnapshot(room.id, userId, room.maxSeats);
     this.events.emitSeatUpdated(room.id, snap);
     return { ...snap, rtc_role: 'publisher' };
@@ -796,7 +1075,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
   async freeSeat(actorId: bigint, id: string, seatIndex: number) {
     const room = await this.findRoom(id);
-    this.assertHostOrCoHost(room, actorId);
+    await this.assertHostCoHostOrStaffAdmin(room, actorId);
     const seat = await this.prisma.seat.findUnique({
       where: { roomId_seatIndex: { roomId: room.id, seatIndex } },
     });
@@ -839,8 +1118,14 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       });
     const isHost = room.hostId === actorId;
     const isCoHost = room.coHostId === actorId;
+    const isStaffAdmin =
+      !isHost &&
+      !isCoHost &&
+      !!(await this.prisma.roomStaffAdmin.findUnique({
+        where: { roomId_userId: { roomId: room.id, userId: actorId } },
+      }));
     const isSelf = seat.userId === actorId;
-    if (!isHost && !isCoHost && !isSelf) {
+    if (!isHost && !isCoHost && !isStaffAdmin && !isSelf) {
       throw new ForbiddenException({
         success: false,
         error: { code: 'FORBIDDEN', message: 'Cannot mute this seat' },
@@ -1533,6 +1818,23 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /** Host, co-host, or appointed staff admin (mute / free seat). */
+  private async assertHostCoHostOrStaffAdmin(
+    room: { id: string; ownerId: bigint; hostId: bigint | null; coHostId: bigint | null },
+    userId: bigint,
+  ) {
+    if (room.hostId === userId || room.coHostId === userId) return;
+    const admin = await this.prisma.roomStaffAdmin.findUnique({
+      where: { roomId_userId: { roomId: room.id, userId } },
+    });
+    if (!admin) {
+      throw new ForbiddenException({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Host, co-host, or admin only' },
+      });
+    }
+  }
+
   private async uniqueDisplayId() {
     for (let i = 0; i < 20; i++) {
       const id = String(100000 + Math.floor(Math.random() * 900000));
@@ -1665,7 +1967,115 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private serializeRoom(
+  private async assertJoinFilters(
+    room: {
+      allowedGender: string | null;
+      allowedCountry: string | null;
+      minAge: number | null;
+      maxAge: number | null;
+    },
+    userId: bigint,
+  ) {
+    const hasFilter =
+      !!room.allowedGender ||
+      !!room.allowedCountry ||
+      room.minAge != null ||
+      room.maxAge != null;
+    if (!hasFilter) return;
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { gender: true, country: true, dob: true },
+    });
+    if (!user) {
+      throw new ForbiddenException({
+        success: false,
+        error: {
+          code: 'ROOM_FILTER_MISMATCH',
+          message: 'Unable to verify profile for this room',
+        },
+      });
+    }
+
+    if (room.allowedGender) {
+      const want = room.allowedGender.trim().toLowerCase();
+      const got = (user.gender ?? '').trim().toLowerCase();
+      if (!got || got !== want) {
+        throw new ForbiddenException({
+          success: false,
+          error: {
+            code: 'ROOM_FILTER_MISMATCH',
+            message: `This room only allows ${room.allowedGender} users`,
+          },
+        });
+      }
+    }
+
+    if (room.allowedCountry) {
+      const want = room.allowedCountry.trim().toUpperCase();
+      const got = (user.country ?? '').trim().toUpperCase();
+      if (want === 'OTHER') {
+        if (got && got !== 'OTHER') {
+          throw new ForbiddenException({
+            success: false,
+            error: {
+              code: 'ROOM_FILTER_MISMATCH',
+              message: 'Your country does not match this room filter',
+            },
+          });
+        }
+      } else if (!got || got !== want) {
+        throw new ForbiddenException({
+          success: false,
+          error: {
+            code: 'ROOM_FILTER_MISMATCH',
+            message: 'Your country does not match this room filter',
+          },
+        });
+      }
+    }
+
+    if (room.minAge != null || room.maxAge != null) {
+      if (!user.dob) {
+        throw new ForbiddenException({
+          success: false,
+          error: {
+            code: 'ROOM_FILTER_MISMATCH',
+            message: 'Set your date of birth in profile to join this room',
+          },
+        });
+      }
+      const age = this.ageFromDob(user.dob);
+      if (room.minAge != null && age < room.minAge) {
+        throw new ForbiddenException({
+          success: false,
+          error: {
+            code: 'ROOM_FILTER_MISMATCH',
+            message: `This room requires age ${room.minAge}+`,
+          },
+        });
+      }
+      if (room.maxAge != null && age > room.maxAge) {
+        throw new ForbiddenException({
+          success: false,
+          error: {
+            code: 'ROOM_FILTER_MISMATCH',
+            message: `This room only allows ages up to ${room.maxAge}`,
+          },
+        });
+      }
+    }
+  }
+
+  private ageFromDob(dob: Date): number {
+    const now = new Date();
+    let age = now.getUTCFullYear() - dob.getUTCFullYear();
+    const m = now.getUTCMonth() - dob.getUTCMonth();
+    if (m < 0 || (m === 0 && now.getUTCDate() < dob.getUTCDate())) age -= 1;
+    return age;
+  }
+
+  private async serializeRoom(
     room: {
       id: string;
       displayId: string;
@@ -1677,6 +2087,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       maxSeats: number;
       isLive: boolean;
       isPermanent: boolean;
+      isPrivate?: boolean;
+      seatMode?: string;
       coverImageUrl: string | null;
       description: string | null;
       tags: Prisma.JsonValue;
@@ -1694,10 +2106,21 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     },
     globalVideoEnabled = true,
     agencyMeta: AgencyRoomMeta = { agency_linked: false, agency_cashback: null },
+    rocketSummary?: RocketListSummary | null,
   ) {
     const rawSettings = (room.settings as Record<string, unknown>) ?? {};
     const allowVideo = globalVideoEnabled && rawSettings.audio_only !== true;
     const cover = room.coverImageUrl;
+    const adminIds = await this.staffAdminIds(room.id);
+    const isPrivate = room.isPrivate === true;
+    const seatMode =
+      (room.seatMode ||
+        (typeof rawSettings.seat_mode === 'string'
+          ? rawSettings.seat_mode
+          : SEAT_MODE_REQUEST)
+      ).toLowerCase() === SEAT_MODE_DIRECT
+        ? SEAT_MODE_DIRECT
+        : SEAT_MODE_REQUEST;
 
     return {
       id: room.id,
@@ -1706,10 +2129,15 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       owner_id: Number(room.ownerId),
       host_id: room.hostId ? Number(room.hostId) : null,
       co_host_id: room.coHostId ? Number(room.coHostId) : null,
+      admin_ids: adminIds,
+      admin_limit: STAFF_ADMIN_LIMIT,
       agora_channel_name: room.agoraChannelName,
       max_seats: room.maxSeats,
       is_live: room.isLive,
       is_permanent: room.isPermanent,
+      is_private: isPrivate,
+      requires_password: isPrivate,
+      seat_mode: seatMode,
       cover_image_url: cover,
       image: cover,
       image_url: cover,
@@ -1721,8 +2149,10 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       settings: {
         allow_video: allowVideo,
         audio_only: rawSettings.audio_only === true,
-        allow_gifts: rawSettings.allow_gifts !== false,
+        allow_gifts: true,
         allow_games: rawSettings.allow_games !== false,
+        private: isPrivate,
+        seat_mode: seatMode,
       },
       country_code: room.countryCode,
       allowed_country: room.allowedCountry,
@@ -1750,6 +2180,10 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
             image_url: room.theme.imageUrl,
           }
         : null,
+      rocket_progress_coins: rocketSummary?.rocket_progress_coins ?? 0,
+      rocket_threshold_coins: rocketSummary?.rocket_threshold_coins ?? 0,
+      rocket_progress_percent: rocketSummary?.rocket_progress_percent ?? 0,
+      rocket_near_launch: rocketSummary?.rocket_near_launch === true,
     };
   }
 }

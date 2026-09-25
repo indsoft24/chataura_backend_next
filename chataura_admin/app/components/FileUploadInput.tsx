@@ -18,7 +18,7 @@ export default function FileUploadInput({
   value,
   onChange,
   accept = 'image/*,video/mp4,video/webm,.json,.svga,.svg,.webp,.gif,.png,.jpg,.jpeg,.mp4,.webm',
-  helpText = 'Max 15MB. You can upload a local file or paste a direct/CDN URL below.',
+  helpText = 'Max 50MB. You can upload a local file or paste a direct/CDN URL below.',
   placeholder = 'https://... or uploaded path',
   required = false,
 }: FileUploadInputProps) {
@@ -31,8 +31,8 @@ export default function FileUploadInput({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 15 * 1024 * 1024) {
-      setError('File is larger than 15MB. Please choose a smaller file.');
+    if (file.size > 50 * 1024 * 1024) {
+      setError('File is larger than 50MB. Please choose a smaller file.');
       return;
     }
 

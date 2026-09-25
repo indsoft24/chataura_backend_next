@@ -99,7 +99,6 @@ export default function StarAccountsPage() {
               <th style={{ padding: '12px 16px', width: 80 }}>RANK</th>
               <th style={{ padding: '12px 16px' }}>STAR USER</th>
               <th style={{ padding: '12px 16px' }}>BIO TAG</th>
-              <th style={{ padding: '12px 16px' }}>CALL RATES</th>
               <th style={{ padding: '12px 16px' }}>COUNTRY</th>
               <th style={{ padding: '12px 16px', textAlign: 'right' }}>ACTIONS</th>
             </tr>
@@ -107,13 +106,13 @@ export default function StarAccountsPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} style={{ padding: 32, textAlign: 'center', color: '#9ca3af' }}>
+                <td colSpan={5} style={{ padding: 32, textAlign: 'center', color: '#9ca3af' }}>
                   Loading star accounts...
                 </td>
               </tr>
             ) : stars.length === 0 ? (
               <tr>
-                <td colSpan={6} style={{ padding: 32, textAlign: 'center', color: '#9ca3af' }}>
+                <td colSpan={5} style={{ padding: 32, textAlign: 'center', color: '#9ca3af' }}>
                   No star accounts currently assigned. Assign users via the Users page.
                 </td>
               </tr>
@@ -181,10 +180,6 @@ export default function StarAccountsPage() {
                     ) : (
                       <span style={{ color: '#9ca3af' }}>None</span>
                     )}
-                  </td>
-                  <td style={{ padding: '12px 16px', fontSize: '0.85rem', color: '#4b5563' }}>
-                    <div>Audio: {u.audio_call_rate ?? 20} coins/min</div>
-                    <div>Video: {u.video_call_rate ?? 40} coins/min</div>
                   </td>
                   <td style={{ padding: '12px 16px', color: '#4b5563' }}>{u.country ?? '—'}</td>
                   <td style={{ padding: '12px 16px', textAlign: 'right' }}>

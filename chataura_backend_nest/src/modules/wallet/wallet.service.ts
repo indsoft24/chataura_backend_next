@@ -81,7 +81,12 @@ export class WalletService {
       promo: null,
       packages: mapped,
       seller_promo: null,
-      seller_packages: mapped.filter((p) => p.audience === 'coin_seller'),
+      seller_packages: mapped.filter(
+        (p) =>
+          p.audience === 'coin_seller' ||
+          p.audience === 'reseller' ||
+          p.audience === 'seller',
+      ),
     };
   }
 

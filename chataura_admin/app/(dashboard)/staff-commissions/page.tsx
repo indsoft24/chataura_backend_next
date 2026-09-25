@@ -127,7 +127,7 @@ export default function StaffCommissionsPage() {
                     onChange={(e) => setStarComm(e.target.value)}
                     style={{ width: '120px', margin: 0 }}
                   />
-                  <span style={{ color: '#6b7280', fontSize: '0.9rem' }}>% platform fee for celebrity video/audio calls</span>
+                  <span style={{ color: '#6b7280', fontSize: '0.9rem' }}>% platform fee for star chat sessions</span>
                 </div>
               </div>
 

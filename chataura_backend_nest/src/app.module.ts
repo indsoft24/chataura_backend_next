@@ -23,6 +23,7 @@ import { AgencyModule } from './modules/agency/agency.module';
 import { GamificationModule } from './modules/gamification/gamification.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { RelationshipModule } from './modules/relationship/relationship.module';
+import { RankingsModule } from './modules/rankings/rankings.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { RelationshipModule } from './modules/relationship/relationship.module';
     AgencyModule,
     GamificationModule,
     RelationshipModule,
+    RankingsModule,
     AdminModule,
   ],
   controllers: [HealthController],

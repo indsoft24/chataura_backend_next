@@ -8,9 +8,6 @@ import { useAdminAuth } from '@/hooks/useAdminAuth';
 type Settings = {
   id: number;
   coin_to_xp_ratio: number;
-  audio_call_price_per_min: number;
-  video_call_price_per_min: number;
-  star_chat_price_per_min: number;
   spin_cost: number;
 };
 
@@ -21,12 +18,8 @@ export default function PartyBonusesPage() {
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Form states
   const [spinCost, setSpinCost] = useState('50');
   const [coinToXp, setCoinToXp] = useState('0.1');
-  const [audioPrice, setAudioPrice] = useState('20');
-  const [videoPrice, setVideoPrice] = useState('40');
-  const [starChatPrice, setStarChatPrice] = useState('5');
 
   async function load(tok: string) {
     setLoading(true);
@@ -36,9 +29,6 @@ export default function PartyBonusesPage() {
         const s = json.data.settings;
         setSpinCost(String(s.spin_cost ?? 50));
         setCoinToXp(String(s.coin_to_xp_ratio ?? 0.1));
-        setAudioPrice(String(s.audio_call_price_per_min ?? 20));
-        setVideoPrice(String(s.video_call_price_per_min ?? 40));
-        setStarChatPrice(String(s.star_chat_price_per_min ?? 5));
       }
     } catch (e) {
       console.error(e);
@@ -64,12 +54,9 @@ export default function PartyBonusesPage() {
         body: JSON.stringify({
           spin_cost: Number(spinCost),
           coin_to_xp_ratio: Number(coinToXp),
-          audio_call_price_per_min: Number(audioPrice),
-          video_call_price_per_min: Number(videoPrice),
-          star_chat_price_per_min: Number(starChatPrice),
         }),
       });
-      setSuccessMsg('Party room bonuses and rates updated successfully!');
+      setSuccessMsg('Party room bonuses updated successfully!');
       setTimeout(() => setSuccessMsg(''), 4000);
     } catch (e) {
       console.error(e);
@@ -81,8 +68,8 @@ export default function PartyBonusesPage() {
   return (
     <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
       <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Party Room Bonuses & Call Rates</h1>
-        <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>Control gamification costs, lucky wheel spin pricing, XP accrual rates, and 1-on-1 calling fees.</p>
+        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Party Room Bonuses</h1>
+        <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>Control gamification costs, lucky wheel spin pricing, and XP accrual rates.</p>
       </div>
 
       {successMsg && (
@@ -94,10 +81,10 @@ export default function PartyBonusesPage() {
       {loading ? (
         <p style={{ color: '#6b7280' }}>Loading settings...</p>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px' }}>
+        <div style={{ maxWidth: '520px' }}>
           <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '28px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb' }}>
             <h2 style={{ fontSize: '1.15rem', fontWeight: 600, margin: '0 0 20px 0', color: '#111827' }}>Lucky Spin & XP Mechanics</h2>
-            
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
@@ -129,66 +116,15 @@ export default function PartyBonusesPage() {
                   <span style={{ color: '#6b7280', fontSize: '0.9rem' }}>XP awarded per 1 coin spent (e.g. 0.1 = 1 XP per 10 coins)</span>
                 </div>
               </div>
-            </div>
-          </div>
 
-          <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '28px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb' }}>
-            <h2 style={{ fontSize: '1.15rem', fontWeight: 600, margin: '0 0 20px 0', color: '#111827' }}>Private Audio & Video Call Rates</h2>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
-                  Private Audio Call Rate (Coins / Minute)
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <input
-                    type="number"
-                    value={audioPrice}
-                    onChange={(e) => setAudioPrice(e.target.value)}
-                    style={{ width: '120px', margin: 0 }}
-                  />
-                  <span style={{ color: '#6b7280', fontSize: '0.9rem' }}>Coins charged per minute</span>
-                </div>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
-                  Private Video Call Rate (Coins / Minute)
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <input
-                    type="number"
-                    value={videoPrice}
-                    onChange={(e) => setVideoPrice(e.target.value)}
-                    style={{ width: '120px', margin: 0 }}
-                  />
-                  <span style={{ color: '#6b7280', fontSize: '0.9rem' }}>Coins charged per minute</span>
-                </div>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
-                  Star Host Direct Chat (Coins / Minute)
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <input
-                    type="number"
-                    value={starChatPrice}
-                    onChange={(e) => setStarChatPrice(e.target.value)}
-                    style={{ width: '120px', margin: 0 }}
-                  />
-                  <span style={{ color: '#6b7280', fontSize: '0.9rem' }}>Coins charged per minute</span>
-                </div>
-              </div>
-
-              <div style={{ marginTop: 'auto', paddingTop: '16px' }}>
+              <div style={{ paddingTop: '16px' }}>
                 <button
                   type="button"
                   disabled={saving}
                   onClick={() => void save()}
                   style={{ width: '100%', height: '46px', fontSize: '1rem', fontWeight: 600 }}
                 >
-                  {saving ? 'Saving...' : 'Save Bonus & Rate Settings'}
+                  {saving ? 'Saving...' : 'Save Bonus Settings'}
                 </button>
               </div>
             </div>

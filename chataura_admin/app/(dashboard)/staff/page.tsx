@@ -25,7 +25,7 @@ export default function StaffPage() {
   const { token } = useAdminAuth();
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [userId, setUserId] = useState('');
-  const [role, setRole] = useState<'admin' | 'seller' | 'agency'>('admin');
+  const [role, setRole] = useState<'admin' | 'seller'>('admin');
   const [badgeType, setBadgeType] = useState<'admin' | 'ceo' | 'manager' | 'superadmin'>('admin');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -113,12 +113,11 @@ export default function StaffPage() {
             <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 600 }}>Role</div>
             <select
               value={role}
-              onChange={(e) => setRole(e.target.value as 'admin' | 'seller' | 'agency')}
+              onChange={(e) => setRole(e.target.value as 'admin' | 'seller')}
               style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', background: '#fff', fontSize: '0.95rem', margin: 0, height: '42px' }}
             >
               <option value="admin">Administrator</option>
               <option value="seller">Coin Seller</option>
-              <option value="agency">Agency</option>
             </select>
           </div>
           {role === 'admin' ? (
@@ -176,13 +175,13 @@ export default function StaffPage() {
                       <span style={{
                         padding: '4px 8px',
                         borderRadius: '4px',
-                        background: s.role === 'admin' ? '#fee2e2' : s.role === 'agency' ? '#dbeafe' : '#fef3c7',
-                        color: s.role === 'admin' ? '#991b1b' : s.role === 'agency' ? '#1e40af' : '#92400e',
+                        background: s.role === 'admin' ? '#fee2e2' : '#fef3c7',
+                        color: s.role === 'admin' ? '#991b1b' : '#92400e',
                         fontSize: '0.75rem',
                         fontWeight: 600,
                         textTransform: 'uppercase'
                       }}>
-                        {s.role === 'admin' ? 'Administrator' : s.role === 'agency' ? 'Agency' : 'Coin Seller'}
+                        {s.role === 'admin' ? 'Administrator' : 'Coin Seller'}
                       </span>
                     </td>
                     <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'right', fontWeight: 600, color: '#2563eb' }}>

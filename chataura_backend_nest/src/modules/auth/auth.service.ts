@@ -78,6 +78,8 @@ export class AuthService {
 
     if (invitedBy) {
       await this.grantReferralCoins(user.id, invitedBy);
+      // Also grant the standard signup bonus for the new user (idempotent via ledger check below).
+      await this.grantSignupBonus(user.id);
     }
 
     return this.authPayload(user);
@@ -149,6 +151,15 @@ export class AuthService {
               payload.email_verified === 'true',
             );
 
+      const referralCode = dto.referral_code ?? dto.invite_code ?? null;
+      let invitedBy: bigint | null = null;
+      if (referralCode) {
+        const referrer = await this.prisma.user.findUnique({
+          where: { inviteCode: referralCode },
+        });
+        if (referrer) invitedBy = referrer.id;
+      }
+
       user = await this.prisma.user.create({
         data: {
           email,
@@ -157,12 +168,16 @@ export class AuthService {
           avatarUrl: payload.picture ? String(payload.picture) : null,
           password: passwordHash,
           inviteCode: await this.uniqueInviteCode(),
+          invitedBy,
           emailVerifiedAt: emailVerified ? new Date() : null,
           country: dto.country ?? null,
           lastClientCountry: dto.country ?? null,
         },
       });
 
+      if (invitedBy) {
+        await this.grantReferralCoins(user.id, invitedBy);
+      }
       if (emailVerified) {
         await this.grantSignupBonus(user.id);
         user = (await this.prisma.user.findUnique({ where: { id: user.id } }))!;
@@ -461,6 +476,10 @@ export class AuthService {
   private async grantSignupBonus(userId: bigint) {
     const coins = Number(this.config.get('SIGNUP_BONUS_COINS', '50'));
     if (coins <= 0) return null;
+    const already = await this.prisma.coinTransaction.findFirst({
+      where: { userId, referenceId: `signup_bonus_${userId}` },
+    });
+    if (already) return null;
     await this.prisma.user.update({
       where: { id: userId },
       data: {
@@ -476,16 +495,37 @@ export class AuthService {
         coinAmount: BigInt(coins),
         balanceAfter: undefined,
         status: 'success',
+        referenceId: `signup_bonus_${userId}`,
       },
     });
     return { coins, bonus_type: 'signup' };
   }
 
-  async grantReferralCoins(inviteeId: bigint, referrerId: bigint) {
-    const referee = Number(this.config.get('REFERRAL_REWARD_REFEREE', '50'));
-    const referrerAmt = Number(
-      this.config.get('REFERRAL_REWARD_REFERRER', '100'),
+  private async resolveReferralRewards(): Promise<{
+    referee: number;
+    referrer: number;
+  }> {
+    const settings = await this.prisma.adminSetting.findUnique({
+      where: { id: 1 },
+    });
+    const extra = (settings?.extraSettings as Record<string, unknown>) ?? {};
+    const referee = Number(
+      extra.referral_reward_referee ??
+        this.config.get('REFERRAL_REWARD_REFEREE', '50'),
     );
+    const referrer = Number(
+      extra.referral_reward_referrer ??
+        this.config.get('REFERRAL_REWARD_REFERRER', '100'),
+    );
+    return {
+      referee: Number.isFinite(referee) ? referee : 50,
+      referrer: Number.isFinite(referrer) ? referrer : 100,
+    };
+  }
+
+  async grantReferralCoins(inviteeId: bigint, referrerId: bigint) {
+    const { referee, referrer: referrerAmt } =
+      await this.resolveReferralRewards();
     return this.prisma.$transaction(async (tx) => {
       if (referee > 0) {
         const refKey = `referral_join_${inviteeId}`;

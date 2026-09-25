@@ -258,7 +258,10 @@ export class RoomGiftingService {
 
     await this.requireActiveMember(room.id, senderId);
 
+    // Soft-filter: skip receivers who left / never joined instead of failing the whole All-send.
+    const eligibleIds: bigint[] = [];
     for (const rid of receiverIds) {
+      if (rid === senderId) continue;
       const recvMember = await this.prisma.roomMember.findFirst({
         where: { roomId: room.id, userId: rid, isActive: true },
       });
@@ -266,19 +269,22 @@ export class RoomGiftingService {
         where: { roomId: room.id, userId: rid },
       });
       if (
-        !recvMember &&
-        !seated &&
-        room.hostId !== rid &&
-        room.ownerId !== rid
+        recvMember ||
+        seated ||
+        room.hostId === rid ||
+        room.ownerId === rid
       ) {
-        throw new BadRequestException({
-          success: false,
-          error: {
-            code: 'NOT_IN_ROOM',
-            message: `Receiver ${rid} is not in this room`,
-          },
-        });
+        eligibleIds.push(rid);
       }
+    }
+    if (eligibleIds.length === 0) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'NOT_IN_ROOM',
+          message: 'No selected receivers are in this room',
+        },
+      });
     }
 
     const settings = await this.prisma.adminSetting.findUnique({
@@ -286,7 +292,7 @@ export class RoomGiftingService {
     });
     const commissionPct = Number(settings?.giftCommissionPct ?? 20) / 100;
     const perCost = BigInt(gift.coinCost * quantity);
-    const totalCost = perCost * BigInt(receiverIds.length);
+    const totalCost = perCost * BigInt(eligibleIds.length);
     const perCommission = BigInt(Math.floor(Number(perCost) * commissionPct));
     const perNetGems = perCost - perCommission;
 
@@ -294,9 +300,9 @@ export class RoomGiftingService {
       try {
         const userMap = await this.ledger.lockUsers(tx, [
           senderId,
-          ...receiverIds,
+          ...eligibleIds,
         ]);
-        for (const rid of receiverIds) {
+        for (const rid of eligibleIds) {
           if (!userMap.get(rid.toString())) {
             throw new NotFoundException({
               success: false,
@@ -323,7 +329,7 @@ export class RoomGiftingService {
           ReturnType<RelationshipEngineService['applyContribution']>
         >[] = [];
 
-        for (const rid of receiverIds) {
+        for (const rid of eligibleIds) {
           const giftRef = `room_${room.id}_gift_${gift.id}_${senderId}_${rid}_${Date.now()}`;
           const debitRes = await this.ledger.debitCoins(
             tx,
@@ -373,7 +379,7 @@ export class RoomGiftingService {
           transaction_ids: txIds,
           coin_amount: Number(totalCost),
           per_receiver_coin_amount: Number(perCost),
-          receiver_count: receiverIds.length,
+          receiver_count: eligibleIds.length,
           sender_balance_after: Number(finalBalance),
           agency_cashback: null,
           relationships,
@@ -403,7 +409,7 @@ export class RoomGiftingService {
 
     {
       const media = catalogClientFields(gift.imageUrl, gift.animationUrl);
-      for (const rid of receiverIds) {
+      for (const rid of eligibleIds) {
         this.events.emitGiftOverlay(room.id, {
           gift_id: Number(gift.id),
           ...media,

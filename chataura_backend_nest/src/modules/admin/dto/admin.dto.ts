@@ -300,6 +300,10 @@ export class CreateEntryBarDto {
   @IsOptional()
   @IsString()
   image_url?: string;
+
+  @IsOptional()
+  @IsString()
+  animation_url?: string;
 }
 
 export class UpdateEntryBarDto {
@@ -315,6 +319,10 @@ export class UpdateEntryBarDto {
   @IsOptional()
   @IsString()
   image_url?: string;
+
+  @IsOptional()
+  @IsString()
+  animation_url?: string;
 
   @IsOptional()
   @IsBoolean()

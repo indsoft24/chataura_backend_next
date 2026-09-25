@@ -80,7 +80,7 @@ export default function TransactionsPage() {
         <div>
           <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Financial Transactions</h1>
           <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>
-            Auditable platform ledger recording coin purchases, gifts, call charges, commissions, and withdrawals.
+            Auditable platform ledger recording coin purchases, gifts, commissions, and withdrawals.
           </p>
         </div>
         <button

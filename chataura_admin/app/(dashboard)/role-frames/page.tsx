@@ -38,7 +38,6 @@ export default function RoleFramesPage() {
     { value: 'ceo', label: 'CEO' },
     { value: 'manager', label: 'Manager' },
     { value: 'superadmin', label: 'Superadmin' },
-    { value: 'agency', label: 'Agency' },
     { value: 'coin_seller', label: 'Coin Seller' },
   ];
   const [imageUrl, setImageUrl] = useState('');
@@ -191,7 +190,7 @@ export default function RoleFramesPage() {
     <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
       <div style={{ marginBottom: '32px' }}>
         <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Staff & Role Frames</h1>
-        <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>Special prestige frames exclusive to Admins, CEOs, Managers, and Agency Heads.</p>
+        <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>Special prestige frames exclusive to Admins, CEOs, Managers, and Coin Sellers.</p>
       </div>
 
       {/* Creation Box */}

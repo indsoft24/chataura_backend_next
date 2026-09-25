@@ -116,7 +116,7 @@ export default function SettingsPage() {
         <div>
           <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Platform Settings</h1>
           <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>
-            Configure global financial rates, daily rewards, mini-games, and call pricing.
+            Configure global financial rates, daily rewards, and mini-games.
           </p>
         </div>
         <button
@@ -194,60 +194,6 @@ export default function SettingsPage() {
                   max="100"
                   value={form.gift_commission_percent ?? ''}
                   onChange={(e) => handleChange('gift_commission_percent', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Audio Call Price Per Min (Coins)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={form.audio_call_price_per_min ?? ''}
-                  onChange={(e) => handleChange('audio_call_price_per_min', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Audio Call Commission (%)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={form.audio_call_commission_percent ?? ''}
-                  onChange={(e) => handleChange('audio_call_commission_percent', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Video Call Price Per Min (Coins)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={form.video_call_price_per_min ?? ''}
-                  onChange={(e) => handleChange('video_call_price_per_min', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Video Call Commission (%)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={form.video_call_commission_percent ?? ''}
-                  onChange={(e) => handleChange('video_call_commission_percent', Number(e.target.value))}
                   style={inputStyle}
                 />
               </div>

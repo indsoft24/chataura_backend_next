@@ -33,8 +33,18 @@ type RoomRow = {
   coHostId: bigint | null;
   ownerId: bigint;
   isPermanent: boolean;
+  isPrivate?: boolean;
   settings: Prisma.JsonValue | null;
 };
+
+export type RocketListSummary = {
+  rocket_progress_coins: number;
+  rocket_threshold_coins: number;
+  rocket_progress_percent: number;
+  rocket_near_launch: boolean;
+};
+
+const NEAR_LAUNCH_RATIO = 0.7;
 
 @Injectable()
 export class RocketLaunchService {
@@ -52,6 +62,92 @@ export class RocketLaunchService {
     });
     const event = await this.getOrCreatePendingEvent(room, actorId);
     return this.serializeState(room, admins, actorId, Boolean(member), event);
+  }
+
+  /**
+   * Batch rocket progress for public room lists.
+   * Private rooms and inactive campaigns resolve to zeros / near_launch=false.
+   */
+  async summariesForRooms(
+    rooms: Array<{
+      id: string;
+      isPermanent: boolean;
+      isPrivate?: boolean;
+      settings?: Prisma.JsonValue | null;
+    }>,
+  ): Promise<Map<string, RocketListSummary>> {
+    const empty: RocketListSummary = {
+      rocket_progress_coins: 0,
+      rocket_threshold_coins: 0,
+      rocket_progress_percent: 0,
+      rocket_near_launch: false,
+    };
+    const out = new Map<string, RocketListSummary>();
+    if (rooms.length === 0) return out;
+
+    const config = await this.activeConfig();
+    if (!config) {
+      for (const r of rooms) out.set(r.id, empty);
+      return out;
+    }
+
+    const threshold = config.launchThresholdCoins;
+    const eligibleIds: string[] = [];
+    for (const r of rooms) {
+      if (r.isPrivate === true) {
+        out.set(r.id, empty);
+        continue;
+      }
+      if (
+        !this.roomEligible(
+          {
+            id: r.id,
+            hostId: null,
+            coHostId: null,
+            ownerId: BigInt(0),
+            isPermanent: r.isPermanent,
+            isPrivate: r.isPrivate,
+            settings: r.settings ?? null,
+          },
+          config.eligibleRoomTypes,
+        )
+      ) {
+        out.set(r.id, empty);
+        continue;
+      }
+      eligibleIds.push(r.id);
+    }
+
+    if (eligibleIds.length === 0) return out;
+
+    const events = await this.prisma.rocketEvent.findMany({
+      where: {
+        roomId: { in: eligibleIds },
+        status: 'PENDING',
+        expiresAt: { gt: new Date() },
+      },
+      select: {
+        roomId: true,
+        accumulatedCoins: true,
+        configId: true,
+      },
+    });
+    const byRoom = new Map(events.map((e) => [e.roomId, e]));
+
+    for (const id of eligibleIds) {
+      const ev = byRoom.get(id);
+      const coins = ev?.accumulatedCoins ?? 0;
+      const percent =
+        threshold > 0 ? Math.min(100, Math.floor((coins / threshold) * 100)) : 0;
+      out.set(id, {
+        rocket_progress_coins: coins,
+        rocket_threshold_coins: threshold,
+        rocket_progress_percent: percent,
+        rocket_near_launch:
+          Boolean(ev) && threshold > 0 && coins / threshold >= NEAR_LAUNCH_RATIO,
+      });
+    }
+    return out;
   }
 
   async addAdmin(actorId: bigint, roomKey: string, targetId: bigint) {
@@ -900,10 +996,15 @@ export class RocketLaunchService {
       : ['all'];
     if (types.includes('all')) return true;
     const tags: string[] = [];
+    const isPrivate =
+      room.isPrivate === true ||
+      (room.settings as { private?: boolean } | null)?.private === true;
+    if (isPrivate) {
+      tags.push('private');
+      return types.includes('private');
+    }
     if (room.isPermanent) tags.push('vip', 'permanent');
     else tags.push('public');
-    const settings = room.settings as { private?: boolean } | null;
-    if (settings?.private === true) tags.push('private');
     return types.some((t) => tags.includes(t));
   }
 

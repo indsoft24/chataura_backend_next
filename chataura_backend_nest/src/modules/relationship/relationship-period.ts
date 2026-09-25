@@ -41,6 +41,33 @@ export function periodKey(period: PeriodType, at: Date = new Date()): string {
   }
 }
 
+/** Inclusive start / exclusive end for coin spend aggregations. Undefined = all time. */
+export function periodCreatedAtFilter(
+  period: PeriodType,
+  at: Date = new Date(),
+): { gte?: Date; lt?: Date } | undefined {
+  if (period === 'all_time') return undefined;
+  const y = at.getUTCFullYear();
+  const m = at.getUTCMonth();
+  const d = at.getUTCDate();
+  if (period === 'daily') {
+    const gte = new Date(Date.UTC(y, m, d));
+    const lt = new Date(Date.UTC(y, m, d + 1));
+    return { gte, lt };
+  }
+  if (period === 'monthly') {
+    const gte = new Date(Date.UTC(y, m, 1));
+    const lt = new Date(Date.UTC(y, m + 1, 1));
+    return { gte, lt };
+  }
+  // weekly — ISO week Monday 00:00 UTC
+  const day = at.getUTCDay() || 7;
+  const monday = new Date(Date.UTC(y, m, d - (day - 1)));
+  const next = new Date(monday);
+  next.setUTCDate(monday.getUTCDate() + 7);
+  return { gte: monday, lt: next };
+}
+
 export function canonicalUserPair(
   a: bigint,
   b: bigint,

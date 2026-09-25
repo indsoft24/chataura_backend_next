@@ -436,10 +436,10 @@ export default function DashboardPage() {
           subtext="Party rooms with audio broadcast"
         />
         <MetricCard
-          title="Star Calls / Chats"
-          value={data ? data.overview?.calls_in_range?.toLocaleString() ?? 0 : '...'}
-          subtext={data ? `Paid: ${(data.callCommission?.caller_charged ?? 0).toLocaleString()} coins` : '...'}
-          badge="P2P"
+          title="Content Created"
+          value={data ? data.overview?.content_posts_in_range?.toLocaleString() ?? 0 : '...'}
+          subtext="Posts and reels in selected range"
+          badge="Media"
           badgeType="neutral"
         />
       </div>
@@ -530,10 +530,6 @@ export default function DashboardPage() {
               <strong style={{ color: '#e11d48' }}>{(data?.finance?.gift_volume ?? 0).toLocaleString()}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f3f4f6', paddingBottom: '8px' }}>
-              <span style={{ color: '#4b5563' }}>Call Volume</span>
-              <strong style={{ color: '#111827' }}>{(data?.finance?.call_volume ?? 0).toLocaleString()}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f3f4f6', paddingBottom: '8px' }}>
               <span style={{ color: '#4b5563' }}>Mini-Games Bets</span>
               <strong style={{ color: '#d97706' }}>{(data?.finance?.game_volume ?? 0).toLocaleString()}</strong>
             </div>
@@ -557,16 +553,15 @@ export default function DashboardPage() {
 
       {/* Row 3: System Wallet & Call Telemetry vs Recharge & Withdrawal Health */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '28px' }}>
-        {/* System Wallet & Call Telemetry */}
+        {/* System Wallet Reserve */}
         <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb' }}>
-          <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 6px 0', color: '#111827' }}>System Wallet & Call Telemetry</h2>
+          <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 6px 0', color: '#111827' }}>System Wallet Reserve</h2>
           <p style={{ margin: '0 0 18px 0', fontSize: '0.82rem', color: '#6b7280' }}>
-            Reserve account balances and peer-to-peer call monetization.
+            Platform reserve account balance used for operational credits.
           </p>
 
-          {/* System User Reserve Card */}
           {data?.systemUser && (
-            <div style={{ backgroundColor: '#f9fafb', borderRadius: '8px', padding: '14px 16px', border: '1px solid #e5e7eb', marginBottom: '16px' }}>
+            <div style={{ backgroundColor: '#f9fafb', borderRadius: '8px', padding: '14px 16px', border: '1px solid #e5e7eb' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <div style={{ fontWeight: 600, color: '#111827', fontSize: '0.9rem' }}>
@@ -583,38 +578,6 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
-
-          {/* Call Commission Table */}
-          <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-              <tbody>
-                <tr style={{ borderBottom: '1px solid #f3f4f6' }}>
-                  <td style={{ padding: '10px 14px', color: '#4b5563' }}>Total Star Calls Logged</td>
-                  <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, color: '#111827' }}>
-                    {data?.callCommission?.total_calls ?? 0}
-                  </td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid #f3f4f6' }}>
-                  <td style={{ padding: '10px 14px', color: '#4b5563' }}>Caller Charged (All Sessions)</td>
-                  <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, color: '#111827' }}>
-                    {(data?.callCommission?.caller_charged ?? 0).toLocaleString()} coins
-                  </td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid #f3f4f6' }}>
-                  <td style={{ padding: '10px 14px', color: '#4b5563' }}>Creator Paid (Gems Credited)</td>
-                  <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, color: '#059669' }}>
-                    {(data?.callCommission?.creator_paid ?? 0).toLocaleString()} gems
-                  </td>
-                </tr>
-                <tr>
-                  <td style={{ padding: '10px 14px', color: '#4b5563' }}>Platform Call Commission Accrued</td>
-                  <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: '#4f46e5' }}>
-                    {(data?.callCommission?.platform_commission_accrued ?? 0).toLocaleString()} coins
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
         </div>
 
         {/* Recharge & Withdrawal Health */}

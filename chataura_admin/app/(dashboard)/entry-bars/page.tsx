@@ -11,6 +11,7 @@ type EntryBar = {
   name: string;
   level_required: number;
   image_url: string | null;
+  animation_url?: string | null;
   is_active: boolean;
 };
 
@@ -24,6 +25,7 @@ export default function EntryBarsPage() {
   const [name, setName] = useState('');
   const [levelReq, setLevelReq] = useState('5');
   const [imageUrl, setImageUrl] = useState('');
+  const [animationUrl, setAnimationUrl] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -33,6 +35,7 @@ export default function EntryBarsPage() {
   const [editName, setEditName] = useState('');
   const [editLevelReq, setEditLevelReq] = useState('5');
   const [editImageUrl, setEditImageUrl] = useState('');
+  const [editAnimationUrl, setEditAnimationUrl] = useState('');
   const [editIsActive, setEditIsActive] = useState(true);
   const [editError, setEditError] = useState('');
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -71,6 +74,7 @@ export default function EntryBarsPage() {
           name: name.trim(),
           level_required: Number(levelReq) || 1,
           image_url: imageUrl.trim() || undefined,
+          animation_url: animationUrl.trim() || undefined,
         }),
       });
       if (!json.success) {
@@ -79,6 +83,7 @@ export default function EntryBarsPage() {
       }
       setName('');
       setImageUrl('');
+      setAnimationUrl('');
       setLevelReq('5');
       void load(token);
     } catch (e: any) {
@@ -93,6 +98,7 @@ export default function EntryBarsPage() {
     setEditName(bar.name);
     setEditLevelReq(String(bar.level_required));
     setEditImageUrl(bar.image_url ?? '');
+    setEditAnimationUrl(bar.animation_url ?? '');
     setEditIsActive(bar.is_active);
     setEditError('');
     setEditModalOpen(true);
@@ -115,6 +121,7 @@ export default function EntryBarsPage() {
           name: editName.trim(),
           level_required: Number(editLevelReq) || 1,
           image_url: editImageUrl.trim() || undefined,
+          animation_url: editAnimationUrl.trim() || undefined,
           is_active: editIsActive,
         }),
       });
@@ -189,12 +196,21 @@ export default function EntryBarsPage() {
         </div>
 
         <FileUploadInput
-          label="Entry Banner Asset (.svga, .png, .webp, .gif)"
+          label="Still / Poster Image (optional)"
           value={imageUrl}
           onChange={(url) => setImageUrl(url)}
-          accept="image/*,.svga,.json"
-          placeholder="https://.../entry_bar.svga or upload file"
-          helpText="Upload an animated SVGA banner or transparent graphic played when the user joins a room."
+          accept="image/*,.png,.jpg,.jpeg,.webp,.gif"
+          placeholder="https://.../entry_bar_poster.png or upload file"
+          helpText="Optional still preview. Prefer a poster when the animation is video/SVGA."
+        />
+
+        <FileUploadInput
+          label="Animation / Entry Effect (.json, .svga, .mp4, .webm)"
+          value={animationUrl}
+          onChange={(url) => setAnimationUrl(url)}
+          accept=".svga,.json,.gif,.webp,.mp4,.webm,video/mp4,video/webm,image/gif,image/webp"
+          placeholder="https://.../entry_effect.json or upload file"
+          helpText="Primary entry effect played when the user joins a room. Max 50MB for video."
         />
 
         {error && <p style={{ color: '#b91c1c', fontSize: '0.85rem', marginBottom: '16px' }}>⚠️ {error}</p>}
@@ -371,11 +387,21 @@ export default function EntryBarsPage() {
             </div>
 
             <FileUploadInput
-              label="Entry Banner Asset (.svga, .png, .webp, .gif)"
+              label="Still / Poster Image (optional)"
               value={editImageUrl}
               onChange={(url) => setEditImageUrl(url)}
-              accept="image/*,.svga,.json"
-              placeholder="https://.../entry_bar.svga"
+              accept="image/*,.png,.jpg,.jpeg,.webp,.gif"
+              placeholder="https://.../entry_bar_poster.png or upload file"
+              helpText="Optional still preview. Prefer a poster when the animation is video/SVGA."
+            />
+
+            <FileUploadInput
+              label="Animation / Entry Effect (.json, .svga, .mp4, .webm)"
+              value={editAnimationUrl}
+              onChange={(url) => setEditAnimationUrl(url)}
+              accept=".svga,.json,.gif,.webp,.mp4,.webm,video/mp4,video/webm,image/gif,image/webp"
+              placeholder="https://.../entry_effect.json or upload file"
+              helpText="Primary entry effect played when the user joins a room. Max 50MB for video."
             />
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>

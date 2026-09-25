@@ -59,8 +59,18 @@ export class UserService {
       });
     }
 
-    const referee = Number(process.env.REFERRAL_REWARD_REFEREE ?? '50');
-    const referrerAmt = Number(process.env.REFERRAL_REWARD_REFERRER ?? '100');
+    const settings = await this.prisma.adminSetting.findUnique({
+      where: { id: 1 },
+    });
+    const extra = (settings?.extraSettings as Record<string, unknown>) ?? {};
+    const referee = Number(
+      extra.referral_reward_referee ?? process.env.REFERRAL_REWARD_REFEREE ?? '50',
+    );
+    const referrerAmt = Number(
+      extra.referral_reward_referrer ??
+        process.env.REFERRAL_REWARD_REFERRER ??
+        '100',
+    );
 
     return this.prisma.$transaction(async (tx) => {
       const referrer = await tx.user.findUnique({
@@ -212,10 +222,17 @@ export class UserService {
   async me(userId: bigint) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      include: { selectedFrame: true, selectedRoleFrame: true },
+      include: {
+        selectedFrame: true,
+        selectedRoleFrame: true,
+        selectedEntryBar: true,
+      },
     });
     const counts = await this.countsFor(userId);
-    return { ...userForApi(user, user.selectedFrame), ...counts };
+    return {
+      ...userForApi(user, user.selectedFrame, user.selectedRoleFrame),
+      ...counts,
+    };
   }
 
   async profile(userId: bigint) {
@@ -1023,22 +1040,20 @@ export class UserService {
   ) {
     const take = Math.min(Math.max(limit, 1), 50);
     const skip = (Math.max(page, 1) - 1) * take;
+    const uidNum = Number(userId);
+    const uidStr = String(userId);
+
+    // Fetch a wide window of gift debits, then group in memory.
+    // Prisma JSON path filters are unreliable across PG/MySQL for nested meta.
     const rows = await this.prisma.coinTransaction.findMany({
       where:
         direction === 'sent'
-          ? { userId, type: 'GIFT', coinAmount: { lt: 0 } }
-          : {
-              type: 'GIFT',
-              coinAmount: { lt: 0 },
-              OR: [
-                { meta: { path: ['receiver_id'], equals: Number(userId) } },
-                { meta: { path: ['receiver_id'], equals: String(userId) } },
-              ],
-            },
+          ? { userId, type: { in: ['GIFT', 'gift'] }, coinAmount: { lt: 0 } }
+          : { type: { in: ['GIFT', 'gift'] }, coinAmount: { lt: 0 } },
       orderBy: { id: 'desc' },
-      skip,
-      take: 500,
+      take: 2000,
     });
+
     const grouped = new Map<
       string,
       {
@@ -1048,20 +1063,27 @@ export class UserService {
       }
     >();
     for (const row of rows) {
-      const meta = (row.meta ?? {}) as { gift_id?: number; quantity?: number };
+      const meta = (row.meta ?? {}) as {
+        gift_id?: number | string;
+        quantity?: number | string;
+        receiver_id?: number | string;
+      };
+      if (direction === 'received') {
+        const rid = meta.receiver_id;
+        if (rid === undefined || rid === null) continue;
+        if (Number(rid) !== uidNum && String(rid) !== uidStr) continue;
+      }
       const giftId = Number(meta.gift_id ?? 0);
       if (!giftId) continue;
       const prev = grouped.get(String(giftId));
-      const qty = Number(meta.quantity ?? 1);
+      const qty = Number(meta.quantity ?? 1) || 1;
       grouped.set(String(giftId), {
         giftId,
         count: (prev?.count ?? 0) + qty,
         lastAt: prev?.lastAt ?? row.createdAt,
       });
     }
-    const catalog = await this.prisma.gift.findMany({
-      where: { isActive: true },
-    });
+    const catalog = await this.prisma.gift.findMany();
     const byId = new Map(catalog.map((g) => [Number(g.id), g]));
     const gifts = [...grouped.values()]
       .sort((a, b) => b.count - a.count)

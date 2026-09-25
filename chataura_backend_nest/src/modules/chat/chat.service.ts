@@ -89,7 +89,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       unreadMap.set(row.conversation_id.toString(), Number(row.unread_count));
     }
 
-    return parts.map((p) => {
+    const rows = parts.map((p) => {
       const c = p.conversation;
       const other = c.participants.find((x) => x.userId !== userId)?.user;
       const last = c.messages[0];
@@ -128,6 +128,79 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
         })),
       };
     });
+    return this.dedupeDirectConversations(rows);
+  }
+
+  /** Collapse legacy duplicate private threads for the same peer. */
+  private dedupeDirectConversations<
+    T extends {
+      id: number;
+      type: string;
+      name?: string | null;
+      image_url?: string | null;
+      last_message_at?: string | null;
+      unread_count: number;
+      other_user?: {
+        id: number;
+        avatar_url?: string | null;
+        last_seen_at?: string | null;
+      } | null;
+    },
+  >(rows: T[]): T[] {
+    const out: T[] = [];
+    for (const row of rows) {
+      const peerId = row.other_user?.id ?? 0;
+      const isDirect =
+        row.type === 'private' ||
+        row.type === 'user' ||
+        row.type === 'direct' ||
+        (peerId !== 0 && row.type !== 'group' && row.type !== 'family');
+      if (!isDirect || peerId === 0) {
+        out.push(row);
+        continue;
+      }
+      const idx = out.findIndex(
+        (x) =>
+          (x.type === 'private' ||
+            x.type === 'user' ||
+            x.type === 'direct' ||
+            ((x.other_user?.id ?? 0) !== 0 &&
+              x.type !== 'group' &&
+              x.type !== 'family')) &&
+          x.other_user?.id === peerId,
+      );
+      if (idx < 0) {
+        out.push(row);
+        continue;
+      }
+      const prev = out[idx];
+      const prevAt = prev.last_message_at ?? '';
+      const nextAt = row.last_message_at ?? '';
+      const preferNext =
+        (!!prevAt && !!nextAt && nextAt >= prevAt) ||
+        (!prevAt && !!nextAt) ||
+        (!prevAt && !nextAt && row.id > prev.id);
+      const keep = preferNext ? row : prev;
+      const drop = preferNext ? prev : row;
+      out[idx] = {
+        ...keep,
+        unread_count: (prev.unread_count ?? 0) + (row.unread_count ?? 0),
+        image_url: keep.image_url || drop.image_url,
+        name: keep.name || drop.name,
+        other_user: keep.other_user
+          ? {
+              ...keep.other_user,
+              avatar_url:
+                keep.other_user.avatar_url || drop.other_user?.avatar_url,
+              last_seen_at:
+                keep.other_user.last_seen_at ||
+                drop.other_user?.last_seen_at ||
+                null,
+            }
+          : drop.other_user,
+      };
+    }
+    return out;
   }
 
   async withUser(userId: bigint, otherId: bigint) {
