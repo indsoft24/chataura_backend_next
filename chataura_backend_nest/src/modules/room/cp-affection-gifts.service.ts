@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ensureCpAffectionGiftCatalog } from './cp-affection-gifts.catalog';
+import { ensureExtraGiftCatalogs } from './extra-gift-catalogs';
 
 @Injectable()
 export class CpAffectionGiftsService {
@@ -13,7 +14,7 @@ export class CpAffectionGiftsService {
     private readonly config: ConfigService,
   ) {}
 
-  /** Idempotent: create missing CP affection gifts + relationship gift rules. */
+  /** Idempotent: create missing CP / Lucky / BCP / flag gifts + relationship rules. */
   async ensureCatalog(): Promise<void> {
     if (!this.ensurePromise) {
       this.ensurePromise = this.runEnsure().finally(() => {
@@ -29,6 +30,7 @@ export class CpAffectionGiftsService {
       this.config.get<string>('APP_PUBLIC_URL', 'https://chataura.in'),
     );
     await ensureCpAffectionGiftCatalog(this.prisma, publicBase);
-    this.log.debug('CP affection gift catalog ensured');
+    await ensureExtraGiftCatalogs(this.prisma, publicBase);
+    this.log.debug('Gift catalogs ensured (CP + Lucky + BCP + flags)');
   }
 }

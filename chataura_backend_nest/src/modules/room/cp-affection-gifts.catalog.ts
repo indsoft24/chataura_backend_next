@@ -1,7 +1,9 @@
 /**
- * CP couple gift catalog — romantic / bond gifts only (never standard Rose/Kiss/Rocket).
+ * CP couple gift catalog — full Antigravity 41-gift set (1:1 name ↔ PNG ↔ WebM).
+ * Spec: ChatAura/ANTIGRAVITY_CP_GIFTS_PROMPTS.md
+ *
  * Icons: assets/cp-gifts/ → /uploads/cp/gifts/
- * Motion: CP-only Lottie/video under /uploads/cp/fx/ (not reused standard gift Lotties).
+ * Motion: assets/cp-fx/   → /uploads/cp/fx/
  */
 import { PrismaClient } from '@prisma/client';
 
@@ -10,75 +12,63 @@ export type CpAffectionGiftDef = {
   name: string;
   coinCost: number;
   file: string;
-  /** Full-screen CP motion (Lottie .json or mp4/webm). */
   animationFile?: string | null;
 };
 
-/** Bundled CP FX files copied to uploads/cp/fx/ on boot. */
+/** Master Antigravity catalog (41). */
+export const CP_AFFECTION_GIFTS: CpAffectionGiftDef[] = [
+  { key: 'flower_umbrella', name: 'Flower Umbrella', coinCost: 59_999, file: 'cp_gift_flower_umbrella.png', animationFile: 'cp_fx_flower_umbrella.webm' },
+  { key: 'blue_rose', name: 'Blue Rose', coinCost: 60_000, file: 'cp_gift_blue_rose.png', animationFile: 'cp_fx_blue_rose.webm' },
+  { key: 'love_heart', name: 'Love Heart', coinCost: 59_999, file: 'cp_gift_love_heart.png', animationFile: 'cp_fx_love_heart.webm' },
+  { key: 'diamond_necklace', name: 'Diamond Necklace', coinCost: 60_000, file: 'cp_gift_diamond_necklace.png', animationFile: 'cp_fx_diamond_necklace.webm' },
+  { key: 'flight_of_love', name: 'Flight of Love', coinCost: 119_999, file: 'cp_gift_flight_of_love.png', animationFile: 'cp_fx_flight_of_love.webm' },
+  { key: 'ring', name: 'Ring', coinCost: 120_000, file: 'cp_gift_ring.png', animationFile: 'cp_fx_ring.webm' },
+  { key: 'flower_ball', name: 'Flower Ball', coinCost: 120_000, file: 'cp_gift_flower_ball.png', animationFile: 'cp_fx_flower_ball.webm' },
+  { key: 'bouquet_box', name: 'Bouquet Box', coinCost: 180_000, file: 'cp_gift_bouquet_box.png', animationFile: 'cp_fx_bouquet_box.webm' },
+  { key: 'finger_fireworks', name: 'Finger Fireworks', coinCost: 200_000, file: 'cp_gift_finger_fireworks.png', animationFile: 'cp_fx_finger_fireworks.webm' },
+  { key: 'love_balloon', name: 'Love Balloon', coinCost: 300_000, file: 'cp_gift_love_balloon.png', animationFile: 'cp_fx_love_balloon.webm' },
+  { key: 'love_penguin', name: 'Love Penguin', coinCost: 300_000, file: 'cp_gift_love_penguin.png', animationFile: 'cp_fx_love_penguin.webm' },
+  { key: 'bouquet', name: 'Bouquet', coinCost: 300_000, file: 'cp_gift_bouquet.png', animationFile: 'cp_fx_bouquet.webm' },
+  { key: 'love_car', name: 'Love Car', coinCost: 300_000, file: 'cp_gift_love_car.png', animationFile: 'cp_fx_love_car.webm' },
+  { key: 'picnic', name: 'Picnic', coinCost: 300_000, file: 'cp_gift_picnic.png', animationFile: 'cp_fx_picnic.webm' },
+  { key: 'rose_love', name: 'Rose Love', coinCost: 400_000, file: 'cp_gift_rose_love.png', animationFile: 'cp_fx_rose_love.webm' },
+  { key: 'bear_bouquet', name: 'Bear Bouquet', coinCost: 600_000, file: 'cp_gift_bear_bouquet.png', animationFile: 'cp_fx_bear_bouquet.webm' },
+  { key: 'date_night', name: 'Date Night', coinCost: 600_000, file: 'cp_gift_date_night.png', animationFile: 'cp_fx_date_night.webm' },
+  { key: 'car_trips', name: 'Car Trips', coinCost: 600_000, file: 'cp_gift_car_trips.png', animationFile: 'cp_fx_car_trips.webm' },
+  { key: 'love_carousel', name: 'Love Carousel', coinCost: 600_000, file: 'cp_gift_love_carousel.png', animationFile: 'cp_fx_love_carousel.webm' },
+  { key: 'rose_rings', name: 'Rose Rings', coinCost: 600_000, file: 'cp_gift_rose_rings.png', animationFile: 'cp_fx_rose_rings.webm' },
+  { key: 'wedding_hall', name: 'Wedding Hall', coinCost: 600_000, file: 'cp_gift_wedding_hall.png', animationFile: 'cp_fx_wedding_hall.webm' },
+  { key: 'proposal_ring', name: 'Proposal Ring', coinCost: 600_000, file: 'cp_gift_proposal_ring.png', animationFile: 'cp_fx_proposal_ring.webm' },
+  { key: 'love_diary', name: 'Love Diary', coinCost: 600_000, file: 'cp_gift_love_diary.png', animationFile: 'cp_fx_love_diary.webm' },
+  { key: 'galaxy_fireworks', name: 'Galaxy Fireworks', coinCost: 800_000, file: 'cp_gift_galaxy_fireworks.png', animationFile: 'cp_fx_galaxy_fireworks.webm' },
+  { key: 'flowers_for_u', name: 'Flowers For U', coinCost: 800_000, file: 'cp_gift_flowers_for_u.png', animationFile: 'cp_fx_flowers_for_u.webm' },
+  { key: 'dream_night', name: 'Dream Night', coinCost: 1_000_000, file: 'cp_gift_dream_night.png', animationFile: 'cp_fx_dream_night.webm' },
+  { key: 'wedding', name: 'Wedding', coinCost: 1_200_000, file: 'cp_gift_wedding.png', animationFile: 'cp_fx_wedding.webm' },
+  { key: 'proposal', name: 'Proposal', coinCost: 1_200_000, file: 'cp_gift_proposal.png', animationFile: 'cp_fx_proposal.webm' },
+  { key: 'sweet_camera', name: 'Sweet Camera', coinCost: 1_200_000, file: 'cp_gift_sweet_camera.png', animationFile: 'cp_fx_sweet_camera.webm' },
+  { key: 'flower_yacht', name: 'Flower Yacht', coinCost: 1_500_000, file: 'cp_gift_flower_yacht.png', animationFile: 'cp_fx_flower_yacht.webm' },
+  { key: 'rose_love_vip', name: 'Rose Love VIP', coinCost: 1_500_000, file: 'cp_gift_rose_love_vip.png', animationFile: 'cp_fx_rose_love_vip.webm' },
+  { key: 'romantic_trip', name: 'Romantic Trip', coinCost: 1_800_000, file: 'cp_gift_romantic_trip.png', animationFile: 'cp_fx_romantic_trip.webm' },
+  { key: 'dinner_date', name: 'Dinner Date', coinCost: 2_000_000, file: 'cp_gift_dinner_date.png', animationFile: 'cp_fx_dinner_date.webm' },
+  { key: 'tower_proposal', name: 'Tower Proposal', coinCost: 2_000_000, file: 'cp_gift_tower_proposal.png', animationFile: 'cp_fx_tower_proposal.webm' },
+  { key: 'waltz', name: 'Waltz', coinCost: 2_400_000, file: 'cp_gift_waltz.png', animationFile: 'cp_fx_waltz.webm' },
+  { key: 'love_cruise', name: 'Love Cruise', coinCost: 2_400_000, file: 'cp_gift_love_cruise.png', animationFile: 'cp_fx_love_cruise.webm' },
+  { key: 'forever_love', name: 'Forever Love', coinCost: 2_400_000, file: 'cp_gift_forever_love.png', animationFile: 'cp_fx_forever_love.webm' },
+  { key: 'flower_sea', name: 'Flower Sea', coinCost: 2_500_000, file: 'cp_gift_flower_sea.png', animationFile: 'cp_fx_flower_sea.webm' },
+  { key: 'ferris_wheel_love', name: 'Ferris Wheel Love', coinCost: 3_000_000, file: 'cp_gift_ferris_wheel_love.png', animationFile: 'cp_fx_ferris_wheel_love.webm' },
+  { key: 'i_love_you', name: 'I Love You', coinCost: 6_000_000, file: 'cp_gift_i_love_you.png', animationFile: 'cp_fx_i_love_you.webm' },
+  { key: 'propose', name: 'Propose', coinCost: 6_000_000, file: 'cp_gift_propose.png', animationFile: 'cp_fx_propose.webm' },
+];
+
 export const CP_FX_FILES = [
   'rel_cp_formed.json',
   'cp_heart_link_loop.json',
   'rel_bcp_formed.json',
+  ...CP_AFFECTION_GIFTS.map((g) => g.animationFile!).filter(Boolean),
 ] as const;
 
-export const CP_AFFECTION_GIFTS: CpAffectionGiftDef[] = [
-  // Soft romantic (icons we ship) — Masti-style naming
-  { key: 'flower_umbrella', name: 'Flower Umbrella', coinCost: 59_999, file: 'cp_gift_sakura.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'blue_rose', name: 'Blue Rose', coinCost: 60_000, file: 'cp_gift_rose_bouquet.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'love_heart', name: 'Love Heart', coinCost: 59_999, file: 'cp_gift_kiss_heart.png', animationFile: 'cp_heart_link_loop.json' },
-  { key: 'diamond_necklace', name: 'Diamond Necklace', coinCost: 60_000, file: 'cp_gift_crystal.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'flight_of_love', name: 'Flight of Love', coinCost: 119_999, file: 'cp_gift_twin_hearts.png', animationFile: 'cp_heart_link_loop.json' },
-  { key: 'ring', name: 'Ring', coinCost: 120_000, file: 'cp_gift_ring_box.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'flower_ball', name: 'Flower Ball', coinCost: 120_000, file: 'cp_gift_rose_crown.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'bouquet_box', name: 'Bouquet Box', coinCost: 180_000, file: 'cp_gift_gift_box.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'finger_fireworks', name: 'Finger Fireworks', coinCost: 200_000, file: 'cp_gift_star_heart.png', animationFile: 'cp_heart_link_loop.json' },
-  { key: 'love_balloon', name: 'Love Balloon', coinCost: 300_000, file: 'cp_gift_balloon.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'love_penguin', name: 'Love Penguin', coinCost: 300_000, file: 'cp_gift_teddy.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'bouquet', name: 'Bouquet', coinCost: 300_000, file: 'cp_gift_rose_bouquet.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'love_car', name: 'Love Car', coinCost: 300_000, file: 'cp_gift_cupid.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'rose_love', name: 'Rose Love', coinCost: 400_000, file: 'cp_gift_sakura.png', animationFile: 'cp_heart_link_loop.json' },
-  { key: 'picnic', name: 'Picnic', coinCost: 300_000, file: 'cp_gift_chocolate.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'bear_bouquet', name: 'Bear Bouquet', coinCost: 600_000, file: 'cp_gift_teddy.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'date_night', name: 'Date Night', coinCost: 600_000, file: 'cp_gift_champagne.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'car_trips', name: 'Car Trips', coinCost: 600_000, file: 'cp_gift_cupid.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'love_carousel', name: 'Love Carousel', coinCost: 600_000, file: 'cp_gift_melody.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'rose_rings', name: 'Rose Rings', coinCost: 600_000, file: 'cp_gift_ring_box.png', animationFile: 'cp_heart_link_loop.json' },
-  { key: 'wedding_hall', name: 'Wedding Hall', coinCost: 600_000, file: 'cp_gift_locket.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'proposal_ring', name: 'Proposal Ring', coinCost: 600_000, file: 'cp_gift_ring_box.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'love_diary', name: 'Love Diary', coinCost: 600_000, file: 'cp_gift_love_letter.png', animationFile: 'cp_heart_link_loop.json' },
-  { key: 'galaxy_fireworks', name: 'Galaxy Fireworks', coinCost: 800_000, file: 'cp_gift_moon_heart.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'flowers_for_u', name: 'Flowers For U', coinCost: 800_000, file: 'cp_gift_rose_bouquet.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'dream_night', name: 'Dream Night', coinCost: 1_000_000, file: 'cp_gift_swans.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'wedding', name: 'Wedding', coinCost: 1_200_000, file: 'cp_gift_locket.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'proposal', name: 'Proposal', coinCost: 1_200_000, file: 'cp_gift_ring_box.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'sweet_camera', name: 'Sweet Camera', coinCost: 1_200_000, file: 'cp_gift_perfume.png', animationFile: 'cp_heart_link_loop.json' },
-  { key: 'flower_yacht', name: 'Flower Yacht', coinCost: 1_500_000, file: 'cp_gift_swans.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'rose_love_vip', name: 'Rose Love VIP', coinCost: 1_500_000, file: 'cp_gift_rose_crown.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'romantic_trip', name: 'Romantic Trip', coinCost: 1_800_000, file: 'cp_gift_champagne.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'dinner_date', name: 'Dinner Date', coinCost: 2_000_000, file: 'cp_gift_champagne.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'tower_proposal', name: 'Tower Proposal', coinCost: 2_000_000, file: 'cp_gift_star_heart.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'waltz', name: 'Waltz', coinCost: 2_400_000, file: 'cp_gift_melody.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'love_cruise', name: 'Love Cruise', coinCost: 2_400_000, file: 'cp_gift_balloon.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'forever_love', name: 'Forever Love', coinCost: 2_400_000, file: 'cp_gift_twin_hearts.png', animationFile: 'cp_heart_link_loop.json' },
-  { key: 'flower_sea', name: 'Flower Sea', coinCost: 2_500_000, file: 'cp_gift_sakura.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'ferris_wheel_love', name: 'Ferris Wheel Love', coinCost: 3_000_000, file: 'cp_gift_crystal.png', animationFile: 'rel_cp_formed.json' },
-  { key: 'i_love_you', name: 'I Love You', coinCost: 6_000_000, file: 'cp_gift_kiss_heart.png', animationFile: 'cp_heart_link_loop.json' },
-  { key: 'propose', name: 'Propose', coinCost: 6_000_000, file: 'cp_gift_ring_box.png', animationFile: 'rel_cp_formed.json' },
-];
-
-export function cpGiftPublicUrl(publicBase: string, file: string): string {
-  const base = publicBase.replace(/\/+$/, '');
-  return `${base}/uploads/cp/gifts/${file}`;
-}
-
-export function cpFxPublicUrl(publicBase: string, file: string): string {
-  const base = publicBase.replace(/\/+$/, '');
-  return `${base}/uploads/cp/fx/${file}`;
-}
-
-type PrismaLike = Pick<PrismaClient, 'gift' | 'relationshipType' | 'relationshipGiftRule'>;
-
-const LEGACY_AFFECTION_NAMES = [
+/** Pre-Antigravity soft placeholders — hide from CP tab now that 41 real gifts ship. */
+export const CP_LEGACY_SOFT_PLACEHOLDER_NAMES = [
   'Kiss Heart',
   'Twin Hearts',
   'Rose Bouquet',
@@ -99,24 +89,39 @@ const LEGACY_AFFECTION_NAMES = [
   'Sakura Heart',
   'Rose Crown',
   'Soul Crystal',
-];
+] as const;
 
-/** Idempotent upsert of CP couple gifts + rules. Deactivates old affection placeholders. */
+/** @deprecated empty — all Masti labels now have real art */
+export const CP_MISMATCHED_PLACEHOLDER_NAMES: readonly string[] = [];
+
+export function cpGiftPublicUrl(publicBase: string, file: string): string {
+  const base = publicBase.replace(/\/+$/, '');
+  return `${base}/uploads/cp/gifts/${file}`;
+}
+
+export function cpFxPublicUrl(publicBase: string, file: string): string {
+  const base = publicBase.replace(/\/+$/, '');
+  return `${base}/uploads/cp/fx/${file}`;
+}
+
+type PrismaLike = Pick<PrismaClient, 'gift' | 'relationshipType' | 'relationshipGiftRule'>;
+
+/** Idempotent: activate all 41 Antigravity gifts; deactivate legacy soft placeholders. */
 export async function ensureCpAffectionGiftCatalog(
   prisma: PrismaLike,
   publicBase: string,
 ): Promise<void> {
-  // Hide legacy soft-affection rows so CP tab is Masti-style couple only.
   await prisma.gift.updateMany({
-    where: { category: 'cp', name: { in: LEGACY_AFFECTION_NAMES } },
+    where: {
+      category: 'cp',
+      name: { in: [...CP_LEGACY_SOFT_PLACEHOLDER_NAMES] },
+    },
     data: { isActive: false },
   });
 
+  const catalogNames = CP_AFFECTION_GIFTS.map((g) => g.name);
   const existing = await prisma.gift.findMany({
-    where: {
-      category: 'cp',
-      name: { in: CP_AFFECTION_GIFTS.map((g) => g.name) },
-    },
+    where: { category: 'cp', name: { in: catalogNames } },
     select: { id: true, name: true },
   });
   const have = new Set(existing.map((g) => g.name));
@@ -138,22 +143,20 @@ export async function ensureCpAffectionGiftCatalog(
   }
 
   for (const g of CP_AFFECTION_GIFTS) {
-    const imageUrl = cpGiftPublicUrl(publicBase, g.file);
-    const animationUrl = g.animationFile
-      ? cpFxPublicUrl(publicBase, g.animationFile)
-      : null;
     await prisma.gift.updateMany({
       where: { name: g.name, category: 'cp' },
       data: {
-        imageUrl,
-        animationUrl,
+        imageUrl: cpGiftPublicUrl(publicBase, g.file),
+        animationUrl: g.animationFile
+          ? cpFxPublicUrl(publicBase, g.animationFile)
+          : null,
         isActive: true,
         coinCost: g.coinCost,
       },
     });
   }
 
-  // Keep CP1 / CP2 (video) active if present — premium couple videos.
+  // Keep optional demo slots if present
   await prisma.gift.updateMany({
     where: { category: 'cp', name: { in: ['CP1', 'CP2'] } },
     data: { isActive: true },
@@ -168,7 +171,7 @@ export async function ensureCpAffectionGiftCatalog(
     where: {
       isActive: true,
       category: 'cp',
-      name: { in: CP_AFFECTION_GIFTS.map((g) => g.name) },
+      name: { in: catalogNames },
     },
   });
   for (const gift of affection) {

@@ -30,7 +30,7 @@ import {
   type RocketListSummary,
 } from './rocket-launch.service';
 
-const STALE_MS = 90_000;
+const STALE_MS = 45_000;
 const KICK_SECONDS = 600;
 /** Max party-room staff admins (host + up to 5 admins + 1 co-host). */
 const STAFF_ADMIN_LIMIT = 5;
@@ -789,14 +789,30 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
   async users(id: string) {
     const room = await this.findRoom(id);
+    const freshCutoff = new Date(Date.now() - STALE_MS);
     const members = await this.prisma.roomMember.findMany({
-      where: { roomId: room.id, isActive: true },
+      where: {
+        roomId: room.id,
+        isActive: true,
+        OR: [
+          { role: 'host' },
+          { lastHeartbeatAt: { gte: freshCutoff } },
+        ],
+      },
       include: {
         user: { include: { selectedFrame: true, selectedRoleFrame: true } },
       },
     });
+    // Deduplicate by account userId (unique constraint exists, but be defensive).
+    const seen = new Set<string>();
+    const unique = members.filter((m) => {
+      const key = m.userId.toString();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
     return {
-      users: members.map((m) => this.serializeMember(m, m.user)),
+      users: unique.map((m) => this.serializeMember(m, m.user)),
     };
   }
 
@@ -1471,19 +1487,48 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       include: { user: { include: { selectedFrame: true } } },
       orderBy: { seatIndex: 'asc' },
     });
+    const activeMembers = await this.prisma.roomMember.findMany({
+      where: { roomId, isActive: true },
+      select: { userId: true },
+    });
+    const activeIds = new Set(activeMembers.map((m) => m.userId.toString()));
+
+    // Clear orphan seats (user left but seat row still occupied).
+    const orphanIds: bigint[] = [];
+    for (const s of seats) {
+      if (s.userId && !activeIds.has(s.userId.toString())) {
+        orphanIds.push(s.userId);
+      }
+    }
+    if (orphanIds.length) {
+      await this.prisma.seat.updateMany({
+        where: { roomId, userId: { in: orphanIds } },
+        data: { userId: null, isMuted: false, mutedByUserId: null },
+      });
+    }
+
+    const liveSeats = seats.map((s) => {
+      if (s.userId && !activeIds.has(s.userId.toString())) {
+        return { ...s, userId: null, user: null, isMuted: false, mutedByUserId: null };
+      }
+      return s;
+    });
+
     const member = viewerId
       ? await this.prisma.roomMember.findUnique({
           where: { roomId_userId: { roomId, userId: viewerId } },
         })
       : null;
-    const seated = viewerId ? seats.find((s) => s.userId === viewerId) : undefined;
-    const role = member?.role ?? 'listener';
+    const seated = viewerId
+      ? liveSeats.find((s) => s.userId === viewerId)
+      : undefined;
+    const role = member?.isActive ? member.role : 'listener';
     const rtc =
       seated || ['host', 'co_host', 'speaker'].includes(role)
         ? 'publisher'
         : 'audience';
     return {
-      seats: seats.map((s) => ({
+      seats: liveSeats.map((s) => ({
         seat_index: s.seatIndex,
         user_id: s.userId ? Number(s.userId) : null,
         agora_uid: s.userId ? this.agoraUid(s.userId) : null,
@@ -1977,7 +2022,9 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     user: UserLite,
   ) {
     return {
-      id: Number(member.id),
+      // Account id as `id` so clients that read `id` never confuse membership row ids.
+      id: Number(member.userId),
+      membership_id: Number(member.id),
       room_id: member.roomId,
       user_id: Number(member.userId),
       role: member.role,

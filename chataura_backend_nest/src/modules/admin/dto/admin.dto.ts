@@ -75,7 +75,7 @@ export class CreateGiftDto {
   coinCost?: number;
 
   @IsOptional()
-  @IsIn(['standard', 'customize', 'cp', 'bcp'])
+  @IsIn(['standard', 'customize', 'lucky', 'cp', 'bcp'])
   category?: string;
 
   @IsOptional()
@@ -115,7 +115,7 @@ export class UpdateGiftDto {
   coinCost?: number;
 
   @IsOptional()
-  @IsIn(['standard', 'customize', 'cp', 'bcp'])
+  @IsIn(['standard', 'customize', 'lucky', 'cp', 'bcp'])
   category?: string;
 
   @IsOptional()

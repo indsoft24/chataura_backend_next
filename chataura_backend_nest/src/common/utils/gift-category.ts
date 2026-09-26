@@ -1,6 +1,7 @@
 export const GIFT_CATEGORIES = [
   'standard',
   'customize',
+  'lucky',
   'cp',
   'bcp',
 ] as const;

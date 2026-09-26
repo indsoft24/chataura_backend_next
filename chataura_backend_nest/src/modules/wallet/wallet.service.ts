@@ -14,6 +14,7 @@ import { catalogClientFields } from '../../common/utils/catalog-media';
 import { normalizeGiftCategory } from '../../common/utils/gift-category';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ensureCpAffectionGiftCatalog } from '../room/cp-affection-gifts.catalog';
+import { ensureExtraGiftCatalogs } from '../room/extra-gift-catalogs';
 import { RelationshipEngineService } from '../relationship/relationship-engine.service';
 import { LedgerService } from './ledger.service';
 
@@ -889,6 +890,7 @@ export class WalletService {
       this.config.get<string>('APP_PUBLIC_URL', 'https://chataura.in'),
     );
     await ensureCpAffectionGiftCatalog(this.prisma, publicBase);
+    await ensureExtraGiftCatalogs(this.prisma, publicBase);
 
     let gifts = await this.prisma.gift.findMany({
       where: { isActive: true },
