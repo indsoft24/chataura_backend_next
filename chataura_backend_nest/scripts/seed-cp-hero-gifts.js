@@ -6,9 +6,19 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-const base = (process.env.PUBLIC_BASE_URL || 'https://chataura.in').replace(/\/+$/, '');
-const giftUrl = (file) => `${base}/uploads/cp/gifts/${file}`;
-const fxUrl = (file) => `${base}/uploads/cp/fx/${file}`;
+function giftsCdnBase() {
+  const explicit = (process.env.GIFTS_PUBLIC_BASE || '').trim();
+  if (explicit) return explicit.replace(/\/+$/, '');
+  const bucket = (process.env.GCS_BUCKET || '').trim();
+  if (bucket) return `https://storage.googleapis.com/${bucket}/gifts/v1`;
+  return null;
+}
+const gcs = giftsCdnBase();
+const nest = (process.env.PUBLIC_BASE_URL || 'https://chataura.in').replace(/\/+$/, '');
+const giftUrl = (file) =>
+  gcs ? `${gcs}/cp/${file}` : `${nest}/uploads/cp/gifts/${file}`;
+const fxUrl = (file) =>
+  gcs ? `${gcs}/cp/${file}` : `${nest}/uploads/cp/fx/${file}`;
 
 const HERO = [
   ['Flower Umbrella', 59999, 'cp_gift_flower_umbrella.png', 'cp_fx_flower_umbrella.webm'],

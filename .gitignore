@@ -71,3 +71,14 @@ redis_data/
 secrets/
 !secrets/.gitkeep
 backups/*.env
+
+# Gift catalog media lives on GCS (gifts/v1). Keep local binaries out of git.
+# Pack rebuild: use sibling ChatAura_gift_media_backup_* or re-download from GCS.
+chataura_gifts_gcs_v1.zip
+gifts_gcs_migrate/
+ChatAura_gift_media_backup_*/
+chataura_backend_nest/assets/cp-gifts/
+chataura_backend_nest/assets/gifts/
+chataura_backend_nest/assets/cp-fx/**/*.webm
+chataura_backend_nest/assets/cp-fx/**/*.png
+# cp-fx/*.json (bond Lottie) remain tracked

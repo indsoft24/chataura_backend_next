@@ -1,13 +1,28 @@
 /**
  * Seed all 41 Antigravity CP gifts (docker-friendly CommonJS).
- * Paths: /uploads/cp/gifts + /uploads/cp/fx
+ * Prefer GCS gifts/v1/cp via GIFTS_PUBLIC_BASE or GCS_BUCKET; else Nest /uploads.
  */
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-const base = (process.env.PUBLIC_BASE_URL || 'https://chataura.in').replace(/\/+$/, '');
-const giftUrl = (key) => `${base}/uploads/cp/gifts/cp_gift_${key}.png`;
-const fxUrl = (key) => `${base}/uploads/cp/fx/cp_fx_${key}.webm`;
+function giftsCdnBase() {
+  const explicit = (process.env.GIFTS_PUBLIC_BASE || '').trim();
+  if (explicit) return explicit.replace(/\/+$/, '');
+  const bucket = (process.env.GCS_BUCKET || '').trim();
+  if (bucket) return `https://storage.googleapis.com/${bucket}/gifts/v1`;
+  return null;
+}
+
+const gcs = giftsCdnBase();
+const nest = (process.env.PUBLIC_BASE_URL || 'https://chataura.in').replace(/\/+$/, '');
+const giftUrl = (key) =>
+  gcs
+    ? `${gcs}/cp/cp_gift_${key}.png`
+    : `${nest}/uploads/cp/gifts/cp_gift_${key}.png`;
+const fxUrl = (key) =>
+  gcs
+    ? `${gcs}/cp/cp_fx_${key}.webm`
+    : `${nest}/uploads/cp/fx/cp_fx_${key}.webm`;
 
 const ALL_41 = [
   ['flower_umbrella', 'Flower Umbrella', 59999],

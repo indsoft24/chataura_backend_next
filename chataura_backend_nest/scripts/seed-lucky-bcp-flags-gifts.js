@@ -1,11 +1,26 @@
 /**
  * Seed Country Flags (30), Lucky Gifts (12), and BCP Gifts (12).
- * Paths: /uploads/gifts/flags, /uploads/gifts/lucky, /uploads/gifts/bcp
+ * Prefer GCS gifts/v1 via GIFTS_PUBLIC_BASE or GCS_BUCKET; else Nest /uploads.
  */
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-const base = (process.env.PUBLIC_BASE_URL || 'https://chataura.in').replace(/\/+$/, '');
+function giftsCdnBase() {
+  const explicit = (process.env.GIFTS_PUBLIC_BASE || '').trim();
+  if (explicit) return explicit.replace(/\/+$/, '');
+  const bucket = (process.env.GCS_BUCKET || '').trim();
+  if (bucket) return `https://storage.googleapis.com/${bucket}/gifts/v1`;
+  const nest = (process.env.PUBLIC_BASE_URL || 'https://chataura.in').replace(/\/+$/, '');
+  return `${nest}/uploads/gifts`;
+}
+
+const mediaBase = giftsCdnBase();
+const useGcsLayout = mediaBase.includes('/gifts/v1') || mediaBase.includes('storage.googleapis.com');
+
+function mediaUrl(folder, file) {
+  if (useGcsLayout) return `${mediaBase}/${folder}/${file}`;
+  return `${mediaBase}/${folder}/${file}`;
+}
 
 const FLAGS_30 = [
   ['in', 'India Flag', 9999],
@@ -75,8 +90,8 @@ const BCP_12 = [
 
   // 1. Seed Flags (category = standard)
   for (const [iso, name, coinCost] of FLAGS_30) {
-    const imageUrl = `${base}/uploads/gifts/flags/flag_gift_${iso}.png`;
-    const animationUrl = `${base}/uploads/gifts/flags/flag_fx_${iso}.webm`;
+    const imageUrl = mediaUrl('flags', `flag_gift_${iso}.png`);
+    const animationUrl = mediaUrl('flags', `flag_fx_${iso}.webm`);
     const existing = await prisma.gift.findFirst({ where: { name } });
     if (existing) {
       await prisma.gift.update({
@@ -94,8 +109,8 @@ const BCP_12 = [
 
   // 2. Seed Lucky Gifts (category = lucky)
   for (const [key, name, coinCost] of LUCKY_12) {
-    const imageUrl = `${base}/uploads/gifts/lucky/lucky_gift_${key}.png`;
-    const animationUrl = `${base}/uploads/gifts/lucky/lucky_fx_${key}.webm`;
+    const imageUrl = mediaUrl('lucky', `lucky_gift_${key}.png`);
+    const animationUrl = mediaUrl('lucky', `lucky_fx_${key}.webm`);
     const existing = await prisma.gift.findFirst({ where: { name } });
     if (existing) {
       await prisma.gift.update({
@@ -114,8 +129,8 @@ const BCP_12 = [
   // 3. Seed BCP Gifts (category = bcp)
   const bcpRel = await prisma.relationshipType.findFirst({ where: { code: 'bcp' } });
   for (const [key, name, coinCost] of BCP_12) {
-    const imageUrl = `${base}/uploads/gifts/bcp/bcp_gift_${key}.png`;
-    const animationUrl = `${base}/uploads/gifts/bcp/bcp_fx_${key}.webm`;
+    const imageUrl = mediaUrl('bcp', `bcp_gift_${key}.png`);
+    const animationUrl = mediaUrl('bcp', `bcp_fx_${key}.webm`);
     const existing = await prisma.gift.findFirst({ where: { name } });
     let id;
     if (existing) {
