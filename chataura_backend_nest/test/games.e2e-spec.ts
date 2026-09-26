@@ -118,13 +118,16 @@ describe('Games (e2e)', () => {
     expect(settled.data!.user_balance).toBeGreaterThanOrEqual(0);
   }, 60000);
 
-  it('seller and admin cannot play', async () => {
+  it('seller cannot play; admin and agency can play', async () => {
     const seller = await registerVerified(app);
     const admin = await registerVerified(app);
+    const agency = await registerVerified(app);
     await setRole(seller.id, 'seller');
     await setRole(admin.id, 'admin');
+    await setRole(agency.id, 'agency');
     await creditCoins(seller.id, 20_000);
     await creditCoins(admin.id, 20_000);
+    await creditCoins(agency.id, 20_000);
     await waitForOpenRound(app, seller.token, '/api/v1/game/greedy/state');
 
     const sellerBet = await app.inject({
@@ -143,7 +146,21 @@ describe('Games (e2e)', () => {
       headers: authHeader(admin.token),
       payload: { option: 'plum', amount: 50000 },
     });
-    expect(parse(adminBet.payload).error?.code).toBe('STAFF_GAMES_FORBIDDEN');
+    const adminBody = parse(adminBet.payload);
+    expect(adminBody.error?.code).not.toBe('STAFF_GAMES_FORBIDDEN');
+    expect(adminBody.error?.code).not.toBe('COIN_SELLER_GAMES_FORBIDDEN');
+    expect(adminBet.statusCode).toBeLessThan(400);
+
+    const agencyBet = await app.inject({
+      method: 'POST',
+      url: '/api/v1/game/greedy/bet',
+      headers: authHeader(agency.token),
+      payload: { item: 'carrot', amount: 10000 },
+    });
+    const agencyBody = parse(agencyBet.payload);
+    expect(agencyBody.error?.code).not.toBe('STAFF_GAMES_FORBIDDEN');
+    expect(agencyBody.error?.code).not.toBe('COIN_SELLER_GAMES_FORBIDDEN');
+    expect(agencyBet.statusCode).toBeLessThan(400);
   }, 40000);
 
   it('greedy concurrent settlement is single-claimer and executes exactly once without double payout', async () => {

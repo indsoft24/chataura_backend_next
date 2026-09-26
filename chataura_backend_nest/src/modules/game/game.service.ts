@@ -22,6 +22,28 @@ import {
   secondsRemaining,
 } from './game.constants';
 
+const STAFF_ROLES = new Set([
+  'admin',
+  'superadmin',
+  'ceo',
+  'manager',
+  'staff',
+  'agency',
+]);
+
+const STAFF_BADGE_TYPES = new Set([
+  'admin',
+  'superadmin',
+  'ceo',
+  'manager',
+  'agency',
+]);
+
+type PlayEligibilityUser = {
+  role: UserRole | string;
+  staffBadgeType?: string | null;
+};
+
 @Injectable()
 export class GameService {
   constructor(
@@ -30,25 +52,37 @@ export class GameService {
     private readonly events: GameEvents,
   ) {}
 
-  assertCanPlay(role: UserRole | string) {
-    if (role === 'seller') {
-      throw new ForbiddenException({
-        success: false,
-        error: {
-          code: 'COIN_SELLER_GAMES_FORBIDDEN',
-          message: 'Coin sellers cannot play games',
-        },
-      });
-    }
-    if (role === 'admin' || role === 'agency') {
-      throw new ForbiddenException({
-        success: false,
-        error: {
-          code: 'STAFF_GAMES_FORBIDDEN',
-          message: 'Staff accounts cannot play games',
-        },
-      });
-    }
+  /**
+   * Coin sellers only are blocked from games.
+   * Staff (admin/manager/ceo/superadmin) and agency are always allowed.
+   */
+  isCoinSeller(user: PlayEligibilityUser): boolean {
+    const role = String(user.role ?? '')
+      .toLowerCase()
+      .trim();
+    const badge = String(user.staffBadgeType ?? '')
+      .toLowerCase()
+      .trim();
+
+    if (STAFF_BADGE_TYPES.has(badge)) return false;
+    if (STAFF_ROLES.has(role)) return false;
+    if (role === 'seller' || badge === 'coin_seller') return true;
+    return false;
+  }
+
+  assertCanPlay(user: PlayEligibilityUser | UserRole | string) {
+    const normalized: PlayEligibilityUser =
+      typeof user === 'string' ? { role: user } : user;
+
+    if (!this.isCoinSeller(normalized)) return;
+
+    throw new ForbiddenException({
+      success: false,
+      error: {
+        code: 'COIN_SELLER_GAMES_FORBIDDEN',
+        message: 'Coin seller accounts cannot play games.',
+      },
+    });
   }
 
   async greedyState(userId: bigint) {
@@ -88,7 +122,7 @@ export class GameService {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
     });
-    this.assertCanPlay(user.role);
+    this.assertCanPlay(user);
     if (!GREEDY_ITEMS[item]) {
       throw new BadRequestException({
         success: false,
@@ -310,7 +344,7 @@ export class GameService {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
     });
-    this.assertCanPlay(user.role);
+    this.assertCanPlay(user);
     if (!LUCKY77_OPTIONS[option]) {
       throw new BadRequestException({
         success: false,

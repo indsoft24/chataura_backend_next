@@ -9,6 +9,10 @@ import { MediaKind } from '@prisma/client';
 import { createWriteStream, existsSync, mkdirSync } from 'fs';
 import { basename, join, resolve } from 'path';
 import { pipeline } from 'stream/promises';
+import {
+  normalizeCountryCode,
+  resolveFlagUrl,
+} from '../../common/countries/country-catalog';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
 @Injectable()
@@ -640,12 +644,64 @@ export class MediaService {
     ];
   }
 
-  countries() {
-    return [
-      { code: 'IN', name: 'India' },
-      { code: 'US', name: 'United States' },
-      { code: 'AE', name: 'United Arab Emirates' },
+  /**
+   * Public country catalog for Create Room Allowed Country + profile pickers.
+   * Always includes circular-friendly flag_url (DB override or flagcdn).
+   */
+  async countries() {
+    const rows = await this.prisma.country.findMany({
+      where: { isActive: true, approvalStatus: 'approved' },
+      orderBy: { name: 'asc' },
+    });
+
+    const mapped = rows
+      .map((c) => {
+        const code = normalizeCountryCode(c.id) ?? c.id.toUpperCase();
+        if (code === 'ALL') return null;
+        return {
+          id: code,
+          code,
+          name: c.name,
+          flag_emoji: c.flagEmoji,
+          flag_url: resolveFlagUrl(code, c.flagUrl),
+        };
+      })
+      .filter((c): c is NonNullable<typeof c> => !!c);
+
+    // De-dupe by ISO code (legacy rows like Us/Pak may normalize onto US/PK).
+    const byCode = new Map<string, (typeof mapped)[number]>();
+    for (const row of mapped) {
+      const prev = byCode.get(row.code);
+      if (!prev || (row.flag_url && !prev.flag_url)) byCode.set(row.code, row);
+    }
+
+    // Ensure Create Room staples exist even if admin catalog is sparse.
+    const staples: Array<{ code: string; name: string; flag_emoji: string }> = [
+      { code: 'IN', name: 'India', flag_emoji: '🇮🇳' },
+      { code: 'AE', name: 'United Arab Emirates', flag_emoji: '🇦🇪' },
+      { code: 'US', name: 'United States', flag_emoji: '🇺🇸' },
+      { code: 'OTHER', name: 'Other', flag_emoji: '🌐' },
     ];
+    for (const s of staples) {
+      if (!byCode.has(s.code)) {
+        byCode.set(s.code, {
+          id: s.code,
+          code: s.code,
+          name: s.name,
+          flag_emoji: s.flag_emoji,
+          flag_url: resolveFlagUrl(s.code),
+        });
+      }
+    }
+
+    const countries = Array.from(byCode.values()).sort((a, b) => {
+      if (a.code === 'OTHER') return 1;
+      if (b.code === 'OTHER') return -1;
+      return a.name.localeCompare(b.name);
+    });
+
+    // Flat array (legacy clients read data[]). Each row has flag_url for chips.
+    return countries;
   }
 
   async faq() {
