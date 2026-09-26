@@ -29,6 +29,8 @@ COPY prisma ./prisma
 RUN npx prisma generate
 
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/assets ./assets
 
 EXPOSE 3000
 

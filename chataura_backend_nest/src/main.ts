@@ -69,11 +69,32 @@ async function bootstrap() {
     prefix: '/uploads/',
   });
 
+  const publicDir = join(process.cwd(), 'public');
+  if (!existsSync(publicDir)) mkdirSync(publicDir, { recursive: true });
+  await app.register(fastifyStatic, {
+    root: publicDir,
+    prefix: '/',
+    decorateReply: false,
+  });
+
   const config = app.get(ConfigService);
   const corsOrigin = config.get<string>('CORS_ORIGIN', '*');
 
   const apiPrefix = config.get<string>('API_PREFIX', 'api/v2').replace(/^\/+|\/+$/g, '');
-  app.setGlobalPrefix(apiPrefix);
+  app.setGlobalPrefix(apiPrefix, {
+    exclude: [
+      '/',
+      'privacy-policy',
+      'terms-and-conditions',
+      'delete-account',
+      'child-safety',
+      'register',
+      'invite/:code',
+      '.well-known/assetlinks.json',
+      'app-ads.txt',
+      'robots.txt',
+    ],
+  });
   app.enableCors({
     origin: corsOrigin === '*' ? true : corsOrigin.split(','),
     credentials: true,

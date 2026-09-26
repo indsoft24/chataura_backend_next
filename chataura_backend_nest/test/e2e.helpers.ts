@@ -55,7 +55,20 @@ export async function createTestApp(): Promise<NestFastifyApplication> {
       }
     },
   );
-  app.setGlobalPrefix('api/v1');
+  app.setGlobalPrefix('api/v1', {
+    exclude: [
+      '/',
+      'privacy-policy',
+      'terms-and-conditions',
+      'delete-account',
+      'child-safety',
+      'register',
+      'invite/:code',
+      '.well-known/assetlinks.json',
+      'app-ads.txt',
+      'robots.txt',
+    ],
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
