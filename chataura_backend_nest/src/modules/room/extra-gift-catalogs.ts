@@ -1,8 +1,9 @@
 /**
  * Country-flag gifts (standard tab) + Lucky + BCP catalogs.
- * Thumbs/motion served from Nest uploads — not bundled in the APK.
+ * Thumbs/motion served from GCS gifts/v1 (see gifts-cdn.ts).
  */
 import { PrismaClient } from '@prisma/client';
+import { giftsCdnExtraUrl } from '../../common/gcs/gifts-cdn';
 
 type GiftDef = {
   key: string;
@@ -89,12 +90,11 @@ export const BCP_GIFTS: GiftDef[] = [
   { key: 'eternal_bond', name: 'Eternal Bond', coinCost: 2_000_000, category: 'bcp', imagePath: 'gifts/bcp/bcp_gift_eternal_bond.png', animationPath: 'gifts/bcp/bcp_fx_eternal_bond.webm' },
 ];
 
-function absUrl(publicBase: string, path: string): string {
-  const base = publicBase.replace(/\/+$/, '');
-  return `${base}/uploads/${path.replace(/^\/+/, '')}`;
+function absUrl(_publicBase: string, path: string): string {
+  return giftsCdnExtraUrl(path);
 }
 
-type PrismaLike = Pick<PrismaClient, 'gift'>;
+type PrismaLike = Pick<PrismaClient, 'gift' | 'relationshipType' | 'relationshipGiftRule'>;
 
 async function upsertGiftCatalog(
   prisma: PrismaLike,
@@ -102,7 +102,6 @@ async function upsertGiftCatalog(
   defs: GiftDef[],
 ): Promise<void> {
   for (const g of defs) {
-    // Prefer Nest CDN thumbs (Antigravity pack). flagcdn only if CDN path missing later.
     const imageUrl = absUrl(publicBase, g.imagePath);
     const animationUrl = g.animationPath
       ? absUrl(publicBase, g.animationPath)
@@ -136,7 +135,7 @@ async function upsertGiftCatalog(
   }
 }
 
-/** Idempotent seed for flags (live now via flagcdn) + lucky/bcp rows (FX after Antigravity). */
+/** Idempotent seed for flags + lucky/bcp rows; link BCP gifts to relationship type. */
 export async function ensureExtraGiftCatalogs(
   prisma: PrismaLike,
   publicBase: string,
@@ -150,4 +149,31 @@ export async function ensureExtraGiftCatalogs(
     where: { category: 'bcp', name: 'BCP1' },
     data: { isActive: false },
   });
+
+  const bcpType = await prisma.relationshipType.findFirst({
+    where: { code: 'bcp' },
+  });
+  if (!bcpType) return;
+
+  const bcpNames = BCP_GIFTS.map((g) => g.name);
+  const bcpGifts = await prisma.gift.findMany({
+    where: { isActive: true, category: 'bcp', name: { in: bcpNames } },
+  });
+  for (const gift of bcpGifts) {
+    await prisma.relationshipGiftRule.upsert({
+      where: {
+        giftId_relationshipTypeId: {
+          giftId: gift.id,
+          relationshipTypeId: bcpType.id,
+        },
+      },
+      create: {
+        giftId: gift.id,
+        relationshipTypeId: bcpType.id,
+        pointValue: gift.coinCost,
+        enabled: true,
+      },
+      update: { enabled: true, pointValue: gift.coinCost },
+    });
+  }
 }

@@ -2,10 +2,13 @@
  * CP couple gift catalog — full Antigravity 41-gift set (1:1 name ↔ PNG ↔ WebM).
  * Spec: ChatAura/ANTIGRAVITY_CP_GIFTS_PROMPTS.md
  *
- * Icons: assets/cp-gifts/ → /uploads/cp/gifts/
- * Motion: assets/cp-fx/   → /uploads/cp/fx/
+ * Media: GCS gifts/v1/cp/… (see gifts-cdn.ts). Legacy Nest /uploads/ only if CDN unset.
  */
 import { PrismaClient } from '@prisma/client';
+import {
+  giftsCdnCpFxUrl,
+  giftsCdnCpImageUrl,
+} from '../../common/gcs/gifts-cdn';
 
 export type CpAffectionGiftDef = {
   key: string;
@@ -91,17 +94,15 @@ export const CP_LEGACY_SOFT_PLACEHOLDER_NAMES = [
   'Soul Crystal',
 ] as const;
 
-/** @deprecated empty — all Masti labels now have real art */
-export const CP_MISMATCHED_PLACEHOLDER_NAMES: readonly string[] = [];
+/** Old WhatsApp-poster demo slots — never show on CP tab. */
+export const CP_MISMATCHED_PLACEHOLDER_NAMES = ['CP1', 'CP2'] as const;
 
-export function cpGiftPublicUrl(publicBase: string, file: string): string {
-  const base = publicBase.replace(/\/+$/, '');
-  return `${base}/uploads/cp/gifts/${file}`;
+export function cpGiftPublicUrl(_publicBase: string, file: string): string {
+  return giftsCdnCpImageUrl(file);
 }
 
-export function cpFxPublicUrl(publicBase: string, file: string): string {
-  const base = publicBase.replace(/\/+$/, '');
-  return `${base}/uploads/cp/fx/${file}`;
+export function cpFxPublicUrl(_publicBase: string, file: string): string {
+  return giftsCdnCpFxUrl(file);
 }
 
 type PrismaLike = Pick<PrismaClient, 'gift' | 'relationshipType' | 'relationshipGiftRule'>;
@@ -114,7 +115,12 @@ export async function ensureCpAffectionGiftCatalog(
   await prisma.gift.updateMany({
     where: {
       category: 'cp',
-      name: { in: [...CP_LEGACY_SOFT_PLACEHOLDER_NAMES] },
+      name: {
+        in: [
+          ...CP_LEGACY_SOFT_PLACEHOLDER_NAMES,
+          ...CP_MISMATCHED_PLACEHOLDER_NAMES,
+        ],
+      },
     },
     data: { isActive: false },
   });
@@ -155,12 +161,6 @@ export async function ensureCpAffectionGiftCatalog(
       },
     });
   }
-
-  // Keep optional demo slots if present
-  await prisma.gift.updateMany({
-    where: { category: 'cp', name: { in: ['CP1', 'CP2'] } },
-    data: { isActive: true },
-  });
 
   const cpType = await prisma.relationshipType.findFirst({
     where: { code: 'cp' },

@@ -1,0 +1,769 @@
+{
+  "bucket": "chataura",
+  "prefix": "gifts/v1",
+  "ok_count": 95,
+  "failed": [],
+  "gifts": [
+    {
+      "name": "India Flag",
+      "category": "standard",
+      "gift_id": "103",
+      "gift_key": "flag_in",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_in.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_in.webm"
+    },
+    {
+      "name": "Bangladesh Flag",
+      "category": "standard",
+      "gift_id": "104",
+      "gift_key": "flag_bd",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_bd.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_bd.webm"
+    },
+    {
+      "name": "Pakistan Flag",
+      "category": "standard",
+      "gift_id": "105",
+      "gift_key": "flag_pk",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_pk.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_pk.webm"
+    },
+    {
+      "name": "Philippines Flag",
+      "category": "standard",
+      "gift_id": "106",
+      "gift_key": "flag_ph",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_ph.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_ph.webm"
+    },
+    {
+      "name": "Indonesia Flag",
+      "category": "standard",
+      "gift_id": "107",
+      "gift_key": "flag_id",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_id.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_id.webm"
+    },
+    {
+      "name": "Nepal Flag",
+      "category": "standard",
+      "gift_id": "108",
+      "gift_key": "flag_np",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_np.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_np.webm"
+    },
+    {
+      "name": "Sri Lanka Flag",
+      "category": "standard",
+      "gift_id": "109",
+      "gift_key": "flag_lk",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_lk.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_lk.webm"
+    },
+    {
+      "name": "Myanmar Flag",
+      "category": "standard",
+      "gift_id": "110",
+      "gift_key": "flag_mm",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_mm.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_mm.webm"
+    },
+    {
+      "name": "Thailand Flag",
+      "category": "standard",
+      "gift_id": "111",
+      "gift_key": "flag_th",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_th.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_th.webm"
+    },
+    {
+      "name": "Vietnam Flag",
+      "category": "standard",
+      "gift_id": "112",
+      "gift_key": "flag_vn",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_vn.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_vn.webm"
+    },
+    {
+      "name": "Malaysia Flag",
+      "category": "standard",
+      "gift_id": "113",
+      "gift_key": "flag_my",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_my.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_my.webm"
+    },
+    {
+      "name": "Singapore Flag",
+      "category": "standard",
+      "gift_id": "114",
+      "gift_key": "flag_sg",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_sg.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_sg.webm"
+    },
+    {
+      "name": "UAE Flag",
+      "category": "standard",
+      "gift_id": "115",
+      "gift_key": "flag_ae",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_ae.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_ae.webm"
+    },
+    {
+      "name": "Saudi Flag",
+      "category": "standard",
+      "gift_id": "116",
+      "gift_key": "flag_sa",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_sa.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_sa.webm"
+    },
+    {
+      "name": "Qatar Flag",
+      "category": "standard",
+      "gift_id": "117",
+      "gift_key": "flag_qa",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_qa.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_qa.webm"
+    },
+    {
+      "name": "Egypt Flag",
+      "category": "standard",
+      "gift_id": "118",
+      "gift_key": "flag_eg",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_eg.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_eg.webm"
+    },
+    {
+      "name": "Nigeria Flag",
+      "category": "standard",
+      "gift_id": "119",
+      "gift_key": "flag_ng",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_ng.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_ng.webm"
+    },
+    {
+      "name": "USA Flag",
+      "category": "standard",
+      "gift_id": "120",
+      "gift_key": "flag_us",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_us.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_us.webm"
+    },
+    {
+      "name": "UK Flag",
+      "category": "standard",
+      "gift_id": "121",
+      "gift_key": "flag_gb",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_gb.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_gb.webm"
+    },
+    {
+      "name": "China Flag",
+      "category": "standard",
+      "gift_id": "122",
+      "gift_key": "flag_cn",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_cn.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_cn.webm"
+    },
+    {
+      "name": "Japan Flag",
+      "category": "standard",
+      "gift_id": "123",
+      "gift_key": "flag_jp",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_jp.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_jp.webm"
+    },
+    {
+      "name": "Korea Flag",
+      "category": "standard",
+      "gift_id": "124",
+      "gift_key": "flag_kr",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_kr.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_kr.webm"
+    },
+    {
+      "name": "Brazil Flag",
+      "category": "standard",
+      "gift_id": "125",
+      "gift_key": "flag_br",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_br.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_br.webm"
+    },
+    {
+      "name": "Turkey Flag",
+      "category": "standard",
+      "gift_id": "126",
+      "gift_key": "flag_tr",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_tr.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_tr.webm"
+    },
+    {
+      "name": "Germany Flag",
+      "category": "standard",
+      "gift_id": "127",
+      "gift_key": "flag_de",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_de.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_de.webm"
+    },
+    {
+      "name": "France Flag",
+      "category": "standard",
+      "gift_id": "128",
+      "gift_key": "flag_fr",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_fr.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_fr.webm"
+    },
+    {
+      "name": "Canada Flag",
+      "category": "standard",
+      "gift_id": "129",
+      "gift_key": "flag_ca",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_ca.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_ca.webm"
+    },
+    {
+      "name": "Australia Flag",
+      "category": "standard",
+      "gift_id": "130",
+      "gift_key": "flag_au",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_au.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_au.webm"
+    },
+    {
+      "name": "Russia Flag",
+      "category": "standard",
+      "gift_id": "131",
+      "gift_key": "flag_ru",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_ru.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_ru.webm"
+    },
+    {
+      "name": "Cambodia Flag",
+      "category": "standard",
+      "gift_id": "132",
+      "gift_key": "flag_kh",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_gift_kh.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/flags/flag_fx_kh.webm"
+    },
+    {
+      "name": "Lucky Clover",
+      "category": "lucky",
+      "gift_id": "133",
+      "gift_key": "lucky_clover",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_gift_lucky_clover.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_fx_lucky_clover.webm"
+    },
+    {
+      "name": "Lucky Dice",
+      "category": "lucky",
+      "gift_id": "134",
+      "gift_key": "lucky_dice",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_gift_lucky_dice.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_fx_lucky_dice.webm"
+    },
+    {
+      "name": "Golden Slot",
+      "category": "lucky",
+      "gift_id": "135",
+      "gift_key": "golden_slot",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_gift_golden_slot.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_fx_golden_slot.webm"
+    },
+    {
+      "name": "Fortune Wheel",
+      "category": "lucky",
+      "gift_id": "136",
+      "gift_key": "fortune_wheel",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_gift_fortune_wheel.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_fx_fortune_wheel.webm"
+    },
+    {
+      "name": "Seven Stars",
+      "category": "lucky",
+      "gift_id": "137",
+      "gift_key": "seven_stars",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_gift_seven_stars.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_fx_seven_stars.webm"
+    },
+    {
+      "name": "Jackpot Box",
+      "category": "lucky",
+      "gift_id": "138",
+      "gift_key": "jackpot_box",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_gift_jackpot_box.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_fx_jackpot_box.webm"
+    },
+    {
+      "name": "Coin Rain",
+      "category": "lucky",
+      "gift_id": "139",
+      "gift_key": "coin_rain",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_gift_coin_rain.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_fx_coin_rain.webm"
+    },
+    {
+      "name": "Treasure Chest",
+      "category": "lucky",
+      "gift_id": "140",
+      "gift_key": "treasure_chest",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_gift_treasure_chest.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_fx_treasure_chest.webm"
+    },
+    {
+      "name": "Mystery Envelope",
+      "category": "lucky",
+      "gift_id": "141",
+      "gift_key": "mystery_envelope",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_gift_mystery_envelope.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_fx_mystery_envelope.webm"
+    },
+    {
+      "name": "Dragon Fortune",
+      "category": "lucky",
+      "gift_id": "142",
+      "gift_key": "dragon_fortune",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_gift_dragon_fortune.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_fx_dragon_fortune.webm"
+    },
+    {
+      "name": "Lucky Rocket",
+      "category": "lucky",
+      "gift_id": "143",
+      "gift_key": "lucky_rocket",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_gift_lucky_rocket.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_fx_lucky_rocket.webm"
+    },
+    {
+      "name": "Mega Jackpot",
+      "category": "lucky",
+      "gift_id": "144",
+      "gift_key": "mega_jackpot",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_gift_mega_jackpot.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/lucky/lucky_fx_mega_jackpot.webm"
+    },
+    {
+      "name": "Friend Star",
+      "category": "bcp",
+      "gift_id": "145",
+      "gift_key": "friend_star",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_gift_friend_star.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_fx_friend_star.webm"
+    },
+    {
+      "name": "Twin Stars",
+      "category": "bcp",
+      "gift_id": "146",
+      "gift_key": "twin_stars",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_gift_twin_stars.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_fx_twin_stars.webm"
+    },
+    {
+      "name": "Golden Handshake",
+      "category": "bcp",
+      "gift_id": "147",
+      "gift_key": "handshake_gold",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_gift_handshake_gold.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_fx_handshake_gold.webm"
+    },
+    {
+      "name": "Loyalty Badge",
+      "category": "bcp",
+      "gift_id": "148",
+      "gift_key": "loyalty_badge",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_gift_loyalty_badge.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_fx_loyalty_badge.webm"
+    },
+    {
+      "name": "Besties Crown",
+      "category": "bcp",
+      "gift_id": "149",
+      "gift_key": "besties_crown",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_gift_besties_crown.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_fx_besties_crown.webm"
+    },
+    {
+      "name": "Soul Sisters",
+      "category": "bcp",
+      "gift_id": "150",
+      "gift_key": "soul_sisters",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_gift_soul_sisters.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_fx_soul_sisters.webm"
+    },
+    {
+      "name": "Duo Trophy",
+      "category": "bcp",
+      "gift_id": "151",
+      "gift_key": "duo_trophy",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_gift_duo_trophy.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_fx_duo_trophy.webm"
+    },
+    {
+      "name": "Team Forever",
+      "category": "bcp",
+      "gift_id": "152",
+      "gift_key": "team_forever",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_gift_team_forever.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_fx_team_forever.webm"
+    },
+    {
+      "name": "BCP Carousel",
+      "category": "bcp",
+      "gift_id": "153",
+      "gift_key": "bcp_carousel",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_gift_bcp_carousel.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_fx_bcp_carousel.webm"
+    },
+    {
+      "name": "BCP Voyage",
+      "category": "bcp",
+      "gift_id": "154",
+      "gift_key": "bcp_voyage",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_gift_bcp_voyage.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_fx_bcp_voyage.webm"
+    },
+    {
+      "name": "BCP Galaxy",
+      "category": "bcp",
+      "gift_id": "155",
+      "gift_key": "bcp_galaxy",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_gift_bcp_galaxy.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_fx_bcp_galaxy.webm"
+    },
+    {
+      "name": "Eternal Bond",
+      "category": "bcp",
+      "gift_id": "156",
+      "gift_key": "eternal_bond",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_gift_eternal_bond.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/bcp/bcp_fx_eternal_bond.webm"
+    },
+    {
+      "name": "Flower Umbrella",
+      "category": "cp",
+      "gift_id": "62",
+      "gift_key": "flower_umbrella",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_flower_umbrella.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_flower_umbrella.webm"
+    },
+    {
+      "name": "Blue Rose",
+      "category": "cp",
+      "gift_id": "63",
+      "gift_key": "blue_rose",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_blue_rose.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_blue_rose.webm"
+    },
+    {
+      "name": "Love Heart",
+      "category": "cp",
+      "gift_id": "64",
+      "gift_key": "love_heart",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_love_heart.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_love_heart.webm"
+    },
+    {
+      "name": "Diamond Necklace",
+      "category": "cp",
+      "gift_id": "65",
+      "gift_key": "diamond_necklace",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_diamond_necklace.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_diamond_necklace.webm"
+    },
+    {
+      "name": "Flight of Love",
+      "category": "cp",
+      "gift_id": "66",
+      "gift_key": "flight_of_love",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_flight_of_love.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_flight_of_love.webm"
+    },
+    {
+      "name": "Ring",
+      "category": "cp",
+      "gift_id": "67",
+      "gift_key": "ring",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_ring.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_ring.webm"
+    },
+    {
+      "name": "Flower Ball",
+      "category": "cp",
+      "gift_id": "68",
+      "gift_key": "flower_ball",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_flower_ball.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_flower_ball.webm"
+    },
+    {
+      "name": "Bouquet Box",
+      "category": "cp",
+      "gift_id": "69",
+      "gift_key": "bouquet_box",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_bouquet_box.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_bouquet_box.webm"
+    },
+    {
+      "name": "Finger Fireworks",
+      "category": "cp",
+      "gift_id": "70",
+      "gift_key": "finger_fireworks",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_finger_fireworks.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_finger_fireworks.webm"
+    },
+    {
+      "name": "Love Balloon",
+      "category": "cp",
+      "gift_id": "71",
+      "gift_key": "love_balloon",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_love_balloon.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_love_balloon.webm"
+    },
+    {
+      "name": "Love Penguin",
+      "category": "cp",
+      "gift_id": "72",
+      "gift_key": "love_penguin",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_love_penguin.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_love_penguin.webm"
+    },
+    {
+      "name": "Bouquet",
+      "category": "cp",
+      "gift_id": "73",
+      "gift_key": "bouquet",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_bouquet.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_bouquet.webm"
+    },
+    {
+      "name": "Love Car",
+      "category": "cp",
+      "gift_id": "74",
+      "gift_key": "love_car",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_love_car.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_love_car.webm"
+    },
+    {
+      "name": "Picnic",
+      "category": "cp",
+      "gift_id": "76",
+      "gift_key": "picnic",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_picnic.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_picnic.webm"
+    },
+    {
+      "name": "Rose Love",
+      "category": "cp",
+      "gift_id": "75",
+      "gift_key": "rose_love",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_rose_love.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_rose_love.webm"
+    },
+    {
+      "name": "Bear Bouquet",
+      "category": "cp",
+      "gift_id": "77",
+      "gift_key": "bear_bouquet",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_bear_bouquet.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_bear_bouquet.webm"
+    },
+    {
+      "name": "Date Night",
+      "category": "cp",
+      "gift_id": "78",
+      "gift_key": "date_night",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_date_night.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_date_night.webm"
+    },
+    {
+      "name": "Car Trips",
+      "category": "cp",
+      "gift_id": "79",
+      "gift_key": "car_trips",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_car_trips.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_car_trips.webm"
+    },
+    {
+      "name": "Love Carousel",
+      "category": "cp",
+      "gift_id": "80",
+      "gift_key": "love_carousel",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_love_carousel.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_love_carousel.webm"
+    },
+    {
+      "name": "Rose Rings",
+      "category": "cp",
+      "gift_id": "81",
+      "gift_key": "rose_rings",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_rose_rings.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_rose_rings.webm"
+    },
+    {
+      "name": "Wedding Hall",
+      "category": "cp",
+      "gift_id": "82",
+      "gift_key": "wedding_hall",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_wedding_hall.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_wedding_hall.webm"
+    },
+    {
+      "name": "Proposal Ring",
+      "category": "cp",
+      "gift_id": "83",
+      "gift_key": "proposal_ring",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_proposal_ring.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_proposal_ring.webm"
+    },
+    {
+      "name": "Love Diary",
+      "category": "cp",
+      "gift_id": "84",
+      "gift_key": "love_diary",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_love_diary.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_love_diary.webm"
+    },
+    {
+      "name": "Galaxy Fireworks",
+      "category": "cp",
+      "gift_id": "85",
+      "gift_key": "galaxy_fireworks",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_galaxy_fireworks.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_galaxy_fireworks.webm"
+    },
+    {
+      "name": "Flowers For U",
+      "category": "cp",
+      "gift_id": "86",
+      "gift_key": "flowers_for_u",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_flowers_for_u.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_flowers_for_u.webm"
+    },
+    {
+      "name": "Dream Night",
+      "category": "cp",
+      "gift_id": "87",
+      "gift_key": "dream_night",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_dream_night.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_dream_night.webm"
+    },
+    {
+      "name": "Wedding",
+      "category": "cp",
+      "gift_id": "88",
+      "gift_key": "wedding",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_wedding.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_wedding.webm"
+    },
+    {
+      "name": "Proposal",
+      "category": "cp",
+      "gift_id": "89",
+      "gift_key": "proposal",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_proposal.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_proposal.webm"
+    },
+    {
+      "name": "Sweet Camera",
+      "category": "cp",
+      "gift_id": "90",
+      "gift_key": "sweet_camera",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_sweet_camera.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_sweet_camera.webm"
+    },
+    {
+      "name": "Flower Yacht",
+      "category": "cp",
+      "gift_id": "91",
+      "gift_key": "flower_yacht",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_flower_yacht.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_flower_yacht.webm"
+    },
+    {
+      "name": "Rose Love VIP",
+      "category": "cp",
+      "gift_id": "92",
+      "gift_key": "rose_love_vip",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_rose_love_vip.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_rose_love_vip.webm"
+    },
+    {
+      "name": "Romantic Trip",
+      "category": "cp",
+      "gift_id": "93",
+      "gift_key": "romantic_trip",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_romantic_trip.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_romantic_trip.webm"
+    },
+    {
+      "name": "Dinner Date",
+      "category": "cp",
+      "gift_id": "94",
+      "gift_key": "dinner_date",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_dinner_date.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_dinner_date.webm"
+    },
+    {
+      "name": "Tower Proposal",
+      "category": "cp",
+      "gift_id": "95",
+      "gift_key": "tower_proposal",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_tower_proposal.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_tower_proposal.webm"
+    },
+    {
+      "name": "Waltz",
+      "category": "cp",
+      "gift_id": "96",
+      "gift_key": "waltz",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_waltz.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_waltz.webm"
+    },
+    {
+      "name": "Love Cruise",
+      "category": "cp",
+      "gift_id": "97",
+      "gift_key": "love_cruise",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_love_cruise.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_love_cruise.webm"
+    },
+    {
+      "name": "Forever Love",
+      "category": "cp",
+      "gift_id": "98",
+      "gift_key": "forever_love",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_forever_love.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_forever_love.webm"
+    },
+    {
+      "name": "Flower Sea",
+      "category": "cp",
+      "gift_id": "99",
+      "gift_key": "flower_sea",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_flower_sea.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_flower_sea.webm"
+    },
+    {
+      "name": "Ferris Wheel Love",
+      "category": "cp",
+      "gift_id": "100",
+      "gift_key": "ferris_wheel_love",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_ferris_wheel_love.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_ferris_wheel_love.webm"
+    },
+    {
+      "name": "I Love You",
+      "category": "cp",
+      "gift_id": "101",
+      "gift_key": "i_love_you",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_i_love_you.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_i_love_you.webm"
+    },
+    {
+      "name": "Propose",
+      "category": "cp",
+      "gift_id": "102",
+      "gift_key": "propose",
+      "image_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_gift_propose.png",
+      "animation_url": "https://storage.googleapis.com/chataura/gifts/v1/cp/cp_fx_propose.webm"
+    }
+  ],
+  "gifts_public_base": "https://storage.googleapis.com/chataura/gifts/v1"
+}

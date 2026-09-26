@@ -23,7 +23,8 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:k6": "k6 run k6/load.local.js",
-    "fx:import": "ts-node -r tsconfig-paths/register scripts/import-fx-assets.ts"
+    "fx:import": "ts-node -r tsconfig-paths/register scripts/import-fx-assets.ts",
+    "gifts:import": "ts-node -r tsconfig-paths/register scripts/import-gifts-gcs.ts"
   },
   "dependencies": {
     "@fastify/multipart": "^9.4.0",
