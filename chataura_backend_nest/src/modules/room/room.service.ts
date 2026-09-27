@@ -479,6 +479,28 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       return this.serializeRoom(updated, globalVideo);
     }
     const cover = coverUrlFromBody(body);
+    const rawMax =
+      body.max_seats !== undefined && body.max_seats !== null
+        ? body.max_seats
+        : body.maxSeats !== undefined && body.maxSeats !== null
+          ? body.maxSeats
+          : undefined;
+    const wantsMaxSeats = rawMax !== undefined;
+    const nextMaxSeats = wantsMaxSeats
+      ? Math.min(Math.max(Number(rawMax), 1), 20)
+      : null;
+    if (wantsMaxSeats && !Number.isFinite(nextMaxSeats as number)) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'INVALID_MAX_SEATS', message: 'max_seats must be 1–20' },
+      });
+    }
+
+    // When shrinking capacity: free occupants then drop seat rows beyond the new max.
+    if (nextMaxSeats != null && nextMaxSeats < room.maxSeats) {
+      await this.trimSeatsAbove(room.id, nextMaxSeats);
+    }
+
     const updated = await this.prisma.room.update({
       where: { id: room.id },
       data: {
@@ -491,6 +513,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         ...(body.theme_id !== undefined
           ? { themeId: BigInt(String(body.theme_id)) }
           : {}),
+        ...(nextMaxSeats != null ? { maxSeats: nextMaxSeats } : {}),
       },
       include: {
         owner: personWithFrame,
@@ -500,6 +523,16 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         _count: { select: { members: { where: { isActive: true } } } },
       },
     });
+
+    if (nextMaxSeats != null && nextMaxSeats > room.maxSeats) {
+      await this.ensureSeats(room.id, nextMaxSeats);
+    }
+
+    if (nextMaxSeats != null && nextMaxSeats !== room.maxSeats) {
+      const snap = await this.seatsSnapshot(room.id, userId, nextMaxSeats);
+      this.events.emitSeatUpdated(room.id, snap);
+    }
+
     const globalVideo = await this.isGlobalVideoEnabled();
     return this.serializeRoom(updated, globalVideo);
   }
@@ -589,14 +622,31 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       include: { selectedFrame: true, selectedRoleFrame: true },
     });
     const agoraUid = this.agoraUid(userId);
+    let hostReclaimedFrom: bigint | null = null;
     const member = await this.prisma.$transaction(async (tx) => {
       let role: RoomMemberRole = 'listener';
-      const liveHost = room.hostId
-        ? await tx.roomMember.findFirst({
-            where: { roomId: room.id, userId: room.hostId, isActive: true },
-          })
-        : null;
-      if (room.hostId === userId) {
+      // Owner returning after Leave takes host back from the interim host.
+      // An owner who is still active (re-opening the room) keeps any deliberate transfer.
+      if (room.ownerId === userId && room.hostId !== userId) {
+        const existing = await tx.roomMember.findUnique({
+          where: { roomId_userId: { roomId: room.id, userId } },
+          select: { isActive: true },
+        });
+        if (!existing?.isActive) {
+          const reclaim = await this.reclaimHostForOwner(tx, room.id, userId);
+          if (reclaim.reclaimed) {
+            hostReclaimedFrom = reclaim.previousHostId;
+            role = 'host';
+          }
+        }
+      }
+      const liveHost =
+        role !== 'host' && room.hostId
+          ? await tx.roomMember.findFirst({
+              where: { roomId: room.id, userId: room.hostId, isActive: true },
+            })
+          : null;
+      if (role === 'host' || room.hostId === userId) {
         role = 'host';
       } else if (room.coHostId === userId && liveHost) {
         role = 'co_host';
@@ -634,6 +684,10 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       await this.presence.open(tx, userId, room.id);
       return m;
     });
+    if (hostReclaimedFrom != null) {
+      const snap = await this.seatsSnapshot(room.id, userId, room.maxSeats);
+      this.events.emitSeatUpdated(room.id, snap);
+    }
 
     const publisher = ['host', 'co_host', 'speaker'].includes(member.role);
     const token = this.agora.buildToken(
@@ -648,6 +702,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     return {
       room: await this.serializeRoom(fresh, globalVideo, agency),
       member: this.serializeMember(member, user),
+      host_reclaimed_from:
+        hostReclaimedFrom != null ? Number(hostReclaimedFrom) : null,
       ...token,
       media_defaults: { mic_on: false, camera_on: false },
       join_event: {
@@ -1029,6 +1085,28 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
   async transferHost(actorId: bigint, id: string, targetId: bigint) {
     const room = await this.findRoom(id);
+    if (room.ownerId === actorId && targetId === actorId) {
+      if (room.hostId === actorId) return { message: 'Host transferred' };
+      await this.requireActiveMember(room.id, actorId);
+      const reclaim = await this.prisma.$transaction((tx) =>
+        this.reclaimHostForOwner(tx, room.id, actorId),
+      );
+      if (!reclaim.reclaimed) {
+        throw new ForbiddenException({
+          success: false,
+          error: { code: 'FORBIDDEN', message: 'Room is not live' },
+        });
+      }
+      if (reclaim.previousHostId != null) {
+        const snap = await this.seatsSnapshot(room.id, actorId, room.maxSeats);
+        this.events.emitSeatUpdated(room.id, snap);
+      }
+      return {
+        message: 'Host transferred',
+        host_reclaimed_from:
+          reclaim.previousHostId != null ? Number(reclaim.previousHostId) : null,
+      };
+    }
     this.assertHost(room, actorId);
     return this.prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw<
@@ -1235,13 +1313,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       });
     }
     const last = room.maxSeats - 1;
-    await this.prisma.seat.updateMany({
-      where: { roomId: room.id, seatIndex: last },
-      data: { userId: null },
-    });
-    await this.prisma.seat.deleteMany({
-      where: { roomId: room.id, seatIndex: last },
-    });
+    await this.trimSeatsAbove(room.id, last);
     await this.prisma.room.update({
       where: { id: room.id },
       data: { maxSeats: last },
@@ -1249,6 +1321,64 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     const snap = await this.seatsSnapshot(room.id, actorId, last);
     this.events.emitSeatUpdated(room.id, snap);
     return { ...snap, message: 'Seat removed' };
+  }
+
+  /**
+   * Host-only: set absolute max_seats (1–20). Creates missing seat rows on increase;
+   * frees and deletes seats beyond the new max on decrease.
+   */
+  async setSeatCapacity(actorId: bigint, id: string, requested: number) {
+    const room = await this.findRoom(id);
+    this.assertHost(room, actorId);
+    if (!Number.isFinite(requested)) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'INVALID_MAX_SEATS', message: 'max_seats must be 1–20' },
+      });
+    }
+    const next = Math.min(Math.max(Math.trunc(requested), 1), 20);
+    if (next === room.maxSeats) {
+      const snap = await this.seatsSnapshot(room.id, actorId, next);
+      return { ...snap, message: 'Seat capacity unchanged' };
+    }
+    if (next < room.maxSeats) {
+      await this.trimSeatsAbove(room.id, next);
+    }
+    await this.prisma.room.update({
+      where: { id: room.id },
+      data: { maxSeats: next },
+    });
+    if (next > room.maxSeats) {
+      await this.ensureSeats(room.id, next);
+    }
+    const snap = await this.seatsSnapshot(room.id, actorId, next);
+    this.events.emitSeatUpdated(room.id, snap);
+    return {
+      ...snap,
+      message:
+        next > room.maxSeats
+          ? 'Seat capacity expanded'
+          : 'Seat capacity reduced',
+    };
+  }
+
+  /** Free occupants and delete seat rows with index >= keepCount. */
+  private async trimSeatsAbove(roomId: string, keepCount: number) {
+    await this.prisma.seat.updateMany({
+      where: { roomId, seatIndex: { gte: keepCount } },
+      data: { userId: null, isMuted: false, mutedByUserId: null },
+    });
+    await this.prisma.seat.deleteMany({
+      where: { roomId, seatIndex: { gte: keepCount } },
+    });
+    await this.prisma.roomMember.updateMany({
+      where: {
+        roomId,
+        seatIndex: { gte: keepCount },
+        isActive: true,
+      },
+      data: { seatIndex: null, role: 'listener' },
+    });
   }
 
   async stickers(userId?: bigint | null) {
@@ -1892,6 +2022,76 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       orderBy: { joinedAt: 'asc' },
     });
     return any?.userId ?? null;
+  }
+
+  /**
+   * Restores the room owner as live host (row-locked). The previous host is
+   * demoted to speaker and keeps their seat.
+   */
+  private async reclaimHostForOwner(
+    tx: Prisma.TransactionClient,
+    roomId: string,
+    ownerId: bigint,
+  ): Promise<{ reclaimed: boolean; previousHostId: bigint | null }> {
+    const locked = await tx.$queryRaw<
+      Array<{
+        host_id: bigint | null;
+        owner_id: bigint;
+        co_host_id: bigint | null;
+        is_live: boolean;
+      }>
+    >`SELECT host_id, owner_id, co_host_id, is_live FROM rooms WHERE id = ${roomId}::uuid FOR UPDATE`;
+    const row = locked[0];
+    if (!row || !row.is_live || row.owner_id !== ownerId) {
+      return { reclaimed: false, previousHostId: null };
+    }
+    if (row.host_id === ownerId) {
+      return { reclaimed: true, previousHostId: null };
+    }
+    const previousHostId = row.host_id;
+    await tx.room.update({
+      where: { id: roomId },
+      data: {
+        hostId: ownerId,
+        coHostId: row.co_host_id === ownerId ? null : row.co_host_id,
+        hostLastHeartbeatAt: new Date(),
+      },
+    });
+    if (previousHostId != null) {
+      await tx.roomMember.updateMany({
+        where: { roomId, userId: previousHostId, role: 'host' },
+        data: { role: 'speaker' },
+      });
+      // Seat 0 is the live-host seat on clients; move the previous host off it.
+      const hostSeat = await tx.seat.findFirst({
+        where: { roomId, seatIndex: 0, userId: previousHostId },
+      });
+      if (hostSeat) {
+        const free = await tx.seat.findFirst({
+          where: { roomId, seatIndex: { gt: 0 }, userId: null, isLocked: false },
+          orderBy: { seatIndex: 'asc' },
+        });
+        await tx.seat.update({
+          where: { id: hostSeat.id },
+          data: { userId: null, isMuted: false, mutedByUserId: null },
+        });
+        if (free) {
+          await tx.seat.update({
+            where: { id: free.id },
+            data: { userId: previousHostId, lastHeartbeatAt: new Date() },
+          });
+        }
+        await tx.roomMember.updateMany({
+          where: { roomId, userId: previousHostId },
+          data: { seatIndex: free?.seatIndex ?? null },
+        });
+      }
+    }
+    await tx.roomMember.updateMany({
+      where: { roomId, userId: ownerId },
+      data: { role: 'host' },
+    });
+    return { reclaimed: true, previousHostId };
   }
 
   private assertHost(

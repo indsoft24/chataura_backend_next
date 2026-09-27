@@ -293,6 +293,17 @@ export class RoomController {
     return this.rooms.reduceSeats(user.id, id);
   }
 
+  /** Host-only: set absolute stage capacity (1–20). Expands or shrinks seat rows. */
+  @Post('rooms/:id/seats/capacity')
+  setCapacity(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { max_seats?: number; maxSeats?: number },
+  ) {
+    const raw = body?.max_seats ?? body?.maxSeats;
+    return this.rooms.setSeatCapacity(user.id, id, Number(raw));
+  }
+
   @Get('rooms/:id/gifts/stats')
   giftStats(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.gifting.giftStats(user.id, id);

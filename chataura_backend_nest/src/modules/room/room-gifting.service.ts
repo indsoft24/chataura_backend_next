@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomInt } from 'crypto';
 import { catalogClientFields } from '../../common/utils/catalog-media';
 import { normalizeGiftCategory } from '../../common/utils/gift-category';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -14,6 +15,11 @@ import { RoomEvents } from './room.events';
 import { RocketLaunchService } from './rocket-launch.service';
 import { CpAffectionGiftsService } from './cp-affection-gifts.service';
 
+type LuckyReturnPayload = {
+  coins: number;
+  max_percent: number;
+  percent: number;
+};
 @Injectable()
 export class RoomGiftingService {
   constructor(
@@ -125,7 +131,7 @@ export class RoomGiftingService {
           });
         }
         const ref = `room_${room.id}_gift_${gift.id}_${senderId}_${Date.now()}`;
-        const { after } = await this.ledger.debitCoins(
+        const debitRes = await this.ledger.debitCoins(
           tx,
           senderId,
           cost,
@@ -143,6 +149,35 @@ export class RoomGiftingService {
           },
           'gift',
         );
+        let balanceAfter = debitRes.after;
+        const luckyReturn = this.buildLuckyReturn(
+          gift.category,
+          cost,
+        );
+        if (luckyReturn.coins > 0) {
+          balanceAfter = await this.ledger.creditCoins(
+            tx,
+            senderId,
+            luckyReturn.coins,
+            'LUCKY_GIFT_REBATE',
+            'Lucky gift return',
+            `${ref}:lucky`,
+            {
+              ...debitRes.locked,
+              wallet_balance: debitRes.after,
+              coin_balance: debitRes.after,
+            },
+            {
+              source: 'lucky_gift_rebate',
+              currency: 'coins',
+              room_id: room.id,
+              gift_id: Number(gift.id),
+              receiver_id: Number(receiverId),
+              quantity,
+              rebate_coins: luckyReturn.coins,
+            },
+          );
+        }
         await tx.user.update({
           where: { id: receiverId },
           data: {
@@ -166,15 +201,19 @@ export class RoomGiftingService {
           coin_amount: Number(cost),
           commission_amount: Number(commission),
           net_amount: Number(netGems),
-          sender_balance_after: Number(after),
+          sender_balance_after: Number(balanceAfter),
           receiver_gems_after: Number(recv.gems + netGems),
           balances: {
-            coins: Number(after),
+            coins: Number(balanceAfter),
             gems: Number(senderLocked.gems),
             referral_balance: Number(senderLocked.referral_balance),
           },
           agency_cashback: null,
           relationship,
+          lucky_return:
+            normalizeGiftCategory(gift.category) === 'lucky'
+              ? luckyReturn
+              : null,
         };
       } catch (e) {
         if ((e as { code?: string }).code === 'INSUFFICIENT_BALANCE') {
@@ -381,6 +420,35 @@ export class RoomGiftingService {
           relationships.push(relationship);
         }
 
+        let luckyReturn: LuckyReturnPayload | null = null;
+        if (normalizeGiftCategory(gift.category) === 'lucky') {
+          luckyReturn = this.buildLuckyReturn(gift.category, totalCost);
+          if (luckyReturn.coins > 0) {
+            finalBalance = await this.ledger.creditCoins(
+              tx,
+              senderId,
+              luckyReturn.coins,
+              'LUCKY_GIFT_REBATE',
+              'Lucky gift return',
+              `${batchRef}:lucky`,
+              {
+                ...currentSender,
+                wallet_balance: finalBalance,
+                coin_balance: finalBalance,
+              },
+              {
+                source: 'lucky_gift_rebate',
+                currency: 'coins',
+                room_id: room.id,
+                gift_id: Number(gift.id),
+                quantity,
+                receiver_count: eligibleIds.length,
+                rebate_coins: luckyReturn.coins,
+              },
+            );
+          }
+        }
+
         return {
           transaction_ids: txIds,
           coin_amount: Number(totalCost),
@@ -389,6 +457,7 @@ export class RoomGiftingService {
           sender_balance_after: Number(finalBalance),
           agency_cashback: null,
           relationships,
+          lucky_return: luckyReturn,
         };
       } catch (e) {
         if ((e as { code?: string }).code === 'INSUFFICIENT_BALANCE') {
@@ -531,6 +600,32 @@ export class RoomGiftingService {
       senders: [...senders.values()].sort((a, b) => b.coins - a.coins),
       receivers: [...receivers.values()].sort((a, b) => b.coins - a.coins),
     };
+  }
+
+  /**
+   * Lucky gifts: uniform random rebate in [1, floor(40% of spend)].
+   * Non-lucky → zeros (caller attaches null when category is not lucky).
+   */
+  private buildLuckyReturn(
+    category: string | null | undefined,
+    spend: bigint | number,
+  ): LuckyReturnPayload {
+    const spent = Number(spend);
+    if (
+      normalizeGiftCategory(category) !== 'lucky' ||
+      !Number.isFinite(spent) ||
+      spent <= 0
+    ) {
+      return { coins: 0, max_percent: 40, percent: 0 };
+    }
+    const maxRebate = Math.floor(spent * 0.4);
+    if (maxRebate < 1) {
+      return { coins: 0, max_percent: 40, percent: 0 };
+    }
+    // randomInt(0, maxRebate) → 0..maxRebate-1 ⇒ coins in 1..maxRebate
+    const coins = 1 + randomInt(0, maxRebate);
+    const percent = Math.round((coins / spent) * 1000) / 10;
+    return { coins, max_percent: 40, percent };
   }
 
   private async findRoom(id: string) {
