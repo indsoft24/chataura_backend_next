@@ -1,266 +1,440 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
+import {
+  AdminStyles,
+  applyRange,
+  Avatar,
+  DateRangeChips,
+  downloadCsv,
+  EmptyRow,
+  errorText,
+  fmt,
+  formatDate,
+  Pager,
+  pick,
+  positiveInt,
+  RANGE_KEYS,
+  RangeKey,
+  SearchBox,
+  SkeletonRows,
+  SortTh,
+  Tabs,
+  useDebouncedCommit,
+  useToasts,
+  useUrlFilters,
+  ymd,
+} from '@/components/admin-ui';
 
 type ComplianceUser = {
   id: number;
-  name: string;
+  name: string | null;
   email: string | null;
   phone: string | null;
+  avatar_url?: string | null;
   profile_country: string | null;
   client_country: string | null;
   effective_country: string;
+  country_mismatch?: boolean;
   coin_balance: number;
-  wallet_balance: number;
+  status?: 'active' | 'suspended' | 'deactivated';
   account_status: string;
   registered_at: string;
 };
 
+type Kpis = { total_tracked_users?: number; countries_detected?: number; mismatches?: number; unknown?: number };
+type CountryCount = { code: string; count: number };
+
+const DEFAULTS = {
+  q: '',
+  country: '',
+  match: '' as '' | 'mismatch' | 'match' | 'missing',
+  status: '' as '' | 'active' | 'suspended' | 'deactivated',
+  range: 'all' as RangeKey,
+  from: '',
+  to: '',
+  sort: 'id',
+  order: 'desc' as 'asc' | 'desc',
+  limit: 25,
+  page: 1,
+};
+type Filters = typeof DEFAULTS;
+
+function parse(p: URLSearchParams): Filters {
+  return {
+    q: p.get('q') ?? '',
+    country: (p.get('country') ?? '').toUpperCase().slice(0, 8),
+    match: pick(p.get('match'), ['', 'mismatch', 'match', 'missing'] as const, ''),
+    status: pick(p.get('status'), ['', 'active', 'suspended', 'deactivated'] as const, ''),
+    range: pick(p.get('range'), RANGE_KEYS, 'all'),
+    from: p.get('from') ?? '',
+    to: p.get('to') ?? '',
+    sort: pick(p.get('sort'), ['id', 'created_at', 'coins', 'name', 'country'] as const, 'id'),
+    order: pick(p.get('order'), ['asc', 'desc'] as const, 'desc'),
+    limit: [25, 50, 100].includes(Number(p.get('limit'))) ? Number(p.get('limit')) : 25,
+    page: positiveInt(p.get('page'), 1),
+  };
+}
+
+const SORTS = [
+  { value: 'id:desc', label: 'Newest accounts' },
+  { value: 'id:asc', label: 'Oldest accounts' },
+  { value: 'country:asc', label: 'Country: A → Z' },
+  { value: 'coins:desc', label: 'Coins: high → low' },
+  { value: 'coins:asc', label: 'Coins: low → high' },
+  { value: 'name:asc', label: 'Name: A → Z' },
+];
+
+let regionNames: Intl.DisplayNames | null = null;
+function countryName(code: string | null | undefined): string {
+  if (!code || code === 'UNKNOWN' || code === 'Unknown') return 'Unknown';
+  try {
+    regionNames ??= new Intl.DisplayNames(['en'], { type: 'region' });
+    return regionNames.of(code.toUpperCase()) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+function flag(code: string | null | undefined): string {
+  if (!code || !/^[A-Za-z]{2}$/.test(code)) return '🌐';
+  return String.fromCodePoint(...code.toUpperCase().split('').map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
+}
+
+const STATUS_BADGE = {
+  active: 'green',
+  suspended: 'amber',
+  deactivated: 'red',
+} as const;
+
 export default function UserLocationCompliancePage() {
   const { token } = useAdminAuth();
-  const [loading, setLoading] = useState(true);
+  const { filters, setFilters, update, reset, ready, isDirty } = useUrlFilters(DEFAULTS, parse);
+  const [searchInput, setSearchInput] = useState('');
   const [users, setUsers] = useState<ComplianceUser[]>([]);
-  const [kpis, setKpis] = useState<any>({});
-  const [search, setSearch] = useState('');
-  const [countryFilter, setCountryFilter] = useState('');
-  const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState<any>({});
+  const [kpis, setKpis] = useState<Kpis>({});
+  const [countries, setCountries] = useState<CountryCount[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const { toast, toastNode } = useToasts();
+  const seq = useRef(0);
 
-  async function load() {
-    if (!token) return;
+  useEffect(() => {
+    if (ready) setSearchInput(filters.q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+
+  useDebouncedCommit(searchInput, (q) => {
+    if (ready) setFilters((f) => (f.q === q ? f : { ...f, q, page: 1 }));
+  });
+
+  const buildParams = useCallback((f: Filters) => {
+    const p = new URLSearchParams({ sort: f.sort, order: f.order });
+    (['q', 'country', 'match', 'status'] as const).forEach((k) => {
+      if (f[k]) p.set(k, f[k]);
+    });
+    applyRange(p, f.range, f.from, f.to);
+    return p;
+  }, []);
+
+  const load = useCallback(async () => {
+    const tok = localStorage.getItem('ca_admin_token');
+    if (!tok) return;
+    const id = ++seq.current;
     setLoading(true);
+    setLoadError(null);
+    const p = buildParams(filters);
+    p.set('page', String(filters.page));
+    p.set('limit', String(filters.limit));
     try {
-      const params = new URLSearchParams({
-        page: String(page),
-        limit: '25',
-        ...(search ? { q: search } : {}),
-        ...(countryFilter ? { country: countryFilter } : {}),
-      });
-      const res = await api<any>(`/admin/user-location-compliance?${params.toString()}`, token);
+      const res = await api<{
+        data?: { users?: ComplianceUser[]; kpis?: Kpis; countries?: CountryCount[]; meta?: { total?: number; pages?: number } };
+      }>(`/admin/user-location-compliance?${p.toString()}`, tok);
+      if (id !== seq.current) return;
+      const pages = Math.max(1, Number(res.data?.meta?.pages ?? 1));
       setUsers(res.data?.users ?? []);
       setKpis(res.data?.kpis ?? {});
-      setMeta(res.data?.meta ?? {});
+      setCountries(res.data?.countries ?? []);
+      setTotal(Number(res.data?.meta?.total ?? 0));
+      setTotalPages(pages);
+      if (filters.page > pages) setFilters((f) => ({ ...f, page: pages }));
     } catch (err) {
-      console.error(err);
+      if (id !== seq.current) return;
+      setLoadError(errorText(err, 'Failed to load compliance records'));
     } finally {
-      setLoading(false);
+      if (id === seq.current) setLoading(false);
+    }
+  }, [filters, buildParams, setFilters]);
+
+  useEffect(() => {
+    if (ready && token) void load();
+  }, [ready, token, load]);
+
+  function onSort(column: string, defaultOrder: 'asc' | 'desc') {
+    if (filters.sort === column) update({ order: filters.order === 'desc' ? 'asc' : 'desc' });
+    else update({ sort: column, order: defaultOrder });
+  }
+
+  function resetAll() {
+    setSearchInput('');
+    reset();
+  }
+
+  async function handleExport() {
+    const tok = localStorage.getItem('ca_admin_token');
+    if (!tok) return;
+    setExporting(true);
+    try {
+      const res = await api<{ data?: string } | string>(`/admin/user-location-compliance/export?${buildParams(filters).toString()}`, tok);
+      await downloadCsv(typeof res === 'string' ? res : res.data ?? '', `user-location-compliance-${ymd(new Date())}.csv`);
+      toast('success', `Exported ${fmt(Math.min(total, 20000))} accounts`);
+    } catch (err) {
+      toast('error', errorText(err, 'Failed to export CSV'));
+    } finally {
+      setExporting(false);
     }
   }
 
-  useEffect(() => {
-    load();
-  }, [token, page, countryFilter]);
-
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPage(1);
-    load();
-  };
-
-  const handleExportCsv = async () => {
-    if (!token) return;
-    try {
-      const res = await api<any>('/admin/user-location-compliance/export', token);
-      const blob = new Blob([res.data], { type: 'text/csv' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `user-location-compliance-${new Date().toISOString().split('T')[0]}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch (err: any) {
-      alert(err.message || 'Failed to export CSV');
-    }
-  };
+  const topCountries = useMemo(() => countries.filter((c) => c.code !== 'UNKNOWN').slice(0, 10), [countries]);
+  const sortValue = `${filters.sort}:${filters.order}`;
+  const sortKnown = SORTS.some((s) => s.value === sortValue);
 
   return (
-    <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
+    <main className="ad-page">
+      <AdminStyles />
+
+      <div className="ad-header">
         <div>
-          <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>User Location Compliance</h1>
-          <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>
-            Multi-source location telemetry (GeoIP, client header, purchase geo, profile country) for audit and tax reporting.
+          <h1>User Location Compliance</h1>
+          <p>
+            Where accounts really are. Profile country is what the user chose; client country comes from their device/network. The effective country
+            (client first, then profile) is used for audit and tax reporting.
           </p>
         </div>
-        <button
-          onClick={handleExportCsv}
-          style={{
-            padding: '9px 18px',
-            backgroundColor: '#059669',
-            color: '#fff',
-            fontWeight: 600,
-            borderRadius: 8,
-            border: 'none',
-            fontSize: '0.85rem',
-            cursor: 'pointer',
-          }}
-        >
-          Export Compliance CSV
-        </button>
-      </div>
-
-      {/* KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, marginBottom: 20 }}>
-        <div style={kpiCardStyle}>
-          <div style={{ fontSize: '0.85rem', color: '#6b7280', fontWeight: 600, textTransform: 'uppercase' }}>Tracked Active Accounts</div>
-          <div style={{ fontSize: '2rem', fontWeight: 700, color: '#111827', marginTop: 4 }}>
-            {kpis.total_tracked_users ?? 0}
-          </div>
-        </div>
-        <div style={kpiCardStyle}>
-          <div style={{ fontSize: '0.85rem', color: '#6b7280', fontWeight: 600, textTransform: 'uppercase' }}>Distinct Countries Detected</div>
-          <div style={{ fontSize: '2rem', fontWeight: 700, color: '#4f46e5', marginTop: 4 }}>
-            {kpis.countries_detected ?? 0}
-          </div>
+        <div className="ad-header-actions">
+          <button type="button" className="ad-btn ad-btn-export ad-btn-lg" onClick={() => void handleExport()} disabled={exporting || total === 0}>
+            {exporting ? 'Exporting…' : `Export CSV${isDirty ? ' (filtered)' : ''}`}
+          </button>
         </div>
       </div>
 
-      {/* Filter Toolbar */}
-      <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-        <input
-          type="text"
-          placeholder="Search by name, email, or phone..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ width: 300, padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: '0.9rem' }}
-        />
-        <input
-          type="text"
-          placeholder="Filter country (e.g. IN)..."
-          value={countryFilter}
-          onChange={(e) => setCountryFilter(e.target.value.toUpperCase())}
-          style={{ width: 160, padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: '0.9rem' }}
-        />
-        <button
-          type="submit"
-          style={{ padding: '8px 16px', borderRadius: 8, backgroundColor: '#1f2937', color: '#fff', border: 'none', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}
-        >
-          Filter
-        </button>
-      </form>
+      <div className="ad-kpis">
+        <div className="ad-kpi is-clickable" onClick={resetAll} title="Show all accounts">
+          <div className="ad-kpi-label">Tracked accounts</div>
+          <div className="ad-kpi-value">{fmt(kpis.total_tracked_users)}</div>
+          <div className="ad-kpi-sub">excluding deactivated</div>
+        </div>
+        <div className="ad-kpi">
+          <div className="ad-kpi-label">Countries detected</div>
+          <div className="ad-kpi-value tone-indigo">{fmt(kpis.countries_detected)}</div>
+          <div className="ad-kpi-sub">by effective country</div>
+        </div>
+        <div className="ad-kpi is-clickable" onClick={() => update({ match: 'mismatch' })} title="Show mismatched accounts">
+          <div className="ad-kpi-label">Country mismatch</div>
+          <div className={`ad-kpi-value ${kpis.mismatches ? 'tone-amber' : ''}`}>{fmt(kpis.mismatches)}</div>
+          <div className="ad-kpi-sub">profile ≠ client country</div>
+        </div>
+        <div className="ad-kpi is-clickable" onClick={() => update({ country: 'UNKNOWN' })} title="Show accounts with no location">
+          <div className="ad-kpi-label">Unknown location</div>
+          <div className={`ad-kpi-value ${kpis.unknown ? 'tone-red' : ''}`}>{fmt(kpis.unknown)}</div>
+          <div className="ad-kpi-sub">no profile or client country</div>
+        </div>
+      </div>
 
-      {/* Table */}
-      <div style={{ backgroundColor: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
-          <thead>
-            <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb', color: '#4b5563', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>
-              <th style={{ padding: '12px 16px' }}>USER</th>
-              <th style={{ padding: '12px 16px' }}>PROFILE COUNTRY</th>
-              <th style={{ padding: '12px 16px' }}>CLIENT COUNTRY</th>
-              <th style={{ padding: '12px 16px' }}>EFFECTIVE COUNTRY</th>
-              <th style={{ padding: '12px 16px' }}>COINS</th>
-              <th style={{ padding: '12px 16px' }}>STATUS</th>
-              <th style={{ padding: '12px 16px' }}>REGISTERED</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={7} style={{ padding: 32, textAlign: 'center', color: '#9ca3af' }}>
-                  Loading compliance records...
-                </td>
-              </tr>
-            ) : users.length === 0 ? (
-              <tr>
-                <td colSpan={7} style={{ padding: 32, textAlign: 'center', color: '#9ca3af' }}>
-                  No matching user compliance records found.
-                </td>
-              </tr>
-            ) : (
-              users.map((u) => (
-                <tr key={u.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                  <td style={{ padding: '12px 16px' }}>
-                    <div style={{ fontWeight: 600, color: '#111827' }}>{u.name}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>ID: {u.id} • {u.email ?? u.phone ?? 'No contact'}</div>
-                  </td>
-                  <td style={{ padding: '12px 16px', color: '#374151' }}>{u.profile_country ?? '—'}</td>
-                  <td style={{ padding: '12px 16px', color: '#374151' }}>{u.client_country ?? '—'}</td>
-                  <td style={{ padding: '12px 16px' }}>
-                    <span
-                      style={{
-                        padding: '3px 8px',
-                        borderRadius: 6,
-                        backgroundColor: '#e0e7ff',
-                        color: '#4338ca',
-                        fontWeight: 600,
-                        fontSize: '0.8rem',
-                      }}
-                    >
-                      {u.effective_country}
-                    </span>
-                  </td>
-                  <td style={{ padding: '12px 16px', fontWeight: 600, color: '#ca8a04' }}>
-                    {u.coin_balance.toLocaleString()}
-                  </td>
-                  <td style={{ padding: '12px 16px' }}>
-                    <span
-                      style={{
-                        padding: '3px 8px',
-                        borderRadius: 9999,
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        backgroundColor: u.account_status === 'active' ? '#def7ec' : '#fde8e8',
-                        color: u.account_status === 'active' ? '#03543f' : '#9b1c1c',
-                      }}
-                    >
-                      {u.account_status}
-                    </span>
-                  </td>
-                  <td style={{ padding: '12px 16px', fontSize: '0.8rem', color: '#6b7280' }}>
-                    {new Date(u.registered_at).toLocaleDateString()}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      <div className="ad-card">
+        <Tabs
+          value={filters.match}
+          onChange={(v) => update({ match: v })}
+          tabs={[
+            { value: '', label: 'All accounts' },
+            { value: 'mismatch', label: 'Country mismatch', count: kpis.mismatches, tone: 'amber' },
+            { value: 'match', label: 'Consistent', tone: 'green' },
+            { value: 'missing', label: 'Missing data', tone: 'red' },
+          ]}
+        />
 
-        {/* Pagination */}
-        {meta.pages > 1 && (
-          <div style={{ padding: '12px 20px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.85rem', color: '#6b7280' }}>
-              Page {meta.page} of {meta.pages} ({meta.total} users)
-            </span>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                disabled={page <= 1}
-                onClick={() => setPage((p) => p - 1)}
-                style={pageBtnStyle}
-              >
-                Previous
-              </button>
-              <button
-                disabled={page >= meta.pages}
-                onClick={() => setPage((p) => p + 1)}
-                style={pageBtnStyle}
-              >
-                Next
-              </button>
+        {topCountries.length > 0 && (
+          <div className="ad-range-row">
+            <span className="ad-sub" style={{ fontWeight: 600 }}>Top countries:</span>
+            <div className="ad-chips">
+              {topCountries.map((c) => (
+                <button
+                  key={c.code}
+                  type="button"
+                  className={`ad-chip ${filters.country === c.code ? 'is-active' : ''}`}
+                  onClick={() => update({ country: filters.country === c.code ? '' : c.code })}
+                  title={countryName(c.code)}
+                >
+                  {flag(c.code)} {c.code} · {fmt(c.count)}
+                </button>
+              ))}
             </div>
           </div>
         )}
+
+        <div className="ad-toolbar">
+          <SearchBox
+            value={searchInput}
+            onChange={setSearchInput}
+            onEnter={() => update({ q: searchInput.trim() })}
+            placeholder="Search name, email, phone or #ID…"
+          />
+          <label className="ad-field">
+            <span>Country</span>
+            <select value={filters.country} onChange={(e) => update({ country: e.target.value })}>
+              <option value="">All countries</option>
+              {countries.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code === 'UNKNOWN' ? 'Unknown' : `${countryName(c.code)} (${c.code})`} · {fmt(c.count)}
+                </option>
+              ))}
+              {filters.country && !countries.some((c) => c.code === filters.country) && (
+                <option value={filters.country}>{countryName(filters.country)}</option>
+              )}
+            </select>
+          </label>
+          <label className="ad-field">
+            <span>Account status</span>
+            <select value={filters.status} onChange={(e) => update({ status: e.target.value as Filters['status'] })}>
+              <option value="">Active + suspended</option>
+              <option value="active">Active only</option>
+              <option value="suspended">Suspended only</option>
+              <option value="deactivated">Deactivated</option>
+            </select>
+          </label>
+          <label className="ad-field">
+            <span>Sort by</span>
+            <select
+              value={sortKnown ? sortValue : ''}
+              onChange={(e) => {
+                const [sort, order] = e.target.value.split(':');
+                if (sort) update({ sort, order: order as 'asc' | 'desc' });
+              }}
+            >
+              {!sortKnown && <option value="">Custom</option>}
+              {SORTS.map((s) => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+          </label>
+          {isDirty && (
+            <button type="button" className="ad-btn ad-btn-ghost ad-btn-lg" onClick={resetAll}>Reset filters</button>
+          )}
+        </div>
+
+        <div className="ad-range-row" style={{ paddingTop: 0 }}>
+          <span className="ad-sub" style={{ fontWeight: 600 }}>Registered:</span>
+          <DateRangeChips range={filters.range} from={filters.from} to={filters.to} onChange={(patch) => update(patch)} />
+        </div>
+
+        <div className="ad-summary" style={{ paddingTop: 12 }}>
+          {loading ? 'Loading…' : (
+            <>
+              <strong>{fmt(total)}</strong> account{total === 1 ? '' : 's'}
+              {filters.country ? <> in {filters.country === 'UNKNOWN' ? 'unknown location' : countryName(filters.country)}</> : null}
+              {filters.q ? <> matching “{filters.q}”</> : null}
+            </>
+          )}
+        </div>
+
+        {loadError && (
+          <div className="ad-alert">
+            {loadError}
+            <button type="button" className="ad-btn ad-btn-ghost" onClick={() => void load()}>Retry</button>
+          </div>
+        )}
+
+        <div className="ad-table-wrap">
+          <table className="ad-table">
+            <thead>
+              <tr>
+                <SortTh column="name" label="User" sort={filters.sort} order={filters.order} onSort={onSort} defaultOrder="asc" />
+                <th className="ad-th">Profile country</th>
+                <th className="ad-th">Client country</th>
+                <SortTh column="country" label="Effective" sort={filters.sort} order={filters.order} onSort={onSort} defaultOrder="asc" />
+                <SortTh column="coins" label="Coins" sort={filters.sort} order={filters.order} onSort={onSort} align="right" />
+                <th className="ad-th">Status</th>
+                <SortTh column="created_at" label="Registered" sort={filters.sort} order={filters.order} onSort={onSort} />
+              </tr>
+            </thead>
+            <tbody className={loading && users.length > 0 ? 'is-loading' : ''}>
+              {loading && users.length === 0 ? (
+                <SkeletonRows cols={7} />
+              ) : users.length === 0 ? (
+                <EmptyRow cols={7} title="No accounts found" hint="Try another country or clear filters." onReset={isDirty ? resetAll : undefined} />
+              ) : (
+                users.map((u) => {
+                  const status = u.status ?? (u.account_status === 'deleted' ? 'deactivated' : u.account_status === 'suspended' ? 'suspended' : 'active');
+                  const name = u.name || `User #${u.id}`;
+                  return (
+                    <tr key={u.id} className="ad-row">
+                      <td className="ad-td">
+                        <div className="ad-user" style={{ maxWidth: 320 }}>
+                          <Avatar name={name} url={u.avatar_url} />
+                          <div style={{ minWidth: 0 }}>
+                            <div className="ad-name" title={name}>{name}</div>
+                            <div className="ad-sub" title={u.email ?? u.phone ?? ''}>
+                              <Link href={`/users?q=%23${u.id}`} className="ad-link" title="Open in User Management">ID {u.id}</Link>
+                              {' · '}
+                              {u.email ?? u.phone ?? 'No contact'}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="ad-td ad-nowrap" title={countryName(u.profile_country)}>
+                        {u.profile_country ? <>{flag(u.profile_country)} {u.profile_country}</> : <span className="ad-hint">—</span>}
+                      </td>
+                      <td className="ad-td ad-nowrap" title={countryName(u.client_country)}>
+                        {u.client_country ? <>{flag(u.client_country)} {u.client_country}</> : <span className="ad-hint">—</span>}
+                        {u.country_mismatch && (
+                          <span className="ad-badge amber" style={{ marginLeft: 8 }} title="Profile country differs from device/network country">
+                            ⚠ Mismatch
+                          </span>
+                        )}
+                      </td>
+                      <td className="ad-td ad-nowrap">
+                        <button
+                          type="button"
+                          className="ad-link"
+                          style={{ fontSize: '0.8rem' }}
+                          onClick={() => update({ country: u.effective_country === 'Unknown' ? 'UNKNOWN' : u.effective_country.toUpperCase() })}
+                          title={`Show all accounts in ${countryName(u.effective_country)}`}
+                        >
+                          <span className={`ad-badge ${u.effective_country === 'Unknown' ? 'gray' : 'indigo'}`} style={{ textTransform: 'none' }}>
+                            {flag(u.effective_country)} {countryName(u.effective_country)}
+                          </span>
+                        </button>
+                      </td>
+                      <td className="ad-td ad-num" style={{ fontWeight: 600, color: '#b45309' }}>🪙 {fmt(u.coin_balance)}</td>
+                      <td className="ad-td"><span className={`ad-badge ${STATUS_BADGE[status]}`}>{status}</span></td>
+                      <td className="ad-td ad-nowrap">{formatDate(u.registered_at)}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <Pager
+          page={filters.page}
+          totalPages={totalPages}
+          total={total}
+          limit={filters.limit}
+          loading={loading}
+          limits={[25, 50, 100]}
+          onPage={(p) => setFilters((f) => ({ ...f, page: p }))}
+          onLimit={(l) => update({ limit: l })}
+        />
       </div>
+
+      {toastNode}
     </main>
   );
 }
-
-const kpiCardStyle: React.CSSProperties = {
-  backgroundColor: '#fff',
-  padding: '16px 20px',
-  borderRadius: 12,
-  border: '1px solid #e5e7eb',
-  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-};
-
-const pageBtnStyle: React.CSSProperties = {
-  padding: '6px 12px',
-  borderRadius: 6,
-  border: '1px solid #d1d5db',
-  backgroundColor: '#fff',
-  fontSize: '0.8rem',
-  fontWeight: 500,
-  cursor: 'pointer',
-};
