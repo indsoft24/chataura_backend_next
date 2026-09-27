@@ -596,23 +596,80 @@ export class BonusSpinService {
 
   private async bonusCfg() {
     const settings = await this.settings();
-    const extra = (settings.bonusConfig ?? {}) as Record<string, unknown>;
+    const cfgJson = (settings.bonusConfig ?? {}) as Record<string, unknown>;
+    const extraJson = (settings.extraSettings ?? {}) as Record<string, unknown>;
+
+    // ── Build daily_streak.rewards from extraSettings streak_day_N_coins ──
+    // The admin panel writes per-day coin values as flat extraSettings fields.
+    // Prefer those over the bonusConfig blob so admin panel changes are instant.
+    const streakFromExtra: number[] = [1, 2, 3, 4, 5, 6, 7].map(
+      (d) =>
+        Number(extraJson[`streak_day_${d}_coins`] ?? 0) ||
+        DEFAULT_BONUS_CONFIG.daily_streak.rewards[d - 1],
+    );
+    const streakEnabled =
+      extraJson.streak_enabled !== undefined
+        ? Boolean(extraJson.streak_enabled)
+        : DEFAULT_BONUS_CONFIG.daily_streak.enabled;
+
+    const cfgStreak = (cfgJson.daily_streak as Record<string, unknown>) ?? {};
+    const dailyStreak = {
+      ...DEFAULT_BONUS_CONFIG.daily_streak,
+      ...cfgStreak,
+      enabled: cfgStreak.enabled !== undefined ? Boolean(cfgStreak.enabled) : streakEnabled,
+      // extraSettings per-day values win over bonusConfig blob
+      rewards: streakFromExtra,
+    };
+
+    // ── admob from extraSettings ──────────────────────────────────────────
+    const cfgAdmob = (cfgJson.admob as Record<string, unknown>) ?? {};
+    const admob = {
+      ...DEFAULT_BONUS_CONFIG.admob,
+      ...cfgAdmob,
+      enabled:
+        cfgAdmob.enabled !== undefined
+          ? Boolean(cfgAdmob.enabled)
+          : (extraJson.admob_enabled !== undefined
+              ? Boolean(extraJson.admob_enabled)
+              : DEFAULT_BONUS_CONFIG.admob.enabled),
+      coins:
+        cfgAdmob.coins !== undefined
+          ? Number(cfgAdmob.coins)
+          : Number(extraJson.admob_ad_coins ?? DEFAULT_BONUS_CONFIG.admob.coins),
+      daily_limit:
+        cfgAdmob.daily_limit !== undefined
+          ? Number(cfgAdmob.daily_limit)
+          : Number(extraJson.admob_daily_ad_limit ?? DEFAULT_BONUS_CONFIG.admob.daily_limit),
+    };
+
+    // ── referral_milestone from extraSettings ─────────────────────────────
+    const cfgRefMilestone = (cfgJson.referral_milestone as Record<string, unknown>) ?? {};
+    const referralMilestone = {
+      ...DEFAULT_BONUS_CONFIG.referral_milestone,
+      ...cfgRefMilestone,
+    };
+
+    // ── referral_rewards (per-invite coins) from extraSettings ────────────
+    // The app reads BonusConfigDto.referralRewards; the admin writes
+    // referral_reward_referrer / referral_reward_referee into extraSettings.
+    const referralRewards = {
+      referrer_coins: Number(
+        extraJson.referral_reward_referrer ?? DEFAULT_BONUS_CONFIG.referral_milestone.coins,
+      ),
+      referee_coins: Number(
+        extraJson.referral_reward_referee ?? DEFAULT_BONUS_CONFIG.referral_milestone.coins,
+      ),
+    };
+
     const merged = {
       ...DEFAULT_BONUS_CONFIG,
-      ...extra,
-      daily_streak: {
-        ...DEFAULT_BONUS_CONFIG.daily_streak,
-        ...((extra.daily_streak as object) ?? {}),
-      },
-      admob: {
-        ...DEFAULT_BONUS_CONFIG.admob,
-        ...((extra.admob as object) ?? {}),
-      },
-      referral_milestone: {
-        ...DEFAULT_BONUS_CONFIG.referral_milestone,
-        ...((extra.referral_milestone as object) ?? {}),
-      },
+      ...cfgJson,
+      daily_streak: dailyStreak,
+      admob,
+      referral_milestone: referralMilestone,
+      referral_rewards: referralRewards,
     };
+
     const tiers = await this.prisma.partyRoomBonusTier.findMany({
       where: { isActive: true },
       orderBy: [{ sortOrder: 'asc' }, { durationMinutes: 'asc' }],
