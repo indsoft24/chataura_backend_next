@@ -8,6 +8,7 @@ import { RoomEvents } from './room.events';
 import { RoomGateway } from './room.gateway';
 import { PresenceService } from './presence.service';
 import { RoomGiftingService } from './room-gifting.service';
+import { GiftBroadcastService } from './gift-broadcast.service';
 import { RocketLaunchService } from './rocket-launch.service';
 import { RoomService } from './room.service';
 import { CpAffectionGiftsService } from './cp-affection-gifts.service';
@@ -19,12 +20,13 @@ import { CpAffectionGiftsService } from './cp-affection-gifts.service';
     RoomService,
     PresenceService,
     RoomGiftingService,
+    GiftBroadcastService,
     RocketLaunchService,
     CpAffectionGiftsService,
     AgoraService,
     RoomEvents,
     RoomGateway,
   ],
-  exports: [RoomService, RoomGiftingService, RocketLaunchService],
+  exports: [RoomService, RoomGiftingService, GiftBroadcastService, RocketLaunchService],
 })
 export class RoomModule {}

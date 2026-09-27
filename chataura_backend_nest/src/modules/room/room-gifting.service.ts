@@ -13,6 +13,8 @@ import { resolveAgencyRoomMeta } from './agency-room-meta';
 import { RoomEvents } from './room.events';
 import { RocketLaunchService } from './rocket-launch.service';
 import { CpAffectionGiftsService } from './cp-affection-gifts.service';
+import { GiftBroadcastService } from './gift-broadcast.service';
+import { RedisService } from '../../common/redis/redis.service';
 
 @Injectable()
 export class RoomGiftingService {
@@ -23,6 +25,8 @@ export class RoomGiftingService {
     private readonly relationships: RelationshipEngineService,
     private readonly rockets: RocketLaunchService,
     private readonly cpAffectionGifts: CpAffectionGiftsService,
+    private readonly giftBroadcast: GiftBroadcastService,
+    private readonly redis: RedisService,
   ) {}
 
   async giftTypes() {
@@ -110,7 +114,25 @@ export class RoomGiftingService {
     const commission = BigInt(Math.floor(Number(cost) * commissionPct));
     const netGems = cost - commission;
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    // Idempotency: guard against duplicate/retried requests before deducting coins (Req 7a)
+    const idemKey = (body as any).idempotency_key
+      ? `gift_idem_req:${senderId}:${(body as any).idempotency_key}`
+      : `gift_dedup:${senderId}:${room.id}:${gift.id}:${receiverId}:${quantity}`;
+    const redisClient = this.redis.getClient();
+    const isNewReq = await redisClient.set(idemKey, 'IN_PROGRESS', 'EX', 10, 'NX');
+    if (!isNewReq) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'DUPLICATE_REQUEST',
+          message: 'This gift request is already processing or was recently submitted',
+        },
+      });
+    }
+
+    let result;
+    try {
+      result = await this.prisma.$transaction(async (tx) => {
       try {
         const userMap = await this.ledger.lockUsers(tx, [senderId, receiverId]);
         const recv = userMap.get(receiverId.toString());
@@ -223,19 +245,45 @@ export class RoomGiftingService {
         throw e;
       }
     });
+      await redisClient.set(idemKey, 'COMPLETED', 'EX', 30);
+    } catch (e) {
+      await redisClient.del(idemKey);
+      throw e;
+    }
     const agency = await resolveAgencyRoomMeta(
       this.prisma,
       room.ownerId,
       room.id,
     );
+
+    // Guard transaction_id ref in Redis for 30 s to avoid re-broadcasting
+    const idempotencyKey = `gift_idem:${result.transaction_id}`;
+    const isNew = await redisClient.set(idempotencyKey, '1', 'EX', 30, 'NX');
+    if (!isNew) {
+      return { ...result, agency_cashback: agency.agency_cashback, rocket: null };
+    }
+
     {
-      this.events.emitGiftOverlay(room.id, {
-        gift_id: Number(gift.id),
+      // Resolve admin-configured visualTier from gift metadata.
+      // Falls back to coin-cost heuristic until gift table has a visualTier column.
+      const resolvedTier: import('./gift-broadcast.service').GiftVisualTier = (() => {
+        const cost = gift.coinCost;
+        if (cost >= 5000) return 'ULTRA';
+        if (cost >= 500) return 'HIGH';
+        if (cost >= 50) return 'MEDIUM';
+        return 'LOW';
+      })();
+
+      this.giftBroadcast.enqueue(room.id, {
+        giftId: Number(gift.id),
         ...catalogClientFields(gift.imageUrl, gift.animationUrl),
-        sender_id: Number(senderId),
-        receiver_id: Number(receiverId),
-        quantity,
-      });
+        senderId: Number(senderId),
+        receiverId: Number(receiverId),
+        tier: resolvedTier,
+        count: quantity,
+        costCoins: Number(cost),
+        createdAt: Date.now(),
+      } as import('./gift-broadcast.service').GiftDisplayEvent);
     }
     const rocket =
       gift.category === 'cp' || gift.category === 'bcp'
@@ -327,7 +375,25 @@ export class RoomGiftingService {
     const perCommission = BigInt(Math.floor(Number(perCost) * commissionPct));
     const perNetGems = perCost - perCommission;
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    // Idempotency: guard against duplicate/retried batch requests (Req 7a)
+    const batchIdemKey = (body as any).idempotency_key
+      ? `gift_idem_req:${senderId}:${(body as any).idempotency_key}`
+      : `gift_batch_dedup:${senderId}:${room.id}:${gift.id}:${eligibleIds.map(String).sort().join(',')}:${quantity}`;
+    const redisClient = this.redis.getClient();
+    const isNewBatchReq = await redisClient.set(batchIdemKey, 'IN_PROGRESS', 'EX', 10, 'NX');
+    if (!isNewBatchReq) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'DUPLICATE_REQUEST',
+          message: 'This batch gift request is already processing or was recently submitted',
+        },
+      });
+    }
+
+    let result;
+    try {
+      result = await this.prisma.$transaction(async (tx) => {
       try {
         const userMap = await this.ledger.lockUsers(tx, [
           senderId,
@@ -474,16 +540,33 @@ export class RoomGiftingService {
         throw e;
       }
     });
+      await redisClient.set(batchIdemKey, 'COMPLETED', 'EX', 30);
+    } catch (e) {
+      await redisClient.del(batchIdemKey);
+      throw e;
+    }
 
     {
       const media = catalogClientFields(gift.imageUrl, gift.animationUrl);
+      const resolvedTier: import('./gift-broadcast.service').GiftVisualTier = (() => {
+        const cost = gift.coinCost;
+        if (cost >= 5000) return 'ULTRA';
+        if (cost >= 500) return 'HIGH';
+        if (cost >= 50) return 'MEDIUM';
+        return 'LOW';
+      })();
+
+      const now = Date.now();
       for (const rid of eligibleIds) {
-        this.events.emitGiftOverlay(room.id, {
-          gift_id: Number(gift.id),
+        this.giftBroadcast.enqueue(room.id, {
+          giftId: Number(gift.id),
           ...media,
-          sender_id: Number(senderId),
-          receiver_id: Number(rid),
-          quantity,
+          senderId: Number(senderId),
+          receiverId: Number(rid),
+          tier: resolvedTier,
+          count: quantity,
+          costCoins: Number(gift.coinCost),
+          createdAt: now,
         });
       }
     }

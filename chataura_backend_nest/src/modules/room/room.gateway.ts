@@ -9,7 +9,8 @@ import {
 import { Server, Socket } from 'socket.io';
 import { TokenService } from '../auth/token.service';
 import { RoomEvents } from './room.events';
-import { wsThrottler } from '../../common/utils/ws-throttler';
+import { RoomGiftingService } from './room-gifting.service';
+import { wsThrottler, wsEventThrottler } from '../../common/utils/ws-throttler';
 
 @WebSocketGateway({ namespace: '/ws/rooms', cors: { origin: true } })
 export class RoomGateway implements OnGatewayConnection {
@@ -19,6 +20,7 @@ export class RoomGateway implements OnGatewayConnection {
   constructor(
     private readonly tokens: TokenService,
     private readonly events: RoomEvents,
+    private readonly gifting: RoomGiftingService,
   ) {
     this.events.emitSeatUpdated = (roomId, payload) => {
       this.server?.to(`room:${roomId}`).emit('room:seat_updated', payload);
@@ -59,5 +61,66 @@ export class RoomGateway implements OnGatewayConnection {
   ) {
     if (body?.room_id) void client.join(`room:${body.room_id}`);
     return { ok: true };
+  }
+
+  /**
+   * Per-websocket-event rate limited gift sending (Requirement 7b).
+   * Limits rapid gift spam over WebSocket to max 5 requests per second per socket.
+   */
+  @SubscribeMessage('gift.send')
+  async handleGiftSend(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    body: {
+      room_id: string;
+      gift_id: number | string;
+      receiver_id: number | string;
+      quantity?: number;
+      idempotency_key?: string;
+    },
+  ) {
+    if (wsEventThrottler.isEventRateLimited(client.id, 'gift.send', 5, 1000)) {
+      return {
+        success: false,
+        error: {
+          code: 'RATE_LIMIT_EXCEEDED',
+          message: 'Too many gift requests. Max 5 per second.',
+        },
+      };
+    }
+    const userId = client.data?.userId;
+    if (!userId) {
+      return {
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'Authentication required' },
+      };
+    }
+    try {
+      return await this.gifting.sendRoomGift(BigInt(userId), body.room_id, body);
+    } catch (e: any) {
+      return {
+        success: false,
+        error: {
+          code: e?.response?.error?.code ?? 'GIFT_SEND_FAILED',
+          message:
+            e?.response?.error?.message ?? e?.message ?? 'Failed to send gift',
+        },
+      };
+    }
+  }
+
+  @SubscribeMessage('gift:send')
+  async handleGiftSendAlias(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    body: {
+      room_id: string;
+      gift_id: number | string;
+      receiver_id: number | string;
+      quantity?: number;
+      idempotency_key?: string;
+    },
+  ) {
+    return this.handleGiftSend(client, body);
   }
 }
