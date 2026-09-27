@@ -222,25 +222,21 @@ Classification Taxonomy:
 
 ### [HLD-09] Redundant Database Schema Columns (`wallet_balance` vs `coin_balance`)
 
-- **Severity:** `LOW`
-- **Classification:** `ACCEPTABLE CURRENT DESIGN`
-- **Evidence:** [`prisma/schema.prisma:56-57`](file:///Users/ashishtayal/AndroidStudioProjects/ChatAura/chataura_backend_next/chataura_backend_nest/prisma/schema.prisma#L56-L57)
-- **Current Architecture:**
-  `User` model maintains dual columns: `coinBalance` and `walletBalance`, plus `xp` and `exp`. Both are synchronized in `LedgerService`.
-- **Actual Problem:**
-  Denormalized duplicate storage of identical concepts.
-- **Business/Technical Impact:**
-  This was an intentional migration design decision to guarantee 100% zero-regression backward compatibility with legacy Android client versions that read either field. Dropping or altering these columns in PostgreSQL risks breaking existing deployed mobile builds.
-- **Recommended Solution:**
-  **Keep both columns intact.** `LedgerService` already updates both atomically within PostgreSQL row-locked transactions. Do NOT modify the database schema.
-- **Why This Solution is Necessary:**
-  Preserves seamless production Android client compatibility.
-- **Alternative:**
-  Dropping `coin_balance` and migrating all code to `wallet_balance` (High risk of breaking mobile client deserialization).
-- **Migration Risk:** High if changed; zero if preserved.
-- **Whether Code Must Change:** **No.**
-- **Whether Database Must Change:** **No.**
-- **Whether API Contract Must Change:** **No.**
+- **Severity:** `HIGH` (revised 2026-09-27)
+- **Classification:** `RESOLVED: SINGLE COIN COLUMN`
+- **Original assumption (superseded):** both columns were kept in sync by `LedgerService`. In production they already differed for 143 users when migrated from Laravel, and API responses read different columns, so users saw one balance and could spend another.
+- **Decision:**
+  - `users.wallet_balance` is the only coin balance. `coinBalance` is removed from `schema.prisma` and all code; the DB column is dropped after a 7-day soak (migration pending).
+  - The one-time merge (`20260927120000_merge_coin_balance_max`) set each user to `GREATEST(wallet_balance, coin_balance)`, wrote a `BALANCE_MERGE` ledger row for every increase, and kept old values in `coin_balance_merge_audit`.
+  - **API contract unchanged:** JSON fields `coins`, `coin_balance`, and `wallet_balance` are still emitted, all carrying `wallet_balance`, so deployed Android builds keep working.
+- **Money-flow rules (enforced in `LedgerService`):**
+  - Every coin or gem movement runs in a DB transaction with `SELECT ... FOR UPDATE`, a unique `referenceId` (idempotent), and one `coin_transactions` row.
+  - **Coins in:** `RECHARGE` (Razorpay), `ADMIN_CREDIT`, `*_WIN`, `GEM_TO_COINS`, `LUCKY_GIFT_REBATE`, bonuses, `ROCKET_REWARD`, `BALANCE_MERGE`.
+  - **Coins out:** `GIFT`, `GAME_*`, `SPIN`, calls, stickers, frames, `ADMIN_DEBIT`.
+  - **Gems** (single column `users.gems`): every change writes a row with `meta.currency = 'gems'`, `meta.gems_delta`, and `meta.gems_after` (`GIFT_RECEIVED`, `STAR_CHAT_EARNED`, `PARTY_GEMS`, `AGENCY_WEEKLY_PAYOUT`, `ADMIN_GEM_*`, `GEM_TO_COINS`). Gem rows use `coin_amount = 0`.
+  - **XP/level** changes only from real coin spending. Admin coin and gem adjustments never grant XP or change level.
+  - **Lucky gifts:** the sender gets a random `lucky_rebate_min_pct`-`lucky_rebate_max_pct` (default 1-40) percent of the gift value back as coins. The receiver's gems and the commission are computed on the full gift value.
+- **Monitoring:** `BalanceReconciliationService` runs daily at 03:00 UTC and logs an error for any user whose `wallet_balance` or `gems` differs from their latest ledger row.
 
 ---
 
@@ -373,7 +369,7 @@ Classification Taxonomy:
 | **1. MUST FIX BEFORE PRODUCTION** | **2** | **HLD-02** (Docker Uploads Volume Mount), **HLD-07** (Automated Database Backups), **HLD-10** (Strict Production Auth Guardrails) |
 | **2. SHOULD FIX NOW** | **3** | **HLD-06** (Admin Token HttpOnly Cookie), **HLD-13** (PostgreSQL Config Drift), **HLD-14** (Admin Live Analytics) |
 | **3. FUTURE SCALABILITY IMPROVEMENT** | **1** | **HLD-01** (Distributed Game Engine when clustering beyond 1 VPS) |
-| **4. ACCEPTABLE CURRENT DESIGN** | **5** | **HLD-01** (In-process Game Loop on single VPS), **HLD-03** (In-memory Socket.IO on single VPS), **HLD-04** (Direct DB Auth Guard), **HLD-08** (No Redis caching on tiny catalogs), **HLD-09** (Preserving dual balance columns for Android compatibility), **HLD-11** (AdminService direct Prisma CQRS) |
+| **4. ACCEPTABLE CURRENT DESIGN** | **5** | **HLD-01** (In-process Game Loop on single VPS), **HLD-03** (In-memory Socket.IO on single VPS), **HLD-04** (Direct DB Auth Guard), **HLD-08** (No Redis caching on tiny catalogs), **HLD-11** (AdminService direct Prisma CQRS) |
 | **5. FALSE POSITIVE / INSUFFICIENT EVIDENCE** | **1** | **HLD-12** (Heavy local Prometheus/APM stack on 8GB VPS) |
 | **6. REQUIRES FURTHER INVESTIGATION** | **1** | **HLD-05** (Verify Android Client FCM expectation) |
 
@@ -462,8 +458,8 @@ To protect stability, performance, and memory limits on the 2 vCPU / 8 GB VPS, t
 │ 4. Adding Redis Caching for Small Catalogs (<100 rows) │ PostgreSQL 16 pins tiny tables in RAM automatically (<0.5ms reads).    │
 │                                                        │ Redis cache adds cache invalidation bugs for zero measurable gain.     │
 ├────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────┤
-│ 5. Normalizing Dual Balance Schema Columns             │ Dropping coinBalance or exp breaks deployed Android client contracts.  │
-│                                                        │ LedgerService already synchronizes both safely. Leave intact.          │
+│ 5. Re-introducing a second coin balance column         │ Superseded by HLD-09 (2026-09-27): wallet_balance is the only coin     │
+│                                                        │ column; API still emits coins/coin_balance/wallet_balance from it.     │
 ├────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────────────────┤
 │ 6. Refactoring AdminService into 10 Sub-services       │ Purely aesthetic refactoring. Does not fix any bug; adds unnecessary   │
 │                                                        │ boilerplate to functional back-office code.                            │

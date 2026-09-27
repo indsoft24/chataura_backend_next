@@ -158,7 +158,6 @@ export async function creditCoins(userId: number, amount: number) {
     where: { id: BigInt(userId) },
     data: {
       walletBalance: { increment: BigInt(amount) },
-      coinBalance: { increment: BigInt(amount) },
     },
   });
 }

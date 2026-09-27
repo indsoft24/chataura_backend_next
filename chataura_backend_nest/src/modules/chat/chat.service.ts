@@ -942,6 +942,24 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
           where: { id: session.starUserId },
           data: { gems: { increment: actualGemsCredited } },
         });
+        const starLocked = userMap.get(session.starUserId.toString());
+        await this.ledger.writeLedger(tx, {
+          userId: session.starUserId,
+          type: 'STAR_CHAT_EARNED',
+          title: 'Star chat earnings',
+          coinAmount: 0,
+          netAmount: actualGemsCredited,
+          commissionAmount: commission,
+          referenceId: `star_chat_${session.id}_earned`,
+          meta: {
+            source: 'star_chat',
+            currency: 'gems',
+            gems_delta: Number(actualGemsCredited),
+            gems_after: Number(BigInt(starLocked?.gems ?? 0n) + actualGemsCredited),
+            payer_id: Number(session.payerId),
+            session_id: Number(session.id),
+          },
+        });
       }
 
       await tx.starChatSession.update({

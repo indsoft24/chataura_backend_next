@@ -51,7 +51,7 @@ export class WalletService {
     return {
       wallet_balance: Number(u.walletBalance),
       coins: Number(u.walletBalance),
-      coin_balance: Number(u.coinBalance),
+      coin_balance: Number(u.walletBalance),
       total_earned_coins: Number(u.totalEarnedCoins),
       gems: Number(u.gems),
       referral_balance: Number(u.referralBalance),
@@ -591,7 +591,13 @@ export class WalletService {
         'Gems converted to coins',
         `gems_convert_${userId}_${Date.now()}`,
         locked,
-        { source: 'wallet', currency: 'coins', gems: Number(gemsAmount) },
+        {
+          source: 'wallet',
+          currency: 'coins',
+          gems: Number(gemsAmount),
+          gems_delta: -Number(gemsAmount),
+          gems_after: Number(locked.gems - gemsAmount),
+        },
       );
       const gemsAfter = locked.gems - gemsAmount;
       await tx.gemConversion.create({
@@ -797,7 +803,7 @@ export class WalletService {
           });
         }
         const ref = `gift_${gift.id}_to_${receiverId}_${senderId}_${Date.now()}`;
-        const { after } = await this.ledger.debitCoins(
+        const { after: afterDebit, locked: senderAfterDebit } = await this.ledger.debitCoins(
           tx,
           senderId,
           cost,
@@ -821,7 +827,7 @@ export class WalletService {
           coinAmount: 0,
           commissionAmount: commission,
           netAmount: netGems,
-          balanceAfter: after,
+          balanceAfter: afterDebit,
         });
 
         await tx.user.update({
@@ -831,6 +837,27 @@ export class WalletService {
             totalEarnedCoins: { increment: netGems },
           },
         });
+        const receiverGemsAfter = BigInt(recv.gems) + netGems;
+        await this.ledger.recordGiftGems(tx, {
+          receiverId,
+          senderId,
+          giftId: gift.id,
+          gems: netGems,
+          gemsAfter: receiverGemsAfter,
+          commission,
+          referenceId: ref,
+          source: 'dm_gift',
+          quantity,
+        });
+        const luckyRebate = await this.ledger.applyLuckyGiftRebate(tx, {
+          senderId,
+          giftId: gift.id,
+          giftCategory: gift.category,
+          giftCost: cost,
+          referenceId: ref,
+          senderLock: senderAfterDebit,
+        });
+        const after = luckyRebate?.balanceAfter ?? afterDebit;
 
         const relationship = await this.relationships.applyContribution(tx, {
           senderId,
@@ -850,7 +877,10 @@ export class WalletService {
           coin_cost: Number(cost),
           coin_amount: Number(cost),
           sender_balance_after: Number(after),
-          receiver_gems_after: Number(recv.gems + netGems),
+          receiver_gems_after: Number(receiverGemsAfter),
+          lucky_rebate: luckyRebate
+            ? { pct: luckyRebate.pct, coins: luckyRebate.coins }
+            : null,
           balances: {
             coins: Number(after),
             gems: Number(

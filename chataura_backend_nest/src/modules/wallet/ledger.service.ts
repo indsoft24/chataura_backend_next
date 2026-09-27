@@ -1,14 +1,24 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
+import { randomInt } from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { normalizeGiftCategory } from '../../common/utils/gift-category';
 import { ensureLaravelLevelBands } from '../gamification/level-bands';
+
+export const LUCKY_REBATE_DEFAULT_MIN_PCT = 1;
+export const LUCKY_REBATE_DEFAULT_MAX_PCT = 40;
+
+export interface LuckyRebateResult {
+  pct: number;
+  coins: number;
+  balanceAfter: bigint;
+}
 
 type Tx = Prisma.TransactionClient | PrismaClient;
 
 export interface LockedUser {
   id: bigint;
   wallet_balance: bigint;
-  coin_balance: bigint;
   gems: bigint;
   referral_balance: bigint;
   inr_earnings_balance: bigint;
@@ -26,7 +36,7 @@ export class LedgerService {
 
   async lockUser(tx: Tx, userId: bigint): Promise<LockedUser | null> {
     const rows = await tx.$queryRaw<LockedUser[]>`
-      SELECT id, wallet_balance, coin_balance, gems, referral_balance,
+      SELECT id, wallet_balance, gems, referral_balance,
              inr_earnings_balance, usd_earnings_balance, xp, level, role,
              streak_count, last_streak_at
       FROM users WHERE id = ${userId} FOR UPDATE`;
@@ -94,7 +104,7 @@ export class LedgerService {
     });
   }
 
-  /** Credit spendable coins (wallet_balance + coin_balance twin). */
+  /** Credit spendable coins (wallet_balance is the only coin column). */
   async creditCoins(
     tx: Tx,
     userId: bigint,
@@ -116,10 +126,7 @@ export class LedgerService {
     const after = BigInt(locked.wallet_balance) + amt;
     await tx.user.update({
       where: { id: userId },
-      data: {
-        walletBalance: { increment: amt },
-        coinBalance: { increment: amt },
-      },
+      data: { walletBalance: { increment: amt } },
     });
     await this.writeLedger(tx, {
       userId,
@@ -168,10 +175,7 @@ export class LedgerService {
     }
     const updatedUser = await tx.user.update({
       where: { id: userId },
-      data: {
-        walletBalance: { decrement: amt },
-        coinBalance: { decrement: amt },
-      },
+      data: { walletBalance: { decrement: amt } },
     });
     if (updatedUser.walletBalance < 0n) {
       throw Object.assign(new Error('INSUFFICIENT_BALANCE'), {
@@ -191,7 +195,6 @@ export class LedgerService {
     let updatedLocked: LockedUser = {
       ...locked,
       wallet_balance: after,
-      coin_balance: after,
     };
     if (xpSource) {
       updatedLocked = await this.awardXpForSpend(
@@ -276,6 +279,113 @@ export class LedgerService {
         update: {},
       });
     }
+  }
+
+  /**
+   * Audit row for gems a gift receiver earned. The caller has already
+   * incremented users.gems; coin_amount is 0 so coin sums stay coin sums.
+   */
+  async recordGiftGems(
+    tx: Tx,
+    params: {
+      receiverId: bigint;
+      senderId: bigint;
+      giftId: bigint;
+      gems: bigint;
+      gemsAfter: bigint;
+      commission: bigint;
+      referenceId: string;
+      source: string;
+      roomId?: string | null;
+      quantity?: number;
+    },
+  ) {
+    if (params.gems <= 0n) return null;
+    const referenceId = `${params.referenceId}_recv_${params.receiverId}`;
+    const prior = await this.findByReference(tx, params.receiverId, referenceId);
+    if (prior) return prior;
+    return this.writeLedger(tx, {
+      userId: params.receiverId,
+      type: 'GIFT_RECEIVED',
+      title: 'Gift received',
+      coinAmount: 0,
+      netAmount: params.gems,
+      commissionAmount: params.commission,
+      referenceId,
+      meta: {
+        source: params.source,
+        currency: 'gems',
+        gems_delta: Number(params.gems),
+        gems_after: Number(params.gemsAfter),
+        sender_id: Number(params.senderId),
+        gift_id: Number(params.giftId),
+        room_id: params.roomId ?? null,
+        quantity: params.quantity ?? 1,
+        related_reference_id: params.referenceId,
+      },
+    });
+  }
+
+  /**
+   * Lucky gifts return a random share of their cost to the sender as coins.
+   * Range comes from admin extra settings (lucky_rebate_min_pct / max_pct).
+   * senderLock must reflect the sender's balance after the gift debit.
+   */
+  async applyLuckyGiftRebate(
+    tx: Tx,
+    params: {
+      senderId: bigint;
+      giftId: bigint;
+      giftCategory: string | null | undefined;
+      giftCost: bigint;
+      referenceId: string;
+      senderLock: LockedUser;
+    },
+  ): Promise<LuckyRebateResult | null> {
+    if (normalizeGiftCategory(params.giftCategory) !== 'lucky') return null;
+    if (params.giftCost <= 0n) return null;
+
+    const { min, max } = await this.luckyRebateRange(tx);
+    const pct = randomInt(min, max + 1);
+    const coins = (params.giftCost * BigInt(pct)) / 100n;
+    if (coins <= 0n) {
+      return { pct, coins: 0, balanceAfter: BigInt(params.senderLock.wallet_balance) };
+    }
+
+    const balanceAfter = await this.creditCoins(
+      tx,
+      params.senderId,
+      coins,
+      'LUCKY_GIFT_REBATE',
+      `Lucky gift rebate ${pct}%`,
+      `${params.referenceId}_lucky`,
+      params.senderLock,
+      {
+        source: 'lucky_gift',
+        currency: 'coins',
+        gift_id: Number(params.giftId),
+        gift_cost: Number(params.giftCost),
+        pct,
+        related_reference_id: params.referenceId,
+      },
+    );
+    return { pct, coins: Number(coins), balanceAfter };
+  }
+
+  private async luckyRebateRange(tx: Tx): Promise<{ min: number; max: number }> {
+    const settings = await tx.adminSetting.findUnique({
+      where: { id: 1 },
+      select: { extraSettings: true },
+    });
+    const extra = (settings?.extraSettings as Record<string, unknown>) ?? {};
+    const clamp = (v: unknown, fallback: number) => {
+      const n = Math.floor(Number(v));
+      return Number.isFinite(n) ? Math.min(Math.max(n, 0), 100) : fallback;
+    };
+    let min = clamp(extra.lucky_rebate_min_pct, LUCKY_REBATE_DEFAULT_MIN_PCT);
+    let max = clamp(extra.lucky_rebate_max_pct, LUCKY_REBATE_DEFAULT_MAX_PCT);
+    if (min > max) [min, max] = [max, min];
+    return { min, max };
   }
 
   private async findByReference(tx: Tx, userId: bigint, referenceId?: string) {

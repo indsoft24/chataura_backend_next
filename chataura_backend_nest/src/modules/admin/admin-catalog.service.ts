@@ -13,6 +13,10 @@ import {
 } from '../../common/utils/gift-category';
 import { extractVideoPoster } from '../../common/utils/video-poster';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import {
+  LUCKY_REBATE_DEFAULT_MAX_PCT,
+  LUCKY_REBATE_DEFAULT_MIN_PCT,
+} from '../wallet/ledger.service';
 
 function blankToNull(value: string | null | undefined): string | null {
   if (value == null) return null;
@@ -986,6 +990,8 @@ export class AdminCatalogService {
         room_gift_banner_duration_small_ms: extra.room_gift_banner_duration_small_ms ?? 3000,
         room_gift_banner_duration_big_ms: extra.room_gift_banner_duration_big_ms ?? 6000,
         room_video_enabled: extra.room_video_enabled !== false,
+        lucky_rebate_min_pct: extra.lucky_rebate_min_pct ?? LUCKY_REBATE_DEFAULT_MIN_PCT,
+        lucky_rebate_max_pct: extra.lucky_rebate_max_pct ?? LUCKY_REBATE_DEFAULT_MAX_PCT,
       },
     };
   }

@@ -1,0 +1,1 @@
+ALTER INDEX "user_relationships_relationship_type_id_user_low_id_user_high_i" RENAME TO "user_relationships_relationship_type_id_user_low_id_user_hi_key";

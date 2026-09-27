@@ -117,8 +117,26 @@ export class AdminController {
     @Query('q') q?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('status') status?: string,
+    @Query('role') role?: string,
+    @Query('star') star?: string,
+    @Query('online') online?: string,
+    @Query('sort') sort?: string,
+    @Query('order') order?: string,
   ) {
-    return this.admin.users(q, Number(page ?? 1), Number(limit ?? 20));
+    return this.admin.users(q, Number(page ?? 1), Number(limit ?? 20), {
+      status,
+      role,
+      star,
+      online,
+      sort,
+      order,
+    });
+  }
+
+  @Post('users/:id/restore')
+  restore(@Param('id') id: string) {
+    return this.admin.restoreUser(BigInt(id));
   }
 
   @Post('users/:id/suspend')
@@ -444,8 +462,8 @@ export class AdminController {
 
   // Party Room Analytics
   @Get('party-room-analytics')
-  partyRoomAnalytics() {
-    return this.admin.partyRoomAnalytics();
+  partyRoomAnalytics(@Query() query: Record<string, string | undefined>) {
+    return this.admin.partyRoomAnalytics(query);
   }
 
   @Get('party-room-analytics/users/:id/sessions')
@@ -465,18 +483,13 @@ export class AdminController {
 
   // User Location Compliance
   @Get('user-location-compliance')
-  userLocationCompliance(
-    @Query('q') q?: string,
-    @Query('country') country?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.admin.userLocationCompliance(q, country, Number(page ?? 1), Number(limit ?? 25));
+  userLocationCompliance(@Query() query: Record<string, string | undefined>) {
+    return this.admin.userLocationCompliance(query);
   }
 
   @Get('user-location-compliance/export')
-  exportLocationComplianceCsv() {
-    return this.admin.exportLocationComplianceCsv();
+  exportLocationComplianceCsv(@Query() query: Record<string, string | undefined>) {
+    return this.admin.exportLocationComplianceCsv(query);
   }
 
   // User Reports / Moderation
@@ -517,12 +530,13 @@ export class AdminController {
 
   // Media Posts & Reels
   @Get('media/posts')
-  adminPosts(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('q') q?: string,
-  ) {
-    return this.admin.adminPosts(Number(page ?? 1), Number(limit ?? 20), q);
+  adminPosts(@Query() query: Record<string, string | undefined>) {
+    return this.admin.adminMedia('post', query);
+  }
+
+  @Post('media/:id/restore')
+  restoreMedia(@Param('id') id: string) {
+    return this.admin.restoreMedia(BigInt(id));
   }
 
   @Post('media/posts')
@@ -561,12 +575,8 @@ export class AdminController {
   }
 
   @Get('media/reels')
-  adminReels(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('q') q?: string,
-  ) {
-    return this.admin.adminReels(Number(page ?? 1), Number(limit ?? 20), q);
+  adminReels(@Query() query: Record<string, string | undefined>) {
+    return this.admin.adminMedia('reel', query);
   }
 
   @Delete('media/reels/:id')
@@ -576,30 +586,18 @@ export class AdminController {
 
   // Transactions
   @Get('transactions')
-  adminTransactions(
-    @Query('source') source?: string,
-    @Query('status') status?: string,
-    @Query('q') q?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.admin.adminTransactions(source, status, q, Number(page ?? 1), Number(limit ?? 25));
+  adminTransactions(@Query() query: Record<string, string | undefined>) {
+    return this.admin.adminTransactions(query);
   }
 
   @Get('transactions/fetch')
-  adminTransactionsFetch(
-    @Query('source') source?: string,
-    @Query('status') status?: string,
-    @Query('q') q?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.admin.adminTransactions(source, status, q, Number(page ?? 1), Number(limit ?? 25));
+  adminTransactionsFetch(@Query() query: Record<string, string | undefined>) {
+    return this.admin.adminTransactions(query);
   }
 
   @Get('transactions/export')
-  exportTransactionsCsv() {
-    return this.admin.exportTransactionsCsv();
+  exportTransactionsCsv(@Query() query: Record<string, string | undefined>) {
+    return this.admin.exportTransactionsCsv(query);
   }
 
   // Rockit crowdfund campaigns

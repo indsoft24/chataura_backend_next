@@ -483,7 +483,6 @@ export class AuthService {
     await this.prisma.user.update({
       where: { id: userId },
       data: {
-        coinBalance: { increment: coins },
         walletBalance: { increment: coins },
       },
     });
@@ -536,7 +535,6 @@ export class AuthService {
           const u = await tx.user.update({
             where: { id: inviteeId },
             data: {
-              coinBalance: { increment: referee },
               walletBalance: { increment: referee },
             },
           });
@@ -562,7 +560,6 @@ export class AuthService {
           const u = await tx.user.update({
             where: { id: referrerId },
             data: {
-              coinBalance: { increment: referrerAmt },
               walletBalance: { increment: referrerAmt },
             },
           });
@@ -592,7 +589,6 @@ export class AuthService {
     const u = await this.prisma.user.update({
       where: { id: userId },
       data: {
-        coinBalance: { increment: coins },
         walletBalance: { increment: coins },
       },
     });

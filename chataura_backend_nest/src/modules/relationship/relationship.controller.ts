@@ -184,6 +184,7 @@ export class RelationshipController {
       rank1_rewards?: object;
       max_partners?: number | null;
       formation_cost_coins?: number;
+      formation_threshold_coins?: number;
       unbind_cost_coins?: number;
       mic_exp_per_tick?: number;
       mic_exp_daily_cap?: number;

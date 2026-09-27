@@ -74,12 +74,25 @@ export class RelationshipService {
           },
         })
       : items.length;
+    const building = await this.prisma.userRelationship.findMany({
+      where: {
+        status: 'building',
+        OR: [{ userLowId: userId }, { userHighId: userId }],
+        ...(type ? { relationshipTypeId: type.id } : {}),
+      },
+      include: { relationshipType: true },
+      orderBy: [{ progressCoins: 'desc' }, { id: 'desc' }],
+      take: 20,
+    });
+    const inProgress = await this.mapInProgress(userId, building);
     return {
       items,
       pending,
+      in_progress: inProgress,
       count,
       max_partners: type?.maxPartners ?? null,
       formation_cost_coins: type?.formationCostCoins ?? 0,
+      formation_threshold_coins: type ? Number(type.formationThresholdCoins) : 0,
       unbind_cost_coins: type?.unbindCostCoins ?? 0,
       next_cursor: hasMore ? page[page.length - 1].id : null,
     };
@@ -246,11 +259,16 @@ export class RelationshipService {
     rank1_rewards?: object;
     max_partners?: number | null;
     formation_cost_coins?: number;
+    formation_threshold_coins?: number;
     unbind_cost_coins?: number;
     mic_exp_per_tick?: number;
     mic_exp_daily_cap?: number;
   }) {
     const code = body.code.trim().toLowerCase();
+    const threshold =
+      body.formation_threshold_coins === undefined
+        ? undefined
+        : BigInt(Math.max(0, Math.trunc(Number(body.formation_threshold_coins) || 0)));
     const row = await this.prisma.relationshipType.upsert({
       where: { code },
       create: {
@@ -272,6 +290,7 @@ export class RelationshipService {
         rank1Rewards: body.rank1_rewards ?? undefined,
         maxPartners: body.max_partners ?? undefined,
         formationCostCoins: body.formation_cost_coins ?? 0,
+        formationThresholdCoins: threshold ?? 0n,
         unbindCostCoins: body.unbind_cost_coins ?? 0,
         micExpPerTick: body.mic_exp_per_tick ?? 0,
         micExpDailyCap: body.mic_exp_daily_cap ?? 0,
@@ -294,6 +313,7 @@ export class RelationshipService {
         rank1Rewards: body.rank1_rewards,
         maxPartners: body.max_partners,
         formationCostCoins: body.formation_cost_coins,
+        formationThresholdCoins: threshold,
         unbindCostCoins: body.unbind_cost_coins,
         micExpPerTick: body.mic_exp_per_tick,
         micExpDailyCap: body.mic_exp_daily_cap,
@@ -368,14 +388,27 @@ export class RelationshipService {
       include: { relationshipType: true },
       orderBy: { giftId: 'asc' },
     });
+    const gifts = await this.prisma.gift.findMany({
+      where: { id: { in: [...new Set(rules.map((r) => r.giftId))] } },
+      select: { id: true, name: true, coinCost: true, category: true, imageUrl: true, isActive: true },
+    });
+    const giftById = new Map(gifts.map((g) => [g.id.toString(), g]));
     return {
-      rules: rules.map((r) => ({
-        id: r.id,
-        gift_id: Number(r.giftId),
-        type_code: r.relationshipType.code,
-        point_value: r.pointValue,
-        enabled: r.enabled,
-      })),
+      rules: rules.map((r) => {
+        const gift = giftById.get(r.giftId.toString());
+        return {
+          id: r.id,
+          gift_id: Number(r.giftId),
+          type_code: r.relationshipType.code,
+          point_value: r.pointValue,
+          enabled: r.enabled,
+          gift_name: gift?.name ?? null,
+          gift_coin_cost: gift?.coinCost ?? null,
+          gift_category: gift?.category ?? null,
+          gift_image_url: gift?.imageUrl ?? null,
+          gift_active: gift?.isActive ?? null,
+        };
+      }),
     };
   }
 
@@ -390,6 +423,12 @@ export class RelationshipService {
     const type = await this.requireType(typeCode);
     const target = BigInt(targetUserId);
     if (target === userId) this.fail('INVALID_TARGET', 'Cannot invite yourself');
+    if (type.formationThresholdCoins > 0n) {
+      this.fail(
+        'FORMATION_BY_GIFTS',
+        `Send ${type.name} gifts worth ${Number(type.formationThresholdCoins).toLocaleString('en-US')} coins in total to form a ${type.name}`,
+      );
+    }
 
     const { userLowId, userHighId } = canonicalUserPair(userId, target);
     const existing = await this.prisma.userRelationship.findUnique({
@@ -474,6 +513,18 @@ export class RelationshipService {
 
     const payer = row.initiatorId ?? (row.userLowId === userId ? row.userHighId : row.userLowId);
     const updated = await this.prisma.$transaction(async (tx) => {
+      await this.engine.lockPairUsers(tx, row.relationshipTypeId, row.userLowId, row.userHighId);
+      if (
+        await this.engine.isAtPartnerCap(
+          tx,
+          row.relationshipType,
+          row.userLowId,
+          row.userHighId,
+          row.id,
+        )
+      ) {
+        this.fail('AT_CAP', `Maximum ${row.relationshipType.maxPartners} ${row.relationshipType.name} partners`);
+      }
       if (row.relationshipType.formationCostCoins > 0) {
         await this.debitOrThrow(
           tx,
@@ -506,6 +557,7 @@ export class RelationshipService {
     const isMember = row.userLowId === userId || row.userHighId === userId;
     if (!isMember) throw new ForbiddenException({ success: false, error: { code: 'FORBIDDEN' } });
     if (row.status === 'ended') this.fail('ALREADY_ENDED', 'Already removed');
+    if (row.status === 'building') this.fail('NOT_FORMED', 'Relationship is not formed yet');
 
     const updated = await this.prisma.$transaction(async (tx) => {
       if (row.relationshipType.unbindCostCoins > 0 && row.status === 'active') {
@@ -519,7 +571,7 @@ export class RelationshipService {
       }
       return tx.userRelationship.update({
         where: { id: row.id },
-        data: { status: 'ended', totalScore: 0, level: null },
+        data: { status: 'ended', totalScore: 0, progressCoins: 0, level: null },
         include: { relationshipType: true },
       });
     });
@@ -676,6 +728,7 @@ export class RelationshipService {
     rank1Rewards: unknown;
     maxPartners?: number | null;
     formationCostCoins?: number;
+    formationThresholdCoins?: bigint;
     unbindCostCoins?: number;
     micExpPerTick?: number;
     micExpDailyCap?: number;
@@ -702,6 +755,7 @@ export class RelationshipService {
       room_gifts_count: t.roomGiftsCount,
       max_partners: t.maxPartners ?? null,
       formation_cost_coins: t.formationCostCoins ?? 0,
+      formation_threshold_coins: Number(t.formationThresholdCoins ?? 0),
       unbind_cost_coins: t.unbindCostCoins ?? 0,
       mic_exp_per_tick: t.micExpPerTick ?? 0,
       mic_exp_daily_cap: t.micExpDailyCap ?? 0,
@@ -714,6 +768,46 @@ export class RelationshipService {
         rewards: th.rewards,
       })),
     };
+  }
+
+  private async mapInProgress(
+    userId: bigint,
+    rows: Array<{
+      id: string;
+      userLowId: bigint;
+      userHighId: bigint;
+      status: string;
+      progressCoins: bigint;
+      updatedAt: Date;
+      relationshipType: { code: string; name: string; formationThresholdCoins: bigint };
+    }>,
+  ) {
+    if (!rows.length) return [];
+    const partnerIds = rows.map((r) => (r.userLowId === userId ? r.userHighId : r.userLowId));
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: partnerIds } },
+      select: { id: true, name: true, avatarUrl: true },
+    });
+    const byId = new Map(users.map((u) => [u.id.toString(), u]));
+    return rows.map((r, i) => {
+      const partnerId = partnerIds[i];
+      const u = byId.get(partnerId.toString());
+      const p = this.engine.progressOf(r.relationshipType, r, false, null);
+      return {
+        relationship_id: r.id,
+        type_code: r.relationshipType.code,
+        type_name: r.relationshipType.name,
+        partner: {
+          id: Number(partnerId),
+          name: u?.name ?? 'User',
+          avatar_url: u?.avatarUrl ?? null,
+        },
+        progress_coins: p.progress_coins,
+        threshold_coins: p.threshold_coins,
+        remaining_coins: p.remaining_coins,
+        updated_at: r.updatedAt.toISOString(),
+      };
+    });
   }
 
   private async mapRelationship(row: {

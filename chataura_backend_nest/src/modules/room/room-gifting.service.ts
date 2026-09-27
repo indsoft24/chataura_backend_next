@@ -125,7 +125,7 @@ export class RoomGiftingService {
           });
         }
         const ref = `room_${room.id}_gift_${gift.id}_${senderId}_${Date.now()}`;
-        const { after } = await this.ledger.debitCoins(
+        const { after: afterDebit, locked: senderAfterDebit } = await this.ledger.debitCoins(
           tx,
           senderId,
           cost,
@@ -150,6 +150,28 @@ export class RoomGiftingService {
             totalEarnedCoins: { increment: netGems },
           },
         });
+        const receiverGemsAfter = BigInt(recv.gems) + netGems;
+        await this.ledger.recordGiftGems(tx, {
+          receiverId,
+          senderId,
+          giftId: gift.id,
+          gems: netGems,
+          gemsAfter: receiverGemsAfter,
+          commission,
+          referenceId: ref,
+          source: 'room_gift',
+          roomId: room.id,
+          quantity,
+        });
+        const luckyRebate = await this.ledger.applyLuckyGiftRebate(tx, {
+          senderId,
+          giftId: gift.id,
+          giftCategory: gift.category,
+          giftCost: cost,
+          referenceId: ref,
+          senderLock: senderAfterDebit,
+        });
+        const after = luckyRebate?.balanceAfter ?? afterDebit;
         const relationship = await this.relationships.applyContribution(tx, {
           senderId,
           receiverId,
@@ -167,7 +189,10 @@ export class RoomGiftingService {
           commission_amount: Number(commission),
           net_amount: Number(netGems),
           sender_balance_after: Number(after),
-          receiver_gems_after: Number(recv.gems + netGems),
+          receiver_gems_after: Number(receiverGemsAfter),
+          lucky_rebate: luckyRebate
+            ? { pct: luckyRebate.pct, coins: luckyRebate.coins }
+            : null,
           balances: {
             coins: Number(after),
             gems: Number(senderLocked.gems),
@@ -331,6 +356,7 @@ export class RoomGiftingService {
         let currentSender = sender;
         let finalBalance = currentSender.wallet_balance;
         const txIds: string[] = [];
+        const luckyRebates: { receiver_id: number; pct: number; coins: number }[] = [];
         const relationships: Awaited<
           ReturnType<RelationshipEngineService['applyContribution']>
         >[] = [];
@@ -366,6 +392,36 @@ export class RoomGiftingService {
               totalEarnedCoins: { increment: perNetGems },
             },
           });
+          const recvLocked = userMap.get(rid.toString())!;
+          const recvGemsAfter = BigInt(recvLocked.gems) + perNetGems;
+          userMap.set(rid.toString(), { ...recvLocked, gems: recvGemsAfter });
+          await this.ledger.recordGiftGems(tx, {
+            receiverId: rid,
+            senderId,
+            giftId: gift.id,
+            gems: perNetGems,
+            gemsAfter: recvGemsAfter,
+            commission: perCommission,
+            referenceId: giftRef,
+            source: 'room_gift',
+            roomId: room.id,
+            quantity,
+          });
+          const rebate = await this.ledger.applyLuckyGiftRebate(tx, {
+            senderId,
+            giftId: gift.id,
+            giftCategory: gift.category,
+            giftCost: perCost,
+            referenceId: giftRef,
+            senderLock: currentSender,
+          });
+          if (rebate) {
+            luckyRebates.push({ receiver_id: Number(rid), pct: rebate.pct, coins: rebate.coins });
+            if (rebate.coins > 0) {
+              currentSender = { ...currentSender, wallet_balance: rebate.balanceAfter };
+              finalBalance = rebate.balanceAfter;
+            }
+          }
           const relationship = await this.relationships.applyContribution(tx, {
             senderId,
             receiverId: rid,
@@ -387,6 +443,12 @@ export class RoomGiftingService {
           per_receiver_coin_amount: Number(perCost),
           receiver_count: eligibleIds.length,
           sender_balance_after: Number(finalBalance),
+          lucky_rebate: luckyRebates.length
+            ? {
+                coins: luckyRebates.reduce((s, r) => s + r.coins, 0),
+                items: luckyRebates,
+              }
+            : null,
           agency_cashback: null,
           relationships,
         };

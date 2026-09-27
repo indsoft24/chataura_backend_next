@@ -424,7 +424,7 @@ describe('Rooms (e2e)', () => {
     // Step A: Sender has 400 coins, tries to gift 5 recipients @ 100 coins each (total 500)
     await prisma.user.update({
       where: { id: BigInt(sender.id) },
-      data: { walletBalance: 400n, coinBalance: 400n },
+      data: { walletBalance: 400n },
     });
 
     const initialSenderBal = (
