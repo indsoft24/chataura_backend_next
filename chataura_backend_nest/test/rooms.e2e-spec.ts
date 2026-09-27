@@ -220,23 +220,29 @@ describe('Rooms (e2e)', () => {
     expect(successorMember?.role).toBe('speaker');
   });
 
-  it('owner who stays active keeps a deliberate host transfer on re-join', async () => {
+  it('private room: owner who stays active keeps a deliberate host transfer on re-join', async () => {
     const owner = await registerVerified(app, { name: 'Owner2' });
     const other = await registerVerified(app, { name: 'Other2' });
     const created = await app.inject({
       method: 'POST',
       url: '/api/v1/rooms',
       headers: authHeader(owner.token),
-      payload: { title: `Host keep ${Date.now()}`, max_seats: 8 },
+      payload: {
+        title: `Host keep ${Date.now()}`,
+        max_seats: 8,
+        is_private: true,
+        password: '1234',
+      },
     });
     const roomId = parse<{ id: string }>(created.payload).data!.id;
     for (const u of [owner, other]) {
-      await app.inject({
+      const j = await app.inject({
         method: 'POST',
         url: `/api/v1/rooms/${roomId}/join`,
         headers: authHeader(u.token),
-        payload: {},
+        payload: { password: '1234' },
       });
+      expect(parse(j.payload).success).toBe(true);
     }
     await app.inject({
       method: 'POST',
@@ -479,7 +485,7 @@ describe('Rooms (e2e)', () => {
     // Step A: Sender has 400 coins, tries to gift 5 recipients @ 100 coins each (total 500)
     await prisma.user.update({
       where: { id: BigInt(sender.id) },
-      data: { walletBalance: 400n, coinBalance: 400n },
+      data: { walletBalance: 400n },
     });
 
     const initialSenderBal = (

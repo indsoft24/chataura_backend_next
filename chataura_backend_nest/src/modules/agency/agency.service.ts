@@ -318,6 +318,9 @@ export class AgencyService {
         referenceId: `agency_dist_${id}`,
         status: 'success',
         meta: {
+          currency: 'gems',
+          gems_delta: gems,
+          gems_after: Number(BigInt(locked.gems) + BigInt(gems)),
           distribution_id: Number(id),
           agency_user_id: Number(userId),
           approved_gems: gems,

@@ -303,8 +303,16 @@ export class UserService {
     const bool = (v: unknown) =>
       v === true || v === 'true' || v === '1' || v === 1;
 
+    const existing = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { gender: true, dob: true },
+    });
+    const genderLocked = !!(existing.gender && existing.gender.trim());
+    const dobLocked = existing.dob != null;
+
     let dobDate: Date | undefined;
-    if (b.dob) {
+    // Soft lock: ignore gender/dob once already set (first blank write still allowed).
+    if (b.dob && !dobLocked) {
       const parsed = new Date(b.dob);
       if (!isNaN(parsed.getTime())) {
         dobDate = parsed;
@@ -319,7 +327,9 @@ export class UserService {
           : {}),
         ...(b.country !== undefined ? { country: b.country } : {}),
         ...(b.bio !== undefined ? { bio: b.bio } : {}),
-        ...(b.gender !== undefined ? { gender: b.gender } : {}),
+        ...(b.gender !== undefined && !genderLocked
+          ? { gender: b.gender }
+          : {}),
         ...(dobDate !== undefined ? { dob: dobDate } : {}),
         ...(b.avatar_url !== undefined ? { avatarUrl: b.avatar_url } : {}),
         ...(b.show_online_status !== undefined

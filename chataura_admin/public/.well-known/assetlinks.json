@@ -1,0 +1,16 @@
+[
+    {
+        "relation": [
+            "delegate_permission/common.handle_all_urls",
+            "delegate_permission/common.get_login_creds"
+        ],
+        "target": {
+            "namespace": "android_app",
+            "package_name": "com.chataura.app",
+            "sha256_cert_fingerprints": [
+                "AF:BC:02:70:44:1C:96:D7:18:6E:DD:B1:99:B7:67:19:6C:AF:57:B5:1A:06:C1:3B:C9:6D:21:8F:B0:0E:B2:6D",
+                "54:40:8C:7C:83:43:74:11:A6:1B:6A:62:73:76:94:8A:92:2C:39:5F:D5:5B:85:D8:7F:6C:E2:B6:78:D2:B2:53"
+            ]
+        }
+    }
+]

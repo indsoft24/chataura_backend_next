@@ -28,10 +28,25 @@ export type RelationshipUserBrief = {
   avatar_url: string | null;
 };
 
+export type PartnerBlockReason = 'SENDER_HAS_PARTNER' | 'RECEIVER_HAS_PARTNER';
+
+export type FormationProgress = {
+  type_code: string;
+  user_a_id: number;
+  user_b_id: number;
+  progress_coins: number;
+  threshold_coins: number;
+  remaining_coins: number;
+  formed: boolean;
+  blocked_reason: PartnerBlockReason | null;
+};
+
 export type RelationshipApplyResult = {
   applied: boolean;
   created: boolean;
   contribution: number;
+  /** Set while a gift-threshold pair is building, and on the gift that forms it. */
+  formation_progress: FormationProgress | null;
   relationship: null | {
     id: string;
     type_code: string;
@@ -64,6 +79,29 @@ export type RelationshipApplyResult = {
 
 type Tx = Prisma.TransactionClient | PrismaService;
 
+export const DEFAULT_FORMATION_THRESHOLD_COINS = 2_000_000;
+export const DEFAULT_UNBIND_COST_COINS = 3_000_000;
+
+function defaultRulesText(name: string, micExp: boolean): string {
+  return [
+    `How to become ${name}?`,
+    `1. Send ${name} gifts to each other. Gifts in both directions add up.`,
+    `2. When the total reaches 2,000,000 coins you become ${name} automatically.`,
+    `3. Each user can have only one ${name} at a time.`,
+    '',
+    `How to improve ${name} level?`,
+    `1. Keep sending ${name} gifts: 1 coin = 1 intimacy point.`,
+    ...(micExp
+      ? ['2. On mic together in the same room, every 5 minutes = 120 Exp (maximum 12000 Exp per day).']
+      : []),
+    '',
+    `How to remove ${name}?`,
+    `1. On the ${name} page, tap Remove and confirm.`,
+    '2. Removing costs 3,000,000 coins.',
+    '3. After removing, level and progress are reset; you need to gift 2,000,000 again to re-form.',
+  ].join('\n');
+}
+
 @Injectable()
 export class RelationshipEngineService {
   constructor(private readonly prisma: PrismaService) {}
@@ -76,6 +114,7 @@ export class RelationshipEngineService {
       applied: false,
       created: false,
       contribution: 0,
+      formation_progress: null,
       relationship: null,
       visual_hints: {
         show_formed_ceremony: false,
@@ -128,6 +167,14 @@ export class RelationshipEngineService {
         include: { relationshipType: true },
       });
       if (!rel) return empty;
+      if (rel.status !== 'active') {
+        return {
+          ...empty,
+          applied: true,
+          contribution: Number(existingLedger.contribution),
+          formation_progress: this.progressOf(type, rel, false, null),
+        };
+      }
       return this.buildResult(tx, rel, type.code, type.levelsEnabled, {
         applied: true,
         created: false,
@@ -150,7 +197,10 @@ export class RelationshipEngineService {
       input.receiverId,
     );
 
+    await this.lockPairUsers(tx, type.id, input.senderId, input.receiverId);
+
     let created = false;
+    let formationProgress: FormationProgress | null = null;
     let rel = await tx.userRelationship.findUnique({
       where: {
         relationshipTypeId_userLowId_userHighId: {
@@ -160,8 +210,61 @@ export class RelationshipEngineService {
         },
       },
     });
+    const threshold = BigInt(type.formationThresholdCoins ?? 0);
+    const giftCoins = BigInt(
+      Math.max(0, Math.trunc(Number(input.giftCoinCost) || 0)) * quantity,
+    );
 
-    if (!rel) {
+    if (rel?.status === 'active') {
+      rel = await tx.userRelationship.update({
+        where: { id: rel.id },
+        data: { totalScore: { increment: contribution } },
+      });
+    } else if (threshold > 0n) {
+      const restart = !rel || rel.status === 'ended';
+      const progress = (restart ? 0n : rel!.progressCoins) + giftCoins;
+      const score = (restart ? 0n : rel!.totalScore) + contribution;
+      const blocked =
+        progress >= threshold
+          ? await this.partnerBlock(
+              tx,
+              type,
+              input.senderId,
+              input.receiverId,
+              rel?.id,
+            )
+          : null;
+      const forms = progress >= threshold && !blocked;
+      const data = {
+        status: forms ? 'active' : 'building',
+        progressCoins: progress,
+        totalScore: score,
+        level: forms && type.levelsEnabled ? 1 : null,
+        ...(restart || forms ? { initiatorId: input.senderId } : {}),
+      };
+      rel = rel
+        ? await tx.userRelationship.update({ where: { id: rel.id }, data })
+        : await tx.userRelationship.create({
+            data: {
+              relationshipTypeId: type.id,
+              userLowId,
+              userHighId,
+              ...data,
+            },
+          });
+      formationProgress = this.progressOf(type, rel, forms, blocked);
+
+      if (!forms) {
+        await this.recordLedger(tx, rel.id, input, quantity, pointValue, contribution);
+        return {
+          ...empty,
+          applied: true,
+          contribution: Number(contribution),
+          formation_progress: formationProgress,
+        };
+      }
+      created = true;
+    } else if (!rel) {
       const atCap = await this.isAtPartnerCap(
         tx,
         type,
@@ -202,26 +305,32 @@ export class RelationshipEngineService {
         },
       });
     } else {
+      // 'building' left over after the type's threshold was set back to 0.
+      const atCap = await this.isAtPartnerCap(
+        tx,
+        type,
+        input.senderId,
+        input.receiverId,
+        rel.id,
+      );
+      if (atCap) return empty;
+      created = true;
       rel = await tx.userRelationship.update({
         where: { id: rel.id },
-        data: { totalScore: { increment: contribution } },
+        data: {
+          status: 'active',
+          totalScore: { increment: contribution },
+          level: type.levelsEnabled ? 1 : null,
+        },
       });
     }
 
-    await tx.relationshipScoreLedger.create({
-      data: {
-        relationshipId: rel.id,
-        giftTransactionId: input.giftTransactionId,
-        senderId: input.senderId,
-        receiverId: input.receiverId,
-        giftId: input.giftId,
-        quantity,
-        pointValue,
-        contribution,
-        source: input.source,
-        roomId: input.roomId ?? null,
-      },
-    });
+    await this.recordLedger(tx, rel.id, input, quantity, pointValue, contribution);
+
+    // Gifts sent while building count towards the boards on the forming gift.
+    const boardContribution = formationProgress?.formed
+      ? rel.totalScore
+      : contribution;
 
     rel = await this.refreshLevelAndRings(tx, rel.id, type.id);
 
@@ -229,7 +338,7 @@ export class RelationshipEngineService {
     for (const period of PERIOD_TYPES) {
       const key = periodKey(period, now);
       // Global
-      await this.bumpPeriodScore(tx, rel.id, period, key, '', contribution);
+      await this.bumpPeriodScore(tx, rel.id, period, key, '', boardContribution);
       // Room board
       if (input.roomId) {
         await this.bumpPeriodScore(
@@ -238,7 +347,7 @@ export class RelationshipEngineService {
           period,
           key,
           input.roomId,
-          contribution,
+          boardContribution,
         );
       }
     }
@@ -266,7 +375,68 @@ export class RelationshipEngineService {
       becameRank1,
       giftTransactionId: input.giftTransactionId,
       roomId: input.roomId,
+      formationProgress,
     });
+  }
+
+  private async recordLedger(
+    tx: Tx,
+    relationshipId: string,
+    input: ApplyGiftInput,
+    quantity: number,
+    pointValue: number,
+    contribution: bigint,
+  ) {
+    await tx.relationshipScoreLedger.create({
+      data: {
+        relationshipId,
+        giftTransactionId: input.giftTransactionId,
+        senderId: input.senderId,
+        receiverId: input.receiverId,
+        giftId: input.giftId,
+        quantity,
+        pointValue,
+        contribution,
+        source: input.source,
+        roomId: input.roomId ?? null,
+      },
+    });
+  }
+
+  progressOf(
+    type: { code: string; formationThresholdCoins: bigint },
+    rel: {
+      userLowId: bigint;
+      userHighId: bigint;
+      progressCoins: bigint;
+      status: string;
+    },
+    formed: boolean,
+    blocked: PartnerBlockReason | null,
+  ): FormationProgress {
+    const threshold = Number(type.formationThresholdCoins ?? 0);
+    const progress = rel.status === 'ended' ? 0 : Number(rel.progressCoins);
+    return {
+      type_code: type.code,
+      user_a_id: Number(rel.userLowId),
+      user_b_id: Number(rel.userHighId),
+      progress_coins: progress,
+      threshold_coins: threshold,
+      remaining_coins: Math.max(threshold - progress, 0),
+      formed,
+      blocked_reason: blocked,
+    };
+  }
+
+  /**
+   * Serialises partner-cap checks per (type, user) for the rest of the
+   * transaction, so two pairs sharing a user cannot both form concurrently.
+   */
+  async lockPairUsers(tx: Tx, typeId: string, a: bigint, b: bigint) {
+    const ids = a < b ? [a, b] : [b, a];
+    for (const id of ids) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`rel:${typeId}:${id}`}, 0))`;
+    }
   }
 
   private async bumpPeriodScore(
@@ -367,6 +537,7 @@ export class RelationshipEngineService {
       becameRank1: boolean;
       giftTransactionId: string;
       roomId?: string | null;
+      formationProgress?: FormationProgress | null;
     },
   ): Promise<RelationshipApplyResult> {
     const users = await tx.user.findMany({
@@ -423,6 +594,7 @@ export class RelationshipEngineService {
       applied: meta.applied,
       created: meta.created,
       contribution: meta.contribution,
+      formation_progress: meta.formationProgress ?? null,
       relationship: {
         id: rel.id,
         type_code: typeCode,
@@ -458,20 +630,40 @@ export class RelationshipEngineService {
     type: { id: string; maxPartners: number | null },
     userA: bigint,
     userB: bigint,
+    excludeRelationshipId?: string,
   ): Promise<boolean> {
+    return (
+      (await this.partnerBlock(tx, type, userA, userB, excludeRelationshipId)) !==
+      null
+    );
+  }
+
+  /** Which side (first arg = sender) already has the maximum partners of this type. */
+  async partnerBlock(
+    tx: Tx,
+    type: { id: string; maxPartners: number | null },
+    senderId: bigint,
+    receiverId: bigint,
+    excludeRelationshipId?: string,
+  ): Promise<PartnerBlockReason | null> {
     const cap = type.maxPartners;
-    if (!cap || cap <= 0) return false;
-    for (const uid of [userA, userB]) {
+    if (!cap || cap <= 0) return null;
+    const sides: [bigint, PartnerBlockReason][] = [
+      [senderId, 'SENDER_HAS_PARTNER'],
+      [receiverId, 'RECEIVER_HAS_PARTNER'],
+    ];
+    for (const [uid, reason] of sides) {
       const n = await tx.userRelationship.count({
         where: {
           relationshipTypeId: type.id,
           status: { in: ['active', 'pending'] },
           OR: [{ userLowId: uid }, { userHighId: uid }],
+          ...(excludeRelationshipId ? { id: { not: excludeRelationshipId } } : {}),
         },
       });
-      if (n >= cap) return true;
+      if (n >= cap) return reason;
     }
-    return false;
+    return null;
   }
 
   async refreshLevelAndRings(tx: Tx, relationshipId: string, typeId: string) {
@@ -621,11 +813,12 @@ export class RelationshipEngineService {
       {
         code: 'cp',
         name: 'CP',
-        description: 'Couple relationship formed by qualifying CP gifts',
+        description: 'Couple relationship formed by cumulative CP gifting',
         sortOrder: 1,
-        maxPartners: null as number | null,
+        maxPartners: 1 as number | null,
         formationCostCoins: 0,
-        unbindCostCoins: 0,
+        formationThresholdCoins: DEFAULT_FORMATION_THRESHOLD_COINS,
+        unbindCostCoins: DEFAULT_UNBIND_COST_COINS,
         micExpPerTick: 0,
         micExpDailyCap: 0,
         requiresAccept: false,
@@ -635,6 +828,7 @@ export class RelationshipEngineService {
           motif: 'twin_hearts',
           hub_label: 'CP',
           hub_tabs: ['home', 'privileges', 'rings'],
+          rules: defaultRulesText('CP', false),
         },
         leaderboard: {
           periods: ['daily', 'weekly', 'monthly', 'all_time'],
@@ -657,22 +851,22 @@ export class RelationshipEngineService {
       {
         code: 'bcp',
         name: 'BCP',
-        description: 'BCP relationship formed by invite or qualifying BCP gifts',
+        description: 'BCP relationship formed by cumulative BCP gifting',
         sortOrder: 2,
-        maxPartners: 9,
-        formationCostCoins: 600000,
-        unbindCostCoins: 300000,
+        maxPartners: 1 as number | null,
+        formationCostCoins: 0,
+        formationThresholdCoins: DEFAULT_FORMATION_THRESHOLD_COINS,
+        unbindCostCoins: DEFAULT_UNBIND_COST_COINS,
         micExpPerTick: 120,
         micExpDailyCap: 12000,
-        requiresAccept: true,
+        requiresAccept: false,
         visual: {
           color_primary: '#7C4DFF',
           color_accent: '#F5C542',
           motif: 'golden_hands',
           hub_label: 'BCP',
           hub_tabs: ['home', 'privileges', 'rules'],
-          rules:
-            'How to become BCP?\n1. Click the Invite button on Profile or Me - CP/BCP, select the user you want to bind and send the invitation.\n2. You need to spend the type formation cost in coins to become BCP with others.\n\nHow to improve BCP level?\n1. Sending gifts, 1 coin = 1 intimacy point.\n2. On mic together in the same room, every 5 minutes = 120 Exp (maximum 12000 Exp per day).\n\nHow to remove BCP?\n1. On the BCP page, tap Remove and confirm.\n2. After removing, EXP cannot be restored.\n3. Unbind costs the type unbind cost in coins.\n\nHow to get BCP privileges?\nBy upgrading the BCP level, you can unlock more privileges.',
+          rules: defaultRulesText('BCP', true),
         },
         leaderboard: {
           periods: ['daily', 'weekly', 'monthly', 'all_time'],
@@ -701,7 +895,7 @@ export class RelationshipEngineService {
           enabled: true,
           sortOrder: d.sortOrder,
           exclusivityMode: 'none',
-          formationRule: 'first_qualifying_gift',
+          formationRule: 'gift_threshold',
           requiresAccept: d.requiresAccept,
           bidirectionalScoring: true,
           quantityMultipliesPoints: true,
@@ -710,6 +904,7 @@ export class RelationshipEngineService {
           roomGiftsCount: true,
           maxPartners: d.maxPartners,
           formationCostCoins: d.formationCostCoins,
+          formationThresholdCoins: BigInt(d.formationThresholdCoins),
           unbindCostCoins: d.unbindCostCoins,
           micExpPerTick: d.micExpPerTick,
           micExpDailyCap: d.micExpDailyCap,
@@ -717,19 +912,8 @@ export class RelationshipEngineService {
           leaderboard: d.leaderboard,
           rank1Rewards: d.rank1Rewards,
         },
-        update: {
-          name: d.name,
-          description: d.description,
-          enabled: true,
-          levelsEnabled: true,
-          requiresAccept: d.requiresAccept,
-          maxPartners: d.maxPartners,
-          formationCostCoins: d.formationCostCoins,
-          unbindCostCoins: d.unbindCostCoins,
-          micExpPerTick: d.micExpPerTick,
-          micExpDailyCap: d.micExpDailyCap,
-          visual: d.visual,
-        },
+        // Existing types keep their admin-edited settings.
+        update: {},
       });
 
       for (const th of d.thresholds) {

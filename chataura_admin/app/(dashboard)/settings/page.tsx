@@ -55,6 +55,8 @@ export default function SettingsPage() {
     room_gift_banner_duration_small_ms: 3000,
     room_gift_banner_duration_big_ms: 6000,
     room_video_enabled: true,
+    lucky_rebate_min_pct: 1,
+    lucky_rebate_max_pct: 40,
   });
 
   useEffect(() => {
@@ -194,6 +196,34 @@ export default function SettingsPage() {
                   max="100"
                   value={form.gift_commission_percent ?? ''}
                   onChange={(e) => handleChange('gift_commission_percent', Number(e.target.value))}
+                  style={inputStyle}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                  Lucky Gift Rebate Min (% of gift value)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={form.lucky_rebate_min_pct ?? ''}
+                  onChange={(e) => handleChange('lucky_rebate_min_pct', Number(e.target.value))}
+                  style={inputStyle}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                  Lucky Gift Rebate Max (% of gift value)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={form.lucky_rebate_max_pct ?? ''}
+                  onChange={(e) => handleChange('lucky_rebate_max_pct', Number(e.target.value))}
                   style={inputStyle}
                 />
               </div>

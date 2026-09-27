@@ -222,6 +222,7 @@ export class PresenceService {
             source: 'party_room',
             currency: 'gems',
             gems_delta: gems,
+            gems_after: Number(after),
             tier_id: tierId,
             room_id: roomId,
           },

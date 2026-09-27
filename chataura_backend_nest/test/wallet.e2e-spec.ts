@@ -124,7 +124,6 @@ describe('Wallet (e2e)', () => {
       where: { id: BigInt(sender.id) },
     });
     expect(wallet.walletBalance >= 0n).toBe(true);
-    expect(wallet.coinBalance >= 0n).toBe(true);
 
     const afterTx = await prisma.coinTransaction.count({
       where: { userId: BigInt(sender.id), type: 'GIFT', coinAmount: { lt: 0 } },

@@ -15,6 +15,7 @@ import {
   selectedFrameClientFields,
   type FrameAsset,
 } from '../../common/utils/catalog-media';
+import { normalizeCountryCode } from '../../common/countries/country-catalog';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { buildRoleBadge } from '../user/user.serializer';
@@ -321,9 +322,9 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         data: { isPermanent: false },
       });
 
-      // 2) Legacy zombies only: live permanent with no host and no members.
-      // Do not auto-end rooms that still have an owner host — Leave keeps those alive.
-      const candidates = await this.prisma.room.findMany({
+      // 2) Hostless live permanent rooms: restore owner as host — never auto-end.
+      // Empty permanent / agency-linked rooms stay listed and joinable until Delete.
+      await this.prisma.room.updateMany({
         where: {
           ownerId: userId,
           isPermanent: true,
@@ -331,28 +332,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
           isLive: true,
           hostId: null,
         },
-        select: {
-          id: true,
-          hostId: true,
-          hostLastHeartbeatAt: true,
-        },
+        data: { hostId: userId },
       });
-      for (const r of candidates) {
-        const activeMembers = await this.prisma.roomMember.count({
-          where: { roomId: r.id, isActive: true },
-        });
-        if (activeMembers > 0) continue;
-        await this.prisma.room.update({
-          where: { id: r.id },
-          data: {
-            isLive: false,
-            isPermanent: false,
-            endedAt: new Date(),
-            hostId: null,
-            passwordHash: null,
-          },
-        });
-      }
 
       // 3) Block only if a real live public permanent room remains.
       const existingPublic = await this.prisma.room.findFirst({
@@ -406,8 +387,11 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         description: body.description ?? null,
         tags: body.tags ?? [],
         allowedGender: body.allowed_gender ?? null,
-        countryCode: body.country_code ?? null,
-        allowedCountry: body.allowed_country ?? null,
+        countryCode: normalizeCountryCode(body.country_code) ?? null,
+        allowedCountry: (() => {
+          const c = normalizeCountryCode(body.allowed_country);
+          return !c || c === 'ALL' ? null : c;
+        })(),
         minAge: body.min_age ?? null,
         maxAge: body.max_age ?? null,
         themeId: body.theme_id ? BigInt(body.theme_id) : null,
@@ -623,16 +607,22 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     });
     const agoraUid = this.agoraUid(userId);
     let hostReclaimedFrom: bigint | null = null;
+    const keepAliveEmpty = await this.isKeepAliveEmptyRoom(
+      room.id,
+      room.ownerId,
+      room.isPermanent,
+    );
     const member = await this.prisma.$transaction(async (tx) => {
       let role: RoomMemberRole = 'listener';
       // Owner returning after Leave takes host back from the interim host.
-      // An owner who is still active (re-opening the room) keeps any deliberate transfer.
+      // Permanent / agency rooms: the owner is always the nominal host on join.
+      // Other rooms: an owner still active (re-opening) keeps a deliberate transfer.
       if (room.ownerId === userId && room.hostId !== userId) {
         const existing = await tx.roomMember.findUnique({
           where: { roomId_userId: { roomId: room.id, userId } },
           select: { isActive: true },
         });
-        if (!existing?.isActive) {
+        if (keepAliveEmpty || !existing?.isActive) {
           const reclaim = await this.reclaimHostForOwner(tx, room.id, userId);
           if (reclaim.reclaimed) {
             hostReclaimedFrom = reclaim.previousHostId;
@@ -646,17 +636,41 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
               where: { roomId: room.id, userId: room.hostId, isActive: true },
             })
           : null;
-      if (role === 'host' || room.hostId === userId) {
+      if (
+        role === 'host' ||
+        room.hostId === userId ||
+        (keepAliveEmpty && userId === room.ownerId)
+      ) {
         role = 'host';
+        if (room.hostId !== userId && hostReclaimedFrom == null) {
+          await tx.room.update({
+            where: { id: room.id },
+            data: { hostId: userId, hostLastHeartbeatAt: new Date() },
+          });
+        }
       } else if (room.coHostId === userId && liveHost) {
         role = 'co_host';
       } else if (!liveHost) {
-        const updated = await tx.room.updateMany({
-          where: { id: room.id, OR: [{ hostId: null }, { hostId: room.hostId }] },
-          data: { hostId: userId, hostLastHeartbeatAt: new Date() },
-        });
-        if (updated.count > 0) {
-          role = 'host';
+        if (keepAliveEmpty) {
+          // Permanent / agency: join as audience; owner remains nominal host.
+          role = 'listener';
+          if (room.hostId !== room.ownerId) {
+            await tx.room.update({
+              where: { id: room.id },
+              data: { hostId: room.ownerId },
+            });
+          }
+        } else {
+          const updated = await tx.room.updateMany({
+            where: {
+              id: room.id,
+              OR: [{ hostId: null }, { hostId: room.hostId }],
+            },
+            data: { hostId: userId, hostLastHeartbeatAt: new Date() },
+          });
+          if (updated.count > 0) {
+            role = 'host';
+          }
         }
       }
 
@@ -749,8 +763,14 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
           Array<{ id: string; host_id: bigint | null; is_permanent: boolean }>
         >`SELECT id, host_id, is_permanent FROM rooms WHERE id = ${room.id}::uuid FOR UPDATE`;
         if (lockedRoom[0]?.host_id === userId) {
+          const keepAlive = await this.isKeepAliveEmptyRoom(
+            room.id,
+            room.ownerId,
+            lockedRoom[0].is_permanent || room.isPermanent,
+            tx,
+          );
           const successor = await this.pickHostSuccessor(room.id, userId, tx);
-          if (successor && !room.isPermanent) {
+          if (successor && !keepAlive) {
             await tx.room.update({
               where: { id: room.id },
               data: { hostId: successor, hostLastHeartbeatAt: new Date() },
@@ -759,9 +779,9 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
               where: { roomId: room.id, userId: successor },
               data: { role: 'host' },
             });
-          } else if (room.isPermanent) {
-            // Public permanent: Leave only removes this member. Owner stays host;
-            // room stays live until explicit Delete Room.
+          } else if (keepAlive) {
+            // Public permanent / agency-linked: Leave only removes this member.
+            // Owner stays host; room stays live until explicit Delete Room.
             await tx.room.update({
               where: { id: room.id },
               data: { hostId: room.ownerId },
@@ -1751,9 +1771,31 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Permanent public or agency-linked rooms stay live when empty (no host
+   * heartbeat / zero active members). Only explicit Delete ends them.
+   */
+  private async isKeepAliveEmptyRoom(
+    roomId: string,
+    ownerId: bigint,
+    isPermanent: boolean,
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<boolean> {
+    if (isPermanent) return true;
+    const affiliation = await client.agencyAffiliation.findFirst({
+      where: {
+        roomOwnerId: ownerId,
+        status: 'accepted',
+        OR: [{ roomId }, { roomId: null }],
+      },
+      select: { id: true },
+    });
+    return !!affiliation;
+  }
+
+  /**
    * When the host stops heartbeating: deactivate the stale host member,
    * promote a fresh successor if one exists, otherwise soft-end the room
-   * (permanent Public keeps the owner as host — only Delete ends it).
+   * (permanent / agency-linked keeps the owner as host — only Delete ends it).
    */
   private async expireStaleHostRoom(
     room: { id: string; hostId: bigint | null; isPermanent: boolean },
@@ -1815,11 +1857,18 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
+      const keepAlive = await this.isKeepAliveEmptyRoom(
+        room.id,
+        row.owner_id,
+        row.is_permanent,
+        tx,
+      );
+
       const successor = staleHostId
         ? await this.pickFreshHostSuccessor(room.id, staleHostId, cutoff, tx)
         : await this.pickFreshHostSuccessor(room.id, BigInt(0), cutoff, tx);
 
-      if (successor && !row.is_permanent) {
+      if (successor && !keepAlive) {
         await tx.room.update({
           where: { id: room.id },
           data: {
@@ -1835,8 +1884,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      // Permanent Public: keep owner as host; room stays live until Delete.
-      if (row.is_permanent) {
+      // Permanent / agency-linked: keep owner as host; room stays live until Delete.
+      if (keepAlive) {
         await tx.room.update({
           where: { id: room.id },
           data: { hostId: row.owner_id },
@@ -2314,9 +2363,11 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (room.allowedCountry) {
-      const want = room.allowedCountry.trim().toUpperCase();
-      const got = (user.country ?? '').trim().toUpperCase();
-      if (want === 'OTHER') {
+      const want = normalizeCountryCode(room.allowedCountry);
+      const got = normalizeCountryCode(user.country);
+      if (!want || want === 'ALL') {
+        // no country filter
+      } else if (want === 'OTHER') {
         if (got && got !== 'OTHER') {
           throw new ForbiddenException({
             success: false,

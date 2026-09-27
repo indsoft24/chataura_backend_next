@@ -78,7 +78,7 @@ describe('Production Concurrency & Thread-Safety (e2e)', () => {
       // Set sender balance to exactly 250 coins
       await prisma.user.update({
         where: { id: BigInt(sender.id) },
-        data: { walletBalance: 250n, coinBalance: 250n },
+        data: { walletBalance: 250n },
       });
 
       // Fire 6 concurrent transfers of 100 coins each (total 600 attempted on a 250 balance)
@@ -114,7 +114,6 @@ describe('Production Concurrency & Thread-Safety (e2e)', () => {
         where: { id: BigInt(sender.id) },
       });
       expect(Number(u.walletBalance)).toBe(50);
-      expect(Number(u.coinBalance)).toBe(50);
     });
   });
 
@@ -153,7 +152,7 @@ describe('Production Concurrency & Thread-Safety (e2e)', () => {
       // Give sender balance for exactly 3 gifts
       await prisma.user.update({
         where: { id: BigInt(sender.id) },
-        data: { walletBalance: BigInt(cost * 3), coinBalance: BigInt(cost * 3) },
+        data: { walletBalance: BigInt(cost * 3) },
       });
 
       // Fire 5 concurrent room gift requests

@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { bandForXp, ensureLaravelLevelBands } from '../gamification/level-bands';
 import { LedgerService } from '../wallet/ledger.service';
@@ -136,7 +137,7 @@ export class AdminService {
         _sum: { coinAmount: true },
       }),
       this.prisma.coinTransaction.aggregate({
-        where: { type: { in: ['GAME_LUCKY77_WIN', 'GAME_GREEDY_WIN', 'SPIN_WIN'] }, createdAt: { gte: from, lte: to } },
+        where: { type: { in: ['GAME_LUCKY77_WIN', 'GAME_GREEDY_WIN', 'SPIN_WIN', 'LUCKY_GIFT_REBATE'] }, createdAt: { gte: from, lte: to } },
         _sum: { coinAmount: true },
       }),
       this.prisma.coinPurchaseTransaction.groupBy({
@@ -158,7 +159,7 @@ export class AdminService {
       }),
       this.prisma.user.findFirst({
         where: { role: 'admin' },
-        select: { id: true, name: true, displayName: true, email: true, walletBalance: true, coinBalance: true },
+        select: { id: true, name: true, displayName: true, email: true, walletBalance: true },
       }),
     ]);
 
@@ -282,7 +283,7 @@ export class AdminService {
             name: systemUser.displayName ?? systemUser.name,
             email: systemUser.email,
             wallet_balance: Number(systemUser.walletBalance),
-            coin_balance: Number(systemUser.coinBalance),
+            coin_balance: Number(systemUser.walletBalance),
           }
         : null,
       commissionByDay,
@@ -314,40 +315,148 @@ export class AdminService {
     };
   }
 
-  async users(q?: string, page = 1, limit = 20) {
-    const take = Math.min(Math.max(limit, 1), 50);
-    const skip = (Math.max(page, 1) - 1) * take;
-    const where = q
-      ? {
-          OR: [
-            { email: { contains: q, mode: 'insensitive' as const } },
-            { displayName: { contains: q, mode: 'insensitive' as const } },
-            { name: { contains: q, mode: 'insensitive' as const } },
-          ],
-        }
-      : {};
-    const [total, rows] = await Promise.all([
+  async users(
+    q?: string,
+    page = 1,
+    limit = 20,
+    filters: {
+      status?: string;
+      role?: string;
+      star?: string;
+      online?: string;
+      sort?: string;
+      order?: string;
+    } = {},
+  ) {
+    const take = Math.min(Math.max(Number.isFinite(limit) ? limit : 20, 1), 100);
+    page = Math.max(Number.isFinite(page) ? Math.floor(page) : 1, 1);
+    const skip = (page - 1) * take;
+
+    const base: Prisma.UserWhereInput[] = [];
+    const term = q?.trim().replace(/^#/, '');
+    if (term) {
+      base.push({
+        OR: [
+          { email: { contains: term, mode: 'insensitive' } },
+          { displayName: { contains: term, mode: 'insensitive' } },
+          { name: { contains: term, mode: 'insensitive' } },
+          { phone: { contains: term } },
+          ...(/^\d{1,18}$/.test(term) ? [{ id: BigInt(term) }] : []),
+        ],
+      });
+    }
+    if (filters.role && (Object.values(UserRole) as string[]).includes(filters.role)) {
+      base.push({ role: filters.role as UserRole });
+    }
+    if (filters.star === 'yes' || filters.star === 'no') {
+      base.push({ isStarAccount: filters.star === 'yes' });
+    }
+    if (filters.online === 'yes' || filters.online === 'no') {
+      base.push({ isOnline: filters.online === 'yes' });
+    }
+
+    const statusWhere: Record<'active' | 'suspended' | 'deactivated', Prisma.UserWhereInput> = {
+      active: {
+        deletedAt: null,
+        accountStatus: 'active',
+        isSuspended: false,
+      },
+      suspended: {
+        deletedAt: null,
+        accountStatus: { not: 'deleted' },
+        OR: [{ isSuspended: true }, { accountStatus: 'suspended' }],
+      },
+      deactivated: {
+        OR: [{ accountStatus: 'deleted' }, { deletedAt: { not: null } }],
+      },
+    };
+    const statusKey = filters.status as keyof typeof statusWhere | undefined;
+    const where: Prisma.UserWhereInput = {
+      AND: [...base, ...(statusKey && statusWhere[statusKey] ? [statusWhere[statusKey]] : [])],
+    };
+
+    const dir: Prisma.SortOrder = filters.order === 'asc' ? 'asc' : 'desc';
+    const sortMap: Record<string, Prisma.UserOrderByWithRelationInput[]> = {
+      id: [{ id: dir }],
+      created_at: [{ createdAt: dir }, { id: dir }],
+      name: [{ displayName: { sort: dir, nulls: 'last' } }, { id: dir }],
+      coins: [{ walletBalance: dir }, { id: dir }],
+      gems: [{ gems: dir }, { id: dir }],
+      level: [{ level: dir }, { xp: dir }, { id: dir }],
+      last_seen: [{ lastSeenAt: { sort: dir, nulls: 'last' } }, { id: dir }],
+    };
+    const orderBy = sortMap[filters.sort ?? ''] ?? sortMap.id;
+
+    const countFor = (extra?: Prisma.UserWhereInput) =>
+      this.prisma.user.count({ where: { AND: [...base, ...(extra ? [extra] : [])] } });
+
+    const [total, rows, all, active, suspended, deactivated] = await Promise.all([
       this.prisma.user.count({ where }),
-      this.prisma.user.findMany({
-        where,
-        skip,
-        take,
-        orderBy: { id: 'desc' },
-      }),
+      this.prisma.user.findMany({ where, skip, take, orderBy }),
+      countFor(),
+      countFor(statusWhere.active),
+      countFor(statusWhere.suspended),
+      countFor(statusWhere.deactivated),
     ]);
+    const totalPages = Math.max(1, Math.ceil(total / take));
     return {
-      users: rows.map((user) => userForApi(user)),
+      users: rows.map((user) => ({
+        ...userForApi(user),
+        status: this.adminUserStatus(user),
+        is_suspended: user.isSuspended,
+        suspended_reason: user.suspendedReason,
+      })),
       total,
       page,
       limit: take,
-      total_pages: Math.ceil(total / take),
+      total_pages: totalPages,
+      counts: { all, active, suspended, deactivated },
       meta: {
         total,
         page,
-        last_page: Math.max(1, Math.ceil(total / take)),
+        last_page: totalPages,
         limit: take,
       },
     };
+  }
+
+  private adminUserStatus(user: {
+    deletedAt: Date | null;
+    accountStatus: string;
+    isSuspended: boolean;
+  }): 'active' | 'suspended' | 'deactivated' {
+    if (user.deletedAt || user.accountStatus === 'deleted') return 'deactivated';
+    if (user.isSuspended || user.accountStatus === 'suspended') return 'suspended';
+    return 'active';
+  }
+
+  async restoreUser(id: bigint) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) {
+      throw new NotFoundException({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'User not found' },
+      });
+    }
+    if (user.email?.endsWith('@deleted.local')) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'SELF_DELETED',
+          message: 'This account was deleted by the user and cannot be restored',
+        },
+      });
+    }
+    const u = await this.prisma.user.update({
+      where: { id },
+      data: {
+        accountStatus: 'active',
+        isSuspended: false,
+        suspendedReason: null,
+        deletedAt: null,
+      },
+    });
+    return userForApi(u);
   }
 
   async suspend(id: bigint, reason?: string) {
@@ -360,7 +469,11 @@ export class AdminService {
     }
     const u = await this.prisma.user.update({
       where: { id },
-      data: { isSuspended: true, suspendedReason: reason ?? 'admin_suspend' },
+      data: {
+        isSuspended: true,
+        suspendedReason: reason ?? 'admin_suspend',
+        ...(user.accountStatus === 'deleted' ? {} : { accountStatus: 'suspended' as const }),
+      },
     });
     return userForApi(u);
   }
@@ -375,7 +488,11 @@ export class AdminService {
     }
     const u = await this.prisma.user.update({
       where: { id },
-      data: { isSuspended: false, suspendedReason: null },
+      data: {
+        isSuspended: false,
+        suspendedReason: null,
+        ...(user.accountStatus === 'suspended' ? { accountStatus: 'active' as const } : {}),
+      },
     });
     return userForApi(u);
   }
@@ -519,7 +636,7 @@ export class AdminService {
           meta: { ...meta, gems_before: Number(gemsBefore), gems_after: Number(gemsAfter) },
         });
         return {
-          coin_balance: Number(locked.coin_balance),
+          coin_balance: Number(locked.wallet_balance),
           wallet_balance: Number(locked.wallet_balance),
           gems: Number(gemsAfter),
         };
@@ -929,57 +1046,168 @@ export class AdminService {
   // Party Room Analytics
   // ──────────────────────────────────────────────
 
-  async partyRoomAnalytics() {
-    const today = this.startOfDay();
-    const [liveRooms, activeSessions, totalRoomsCreated, topPresences] = await Promise.all([
-      this.prisma.room.count({ where: { isLive: true } }),
-      this.prisma.userRoomPresenceSession.count({ where: { isActive: true } }),
-      this.prisma.room.count(),
-      this.prisma.userRoomPresenceSession.findMany({
-        take: 50,
-        orderBy: { accumulatedSeconds: 'desc' },
-        include: {
-          user: { select: { id: true, name: true, displayName: true, avatarUrl: true, country: true } },
-          room: { select: { id: true, title: true, displayId: true } },
+  private presenceStatusWhere(threshold: Date): Record<'active' | 'stale' | 'ended', Prisma.UserRoomPresenceSessionWhereInput> {
+    return {
+      active: {
+        isActive: true,
+        OR: [
+          { lastHeartbeatAt: { gte: threshold } },
+          { lastHeartbeatAt: null, joinedAt: { gte: threshold } },
+        ],
+      },
+      stale: {
+        isActive: true,
+        OR: [
+          { lastHeartbeatAt: { lt: threshold } },
+          { lastHeartbeatAt: null, joinedAt: { lt: threshold } },
+        ],
+      },
+      ended: { isActive: false },
+    };
+  }
+
+  async partyRoomAnalytics(query: Record<string, string | undefined> = {}) {
+    const limitRaw = Number(query.limit ?? 25);
+    const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? Math.floor(limitRaw) : 25, 1), 100);
+    const pageRaw = Number(query.page ?? 1);
+    const page = Math.max(Number.isFinite(pageRaw) ? Math.floor(pageRaw) : 1, 1);
+    const threshold = new Date(Date.now() - 5 * 60 * 1000);
+    const statusWhere = this.presenceStatusWhere(threshold);
+
+    const base: Prisma.UserRoomPresenceSessionWhereInput[] = [];
+    const q = query.q?.trim().replace(/^#/, '');
+    if (q) {
+      const or: Prisma.UserRoomPresenceSessionWhereInput[] = [
+        {
+          user: {
+            OR: [
+              { name: { contains: q, mode: 'insensitive' } },
+              { displayName: { contains: q, mode: 'insensitive' } },
+              { email: { contains: q, mode: 'insensitive' } },
+            ],
+          },
         },
+        { room: { title: { contains: q, mode: 'insensitive' } } },
+        { room: { displayId: { contains: q } } },
+      ];
+      if (/^\d{1,18}$/.test(q)) or.push({ userId: BigInt(q) }, { id: BigInt(q) });
+      base.push({ OR: or });
+    }
+    if (query.user_id && /^\d{1,18}$/.test(query.user_id)) base.push({ userId: BigInt(query.user_id) });
+    if (query.room_id && /^[0-9a-f-]{36}$/i.test(query.room_id)) base.push({ roomId: query.room_id });
+    if (query.close_reason) base.push({ closeReason: query.close_reason });
+    const from = query.from ? new Date(query.from) : null;
+    const to = query.to ? new Date(query.to) : null;
+    if (from && !Number.isNaN(from.getTime())) base.push({ joinedAt: { gte: from } });
+    if (to && !Number.isNaN(to.getTime())) base.push({ joinedAt: { lte: to } });
+    const minMinutes = Number(query.min_minutes);
+    if (Number.isFinite(minMinutes) && minMinutes > 0) {
+      base.push({ accumulatedSeconds: { gte: Math.floor(minMinutes * 60) } });
+    }
+
+    const statusKey = query.status as keyof typeof statusWhere | undefined;
+    const where: Prisma.UserRoomPresenceSessionWhereInput = {
+      AND: [...base, ...(statusKey && statusWhere[statusKey] ? [statusWhere[statusKey]] : [])],
+    };
+
+    const dir: Prisma.SortOrder = query.order === 'asc' ? 'asc' : 'desc';
+    const orderBy: Prisma.UserRoomPresenceSessionOrderByWithRelationInput[] =
+      query.sort === 'joined_at'
+        ? [{ joinedAt: dir }, { id: dir }]
+        : query.sort === 'duration'
+          ? [{ accumulatedSeconds: dir }, { id: dir }]
+          : query.sort === 'last_heartbeat'
+            ? [{ lastHeartbeatAt: { sort: dir, nulls: 'last' } }, { id: dir }]
+            : [{ id: dir }];
+
+    const countFor = (extra?: Prisma.UserRoomPresenceSessionWhereInput) =>
+      this.prisma.userRoomPresenceSession.count({ where: { AND: [...base, ...(extra ? [extra] : [])] } });
+
+    const today = this.startOfDay();
+    const [
+      liveRooms,
+      totalRoomsCreated,
+      sessionsToday,
+      rows,
+      total,
+      agg,
+      uniqueUsers,
+      all,
+      active,
+      stale,
+      ended,
+      reasons,
+    ] = await Promise.all([
+      this.prisma.room.count({ where: { isLive: true } }),
+      this.prisma.room.count(),
+      this.prisma.userRoomPresenceSession.count({ where: { joinedAt: { gte: today } } }),
+      this.prisma.userRoomPresenceSession.findMany({
+        where,
+        orderBy,
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          user: { select: { id: true, name: true, displayName: true, avatarUrl: true, country: true, email: true } },
+          room: { select: { id: true, title: true, displayId: true, isLive: true } },
+        },
+      }),
+      this.prisma.userRoomPresenceSession.count({ where }),
+      this.prisma.userRoomPresenceSession.aggregate({ where, _sum: { accumulatedSeconds: true }, _avg: { accumulatedSeconds: true } }),
+      this.prisma.userRoomPresenceSession.groupBy({ by: ['userId'], where }),
+      countFor(),
+      countFor(statusWhere.active),
+      countFor(statusWhere.stale),
+      countFor(statusWhere.ended),
+      this.prisma.userRoomPresenceSession.groupBy({
+        by: ['closeReason'],
+        where: { closeReason: { not: null } },
+        _count: { _all: true },
       }),
     ]);
 
-    // Daily Trend
-    const dailyTrend: Array<{ date: string; sessions: number }> = [];
-    for (let i = 0; i < 7; i++) {
-      const dStart = new Date();
-      dStart.setDate(dStart.getDate() - i);
-      dStart.setHours(0, 0, 0, 0);
-      const dEnd = new Date(dStart);
-      dEnd.setDate(dEnd.getDate() + 1);
-
-      const count = await this.prisma.userRoomPresenceSession.count({
-        where: { createdAt: { gte: dStart, lt: dEnd } },
-      });
-      dailyTrend.push({ date: dStart.toISOString().split('T')[0], sessions: count });
-    }
-
+    const pages = Math.max(1, Math.ceil(total / limit));
     return {
       kpis: {
         live_rooms: liveRooms,
-        active_sessions: activeSessions,
+        active_sessions: active,
+        stale_sessions: stale,
         total_rooms: totalRoomsCreated,
+        sessions_today: sessionsToday,
+        total_seconds: agg._sum.accumulatedSeconds ?? 0,
+        avg_seconds: Math.round(agg._avg.accumulatedSeconds ?? 0),
+        unique_users: uniqueUsers.length,
       },
-      daily_trend: dailyTrend,
-      leaderboard: topPresences.map((p) => ({
-        id: Number(p.id),
-        user_id: Number(p.userId),
-        user_name: p.user.displayName ?? p.user.name,
-        avatar_url: p.user.avatarUrl,
-        country: p.user.country,
-        room_id: p.roomId,
-        room_title: p.room.title,
-        room_display_id: p.room.displayId,
-        accumulated_seconds: p.accumulatedSeconds,
-        is_active: p.isActive,
-        joined_at: p.joinedAt.toISOString(),
-      })),
+      counts: { all, active, stale, ended },
+      close_reasons: reasons
+        .map((r) => ({ reason: r.closeReason as string, count: r._count._all }))
+        .sort((a, b) => b.count - a.count),
+      sessions: rows.map((p) => {
+        const status = !p.isActive
+          ? 'ended'
+          : (p.lastHeartbeatAt ?? p.joinedAt) < threshold
+            ? 'stale'
+            : 'active';
+        return {
+          id: Number(p.id),
+          user_id: Number(p.userId),
+          user_name: p.user.displayName ?? p.user.name,
+          user_email: p.user.email,
+          avatar_url: p.user.avatarUrl,
+          country: p.user.country,
+          room_id: p.roomId,
+          room_title: p.room.title,
+          room_display_id: p.room.displayId,
+          room_is_live: p.room.isLive,
+          accumulated_seconds: p.finalSeconds || p.accumulatedSeconds,
+          status,
+          is_active: p.isActive,
+          joined_at: p.joinedAt.toISOString(),
+          last_heartbeat_at: p.lastHeartbeatAt?.toISOString() ?? null,
+          closed_at: p.closedAt?.toISOString() ?? null,
+          close_reason: p.closeReason,
+        };
+      }),
+      meta: { page, limit, total, pages },
     };
   }
 
@@ -1020,10 +1248,7 @@ export class AdminService {
   async closeStalePartyRoomSessions() {
     const threshold = new Date(Date.now() - 5 * 60 * 1000);
     const updated = await this.prisma.userRoomPresenceSession.updateMany({
-      where: {
-        isActive: true,
-        lastHeartbeatAt: { lt: threshold },
-      },
+      where: this.presenceStatusWhere(threshold).stale,
       data: {
         isActive: false,
         closedAt: new Date(),
@@ -1037,75 +1262,223 @@ export class AdminService {
   // User Location Compliance
   // ──────────────────────────────────────────────
 
-  async userLocationCompliance(q = '', country = '', page = 1, limit = 25) {
-    const skip = (page - 1) * limit;
-    const whereClause: any = { deletedAt: null };
-    if (country) {
-      whereClause.OR = [
-        { country: country.toUpperCase() },
-        { lastClientCountry: country.toUpperCase() },
-      ];
+  // Legacy profile values that are country names rather than ISO codes.
+  private static readonly COUNTRY_ALIASES: Record<string, string[]> = {
+    IN: ['India'],
+    PK: ['Pak', 'Pakistan'],
+    BD: ['Bangladesh'],
+    US: ['USA', 'United States'],
+  };
+  private static readonly NON_COUNTRY_VALUES = ['Global', 'Unknown', ''];
+
+  private normalizeCountry(value: string | null | undefined): string | null {
+    const v = value?.trim();
+    if (!v) return null;
+    if (AdminService.NON_COUNTRY_VALUES.some((n) => n.toLowerCase() === v.toLowerCase())) return null;
+    for (const [code, names] of Object.entries(AdminService.COUNTRY_ALIASES)) {
+      if (names.some((n) => n.toLowerCase() === v.toLowerCase())) return code;
     }
-    if (q) {
-      whereClause.OR = [
-        { name: { contains: q, mode: 'insensitive' } },
-        { displayName: { contains: q, mode: 'insensitive' } },
-        { email: { contains: q, mode: 'insensitive' } },
-        { phone: { contains: q } },
-      ];
+    return v.toUpperCase();
+  }
+
+  private isCountryMismatch(u: { country: string | null; lastClientCountry: string | null }) {
+    const profile = this.normalizeCountry(u.country);
+    const client = this.normalizeCountry(u.lastClientCountry);
+    return !!profile && !!client && profile !== client;
+  }
+
+  private countryAliasPairs(): Prisma.UserWhereInput[] {
+    return Object.entries(AdminService.COUNTRY_ALIASES).map(([code, names]) => ({
+      lastClientCountry: { equals: code, mode: 'insensitive' as const },
+      country: { in: names, mode: 'insensitive' as const },
+    }));
+  }
+
+  private locationMismatchWhere(): Prisma.UserWhereInput {
+    return {
+      country: { not: null },
+      lastClientCountry: { not: null },
+      NOT: [
+        { country: { equals: this.prisma.user.fields.lastClientCountry } },
+        { country: { in: AdminService.NON_COUNTRY_VALUES, mode: 'insensitive' } },
+        ...this.countryAliasPairs(),
+      ],
+    };
+  }
+
+  private locationWhere(query: Record<string, string | undefined>): Prisma.UserWhereInput {
+    const and: Prisma.UserWhereInput[] = [];
+    if (query.status === 'deactivated') {
+      and.push({ OR: [{ accountStatus: 'deleted' }, { deletedAt: { not: null } }] });
+    } else {
+      and.push({ deletedAt: null, accountStatus: { not: 'deleted' } });
+      if (query.status === 'active') and.push({ accountStatus: 'active', isSuspended: false });
+      if (query.status === 'suspended') and.push({ OR: [{ isSuspended: true }, { accountStatus: 'suspended' }] });
     }
 
-    const [rows, total, totalActive, countryAgg] = await Promise.all([
+    const q = query.q?.trim().replace(/^#/, '');
+    if (q) {
+      and.push({
+        OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          { displayName: { contains: q, mode: 'insensitive' } },
+          { email: { contains: q, mode: 'insensitive' } },
+          { phone: { contains: q } },
+          ...(/^\d{1,18}$/.test(q) ? [{ id: BigInt(q) }] : []),
+        ],
+      });
+    }
+
+    const country = query.country?.trim().toUpperCase();
+    if (country === 'UNKNOWN') {
+      and.push({
+        lastClientCountry: null,
+        OR: [{ country: null }, { country: { in: AdminService.NON_COUNTRY_VALUES, mode: 'insensitive' } }],
+      });
+    } else if (country) {
+      const profileValues = [country, ...(AdminService.COUNTRY_ALIASES[country] ?? [])];
+      and.push({
+        OR: [
+          { lastClientCountry: { equals: country, mode: 'insensitive' } },
+          { lastClientCountry: null, country: { in: profileValues, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    if (query.match === 'mismatch') and.push(this.locationMismatchWhere());
+    else if (query.match === 'match') {
+      and.push({
+        OR: [
+          { country: { not: null, equals: this.prisma.user.fields.lastClientCountry } },
+          ...this.countryAliasPairs(),
+        ],
+      });
+    } else if (query.match === 'missing') {
+      and.push({
+        OR: [
+          { country: null },
+          { lastClientCountry: null },
+          { country: { in: AdminService.NON_COUNTRY_VALUES, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    const from = query.from ? new Date(query.from) : null;
+    const to = query.to ? new Date(query.to) : null;
+    if (from && !Number.isNaN(from.getTime())) and.push({ createdAt: { gte: from } });
+    if (to && !Number.isNaN(to.getTime())) and.push({ createdAt: { lte: to } });
+
+    return { AND: and };
+  }
+
+  private locationOrder(query: Record<string, string | undefined>): Prisma.UserOrderByWithRelationInput[] {
+    const dir: Prisma.SortOrder = query.order === 'asc' ? 'asc' : 'desc';
+    switch (query.sort) {
+      case 'created_at':
+        return [{ createdAt: dir }, { id: dir }];
+      case 'coins':
+        return [{ walletBalance: dir }, { id: dir }];
+      case 'name':
+        return [{ displayName: { sort: dir, nulls: 'last' } }, { id: dir }];
+      case 'country':
+        return [
+          { lastClientCountry: { sort: dir, nulls: 'last' } },
+          { country: { sort: dir, nulls: 'last' } },
+          { id: 'desc' },
+        ];
+      default:
+        return [{ id: dir }];
+    }
+  }
+
+  async userLocationCompliance(query: Record<string, string | undefined> = {}) {
+    const limitRaw = Number(query.limit ?? 25);
+    const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? Math.floor(limitRaw) : 25, 1), 100);
+    const pageRaw = Number(query.page ?? 1);
+    const page = Math.max(Number.isFinite(pageRaw) ? Math.floor(pageRaw) : 1, 1);
+    const where = this.locationWhere(query);
+    const tracked: Prisma.UserWhereInput = { deletedAt: null, accountStatus: { not: 'deleted' } };
+
+    const [rows, total, totalTracked, mismatches, unknown, countryRows] = await Promise.all([
       this.prisma.user.findMany({
-        where: whereClause,
-        orderBy: { id: 'desc' },
-        skip,
+        where,
+        orderBy: this.locationOrder(query),
+        skip: (page - 1) * limit,
         take: limit,
       }),
-      this.prisma.user.count({ where: whereClause }),
-      this.prisma.user.count({ where: { accountStatus: 'active' } }),
-      this.prisma.user.groupBy({
-        by: ['country'],
-        _count: { id: true },
-      }),
+      this.prisma.user.count({ where }),
+      this.prisma.user.count({ where: tracked }),
+      this.prisma.user.count({ where: { AND: [tracked, this.locationMismatchWhere()] } }),
+      this.prisma.user.count({ where: { AND: [tracked, this.locationWhere({ country: 'UNKNOWN' })] } }),
+      this.prisma.$queryRaw<Array<{ code: string | null; count: bigint }>>`
+        SELECT COALESCE(last_client_country, country) AS code, COUNT(*)::bigint AS count
+        FROM users
+        WHERE deleted_at IS NULL AND account_status <> 'deleted'
+        GROUP BY 1`,
     ]);
 
+    const countryMap = new Map<string, number>();
+    for (const c of countryRows) {
+      const code = this.normalizeCountry(c.code) ?? 'UNKNOWN';
+      countryMap.set(code, (countryMap.get(code) ?? 0) + Number(c.count));
+    }
+    const countries = [...countryMap.entries()]
+      .map(([code, count]) => ({ code, count }))
+      .sort((a, b) => b.count - a.count);
+    const pages = Math.max(1, Math.ceil(total / limit));
     return {
       kpis: {
-        total_tracked_users: totalActive,
-        countries_detected: countryAgg.length,
+        total_tracked_users: totalTracked,
+        countries_detected: countries.filter((c) => c.code !== 'UNKNOWN').length,
+        mismatches,
+        unknown,
       },
+      countries,
       users: rows.map((u) => ({
         id: Number(u.id),
         name: u.displayName ?? u.name,
         email: u.email,
         phone: u.phone,
+        avatar_url: u.avatarUrl,
         profile_country: u.country,
-        client_country: u.lastClientCountry ?? u.country,
-        effective_country: u.lastClientCountry ?? u.country ?? 'Unknown',
-        coin_balance: Number(u.coinBalance),
+        client_country: u.lastClientCountry,
+        effective_country: this.normalizeCountry(u.lastClientCountry ?? u.country) ?? 'Unknown',
+        country_mismatch: this.isCountryMismatch(u),
+        coin_balance: Number(u.walletBalance),
         wallet_balance: Number(u.walletBalance),
         account_status: u.accountStatus,
+        status: this.adminUserStatus(u),
         registered_at: u.createdAt.toISOString(),
       })),
-      meta: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-      },
+      meta: { page, limit, total, pages },
     };
   }
 
-  async exportLocationComplianceCsv() {
+  async exportLocationComplianceCsv(query: Record<string, string | undefined> = {}) {
     const rows = await this.prisma.user.findMany({
-      where: { deletedAt: null },
-      take: 2000,
-      orderBy: { id: 'desc' },
+      where: this.locationWhere(query),
+      take: 20000,
+      orderBy: this.locationOrder(query),
     });
-    const header = 'ID,Name,Email,Phone,Profile Country,Last Client Country,Coins,Status,Registered At\n';
+    const cell = (v: unknown) => `"${v === null || v === undefined ? '' : String(v).replace(/"/g, '""')}"`;
+    const header =
+      'ID,Name,Email,Phone,Profile Country,Last Client Country,Effective Country,Country Mismatch,Coins,Status,Registered At\n';
     const lines = rows.map((u) =>
-      `"${Number(u.id)}","${u.displayName ?? u.name ?? ''}","${u.email ?? ''}","${u.phone ?? ''}","${u.country ?? ''}","${u.lastClientCountry ?? ''}","${Number(u.coinBalance)}","${u.accountStatus}","${u.createdAt.toISOString()}"`,
+      [
+        Number(u.id),
+        u.displayName ?? u.name,
+        u.email,
+        u.phone,
+        u.country,
+        u.lastClientCountry,
+        this.normalizeCountry(u.lastClientCountry ?? u.country) ?? 'Unknown',
+        this.isCountryMismatch(u) ? 'yes' : 'no',
+        Number(u.walletBalance),
+        this.adminUserStatus(u),
+        u.createdAt.toISOString(),
+      ]
+        .map(cell)
+        .join(','),
     );
     return header + lines.join('\n');
   }
@@ -1229,47 +1602,114 @@ export class AdminService {
   // Media Moderation (Posts & Reels)
   // ──────────────────────────────────────────────
 
-  async adminPosts(page = 1, limit = 20, q = '') {
-    const skip = (page - 1) * limit;
-    const where: any = { kind: 'post', isDeleted: false };
+  async adminMedia(kind: 'post' | 'reel', query: Record<string, string | undefined> = {}) {
+    const limitRaw = Number(query.limit ?? 20);
+    const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? Math.floor(limitRaw) : 20, 1), 100);
+    const pageRaw = Number(query.page ?? 1);
+    const page = Math.max(Number.isFinite(pageRaw) ? Math.floor(pageRaw) : 1, 1);
+
+    const base: Prisma.MediaItemWhereInput[] = [{ kind }];
+    const q = query.q?.trim().replace(/^#/, '');
     if (q) {
-      where.OR = [
+      const or: Prisma.MediaItemWhereInput[] = [
         { caption: { contains: q, mode: 'insensitive' } },
-        { user: { name: { contains: q, mode: 'insensitive' } } },
+        {
+          user: {
+            OR: [
+              { name: { contains: q, mode: 'insensitive' } },
+              { displayName: { contains: q, mode: 'insensitive' } },
+              { email: { contains: q, mode: 'insensitive' } },
+            ],
+          },
+        },
       ];
+      if (/^\d{1,18}$/.test(q)) or.push({ id: BigInt(q) }, { userId: BigInt(q) });
+      base.push({ OR: or });
     }
-    const [rows, total] = await Promise.all([
+    if (query.user_id && /^\d{1,18}$/.test(query.user_id)) base.push({ userId: BigInt(query.user_id) });
+    if (query.caption === 'yes') base.push({ caption: { not: null }, NOT: { caption: '' } });
+    if (query.caption === 'no') base.push({ OR: [{ caption: null }, { caption: '' }] });
+    const from = query.from ? new Date(query.from) : null;
+    const to = query.to ? new Date(query.to) : null;
+    if (from && !Number.isNaN(from.getTime())) base.push({ createdAt: { gte: from } });
+    if (to && !Number.isNaN(to.getTime())) base.push({ createdAt: { lte: to } });
+
+    const statusWhere = { live: { isDeleted: false }, removed: { isDeleted: true } } as const;
+    const statusKey = (query.status === 'removed' ? 'removed' : query.status === 'all' ? '' : 'live') as
+      | keyof typeof statusWhere
+      | '';
+    const where: Prisma.MediaItemWhereInput = {
+      AND: [...base, ...(statusKey ? [statusWhere[statusKey]] : [])],
+    };
+
+    const dir: Prisma.SortOrder = query.order === 'asc' ? 'asc' : 'desc';
+    const orderBy: Prisma.MediaItemOrderByWithRelationInput[] =
+      query.sort === 'likes'
+        ? [{ likes: { _count: dir } }, { id: 'desc' }]
+        : query.sort === 'comments'
+          ? [{ comments: { _count: dir } }, { id: 'desc' }]
+          : query.sort === 'views'
+            ? [{ viewsCount: dir }, { id: 'desc' }]
+            : [{ id: dir }];
+
+    const countFor = (extra?: Prisma.MediaItemWhereInput) =>
+      this.prisma.mediaItem.count({ where: { AND: [...base, ...(extra ? [extra] : [])] } });
+
+    const [rows, total, live, removed] = await Promise.all([
       this.prisma.mediaItem.findMany({
         where,
         include: {
-          user: { select: { id: true, name: true, displayName: true, avatarUrl: true } },
+          user: { select: { id: true, name: true, displayName: true, avatarUrl: true, email: true } },
           _count: { select: { likes: true, comments: true } },
         },
-        orderBy: { id: 'desc' },
-        skip,
+        orderBy,
+        skip: (page - 1) * limit,
         take: limit,
       }),
       this.prisma.mediaItem.count({ where }),
+      countFor(statusWhere.live),
+      countFor(statusWhere.removed),
     ]);
 
+    const items = rows.map((m) => ({
+      id: Number(m.id),
+      caption: m.caption,
+      media_url: m.fileUrl,
+      media_type: m.mediaType,
+      thumbnail_url: m.thumbnailUrl ?? (kind === 'post' ? m.fileUrl : null),
+      likes_count: m._count.likes,
+      comments_count: m._count.comments,
+      views_count: m.viewsCount,
+      shares_count: m.sharesCount,
+      duration: m.duration,
+      is_deleted: m.isDeleted,
+      created_at: m.createdAt.toISOString(),
+      user: {
+        id: Number(m.user.id),
+        name: m.user.displayName ?? m.user.name,
+        email: m.user.email,
+        avatar_url: m.user.avatarUrl,
+      },
+    }));
+    const pages = Math.max(1, Math.ceil(total / limit));
     return {
-      posts: rows.map((p) => ({
-        id: Number(p.id),
-        caption: p.caption,
-        media_url: p.fileUrl,
-        thumbnail_url: p.thumbnailUrl ?? p.fileUrl,
-        likes_count: p._count.likes,
-        comments_count: p._count.comments,
-        is_deleted: p.isDeleted,
-        created_at: p.createdAt.toISOString(),
-        user: {
-          id: Number(p.user.id),
-          name: p.user.displayName ?? p.user.name,
-          avatar_url: p.user.avatarUrl,
-        },
-      })),
-      meta: { page, limit, total, pages: Math.ceil(total / limit) },
+      [kind === 'post' ? 'posts' : 'reels']: items,
+      items,
+      counts: { live, removed, all: live + removed },
+      meta: { page, limit, total, pages },
     };
+  }
+
+  async restoreMedia(id: bigint) {
+    const row = await this.prisma.mediaItem.findUnique({ where: { id } });
+    if (!row) {
+      throw new NotFoundException({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Media not found' },
+      });
+    }
+    await this.prisma.mediaItem.update({ where: { id }, data: { isDeleted: false } });
+    return { message: 'Media restored', id: Number(id) };
   }
 
   async deleteMediaPost(id: bigint) {
@@ -1345,105 +1785,164 @@ export class AdminService {
     };
   }
 
-  async adminReels(page = 1, limit = 20, q = '') {
-    const skip = (page - 1) * limit;
-    const where: any = { kind: 'reel', isDeleted: false };
-    if (q) {
-      where.OR = [
-        { caption: { contains: q, mode: 'insensitive' } },
-        { user: { name: { contains: q, mode: 'insensitive' } } },
-      ];
-    }
-    const [rows, total] = await Promise.all([
-      this.prisma.mediaItem.findMany({
-        where,
-        include: {
-          user: { select: { id: true, name: true, displayName: true, avatarUrl: true } },
-          _count: { select: { likes: true, comments: true } },
-        },
-        orderBy: { id: 'desc' },
-        skip,
-        take: limit,
-      }),
-      this.prisma.mediaItem.count({ where }),
-    ]);
-
-    return {
-      reels: rows.map((r) => ({
-        id: Number(r.id),
-        caption: r.caption,
-        media_url: r.fileUrl,
-        thumbnail_url: r.thumbnailUrl ?? r.fileUrl,
-        likes_count: r._count.likes,
-        comments_count: r._count.comments,
-        views_count: r.viewsCount,
-        created_at: r.createdAt.toISOString(),
-        user: {
-          id: Number(r.user.id),
-          name: r.user.displayName ?? r.user.name,
-          avatar_url: r.user.avatarUrl,
-        },
-      })),
-      meta: { page, limit, total, pages: Math.ceil(total / limit) },
-    };
-  }
-
   async deleteMediaReel(id: bigint) {
-    await this.prisma.mediaItem.delete({ where: { id } });
-    return { message: 'Reel deleted' };
+    await this.prisma.mediaItem.update({
+      where: { id },
+      data: { isDeleted: true },
+    });
+    return { message: 'Reel removed' };
   }
 
   // ──────────────────────────────────────────────
   // Transactions
   // ──────────────────────────────────────────────
 
-  async adminTransactions(source = '', status = '', q = '', page = 1, limit = 25) {
-    const skip = (page - 1) * limit;
-    const where: any = {};
-    if (source) where.type = source.toUpperCase();
+  private transactionWhere(query: Record<string, string | undefined>): Prisma.CoinTransactionWhereInput {
+    const and: Prisma.CoinTransactionWhereInput[] = [];
+    const q = query.q?.trim().replace(/^#/, '');
     if (q) {
-      where.user = {
-        OR: [
-          { name: { contains: q, mode: 'insensitive' } },
-          { email: { contains: q, mode: 'insensitive' } },
-        ],
-      };
+      const or: Prisma.CoinTransactionWhereInput[] = [
+        { referenceId: { contains: q, mode: 'insensitive' } },
+        { title: { contains: q, mode: 'insensitive' } },
+        {
+          user: {
+            OR: [
+              { name: { contains: q, mode: 'insensitive' } },
+              { displayName: { contains: q, mode: 'insensitive' } },
+              { email: { contains: q, mode: 'insensitive' } },
+            ],
+          },
+        },
+      ];
+      if (/^\d{1,18}$/.test(q)) {
+        or.push({ id: BigInt(q) }, { userId: BigInt(q) });
+      }
+      and.push({ OR: or });
     }
+    const userId = query.user_id?.trim();
+    if (userId && /^\d{1,18}$/.test(userId)) and.push({ userId: BigInt(userId) });
 
-    const [rows, total, agg] = await Promise.all([
+    const types = (query.type ?? query.source ?? '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (types.length) and.push({ type: { in: types } });
+
+    if (query.status?.trim()) and.push({ status: { equals: query.status.trim(), mode: 'insensitive' } });
+
+    if (query.direction === 'credit') and.push({ coinAmount: { gt: 0 } });
+    else if (query.direction === 'debit') and.push({ coinAmount: { lt: 0 } });
+    else if (query.nonzero === '1' || query.nonzero === 'true') and.push({ coinAmount: { not: 0 } });
+
+    const from = query.from ? new Date(query.from) : null;
+    const to = query.to ? new Date(query.to) : null;
+    if (from && !Number.isNaN(from.getTime())) and.push({ createdAt: { gte: from } });
+    if (to && !Number.isNaN(to.getTime())) and.push({ createdAt: { lte: to } });
+
+    const minAbs = Number(query.min_amount);
+    const maxAbs = Number(query.max_amount);
+    if (query.min_amount && Number.isFinite(minAbs) && minAbs > 0) {
+      const v = BigInt(Math.floor(minAbs));
+      and.push({ OR: [{ coinAmount: { gte: v } }, { coinAmount: { lte: -v } }] });
+    }
+    if (query.max_amount && Number.isFinite(maxAbs) && maxAbs >= 0) {
+      const v = BigInt(Math.floor(maxAbs));
+      and.push({ coinAmount: { gte: -v, lte: v } });
+    }
+    return and.length ? { AND: and } : {};
+  }
+
+  private transactionOrder(query: Record<string, string | undefined>): Prisma.CoinTransactionOrderByWithRelationInput[] {
+    const dir: Prisma.SortOrder = query.order === 'asc' ? 'asc' : 'desc';
+    switch (query.sort) {
+      case 'created_at':
+        return [{ createdAt: dir }, { id: dir }];
+      case 'amount':
+        return [{ coinAmount: dir }, { id: dir }];
+      case 'commission':
+        return [{ commissionAmount: { sort: dir, nulls: 'last' } }, { id: dir }];
+      case 'net':
+        return [{ netAmount: { sort: dir, nulls: 'last' } }, { id: dir }];
+      case 'type':
+        return [{ type: dir }, { id: 'desc' }];
+      case 'user':
+        return [{ userId: dir }, { id: 'desc' }];
+      default:
+        return [{ id: dir }];
+    }
+  }
+
+  async adminTransactions(query: Record<string, string | undefined> = {}) {
+    const limitRaw = Number(query.limit ?? 25);
+    const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? Math.floor(limitRaw) : 25, 1), 200);
+    const pageRaw = Number(query.page ?? 1);
+    const page = Math.max(Number.isFinite(pageRaw) ? Math.floor(pageRaw) : 1, 1);
+    const where = this.transactionWhere(query);
+
+    const [rows, total, agg, credits, debits, typeGroups] = await Promise.all([
       this.prisma.coinTransaction.findMany({
         where,
         include: {
-          user: { select: { id: true, name: true, displayName: true } },
+          user: { select: { id: true, name: true, displayName: true, email: true, avatarUrl: true } },
         },
-        orderBy: { id: 'desc' },
-        skip,
+        orderBy: this.transactionOrder(query),
+        skip: (page - 1) * limit,
         take: limit,
       }),
       this.prisma.coinTransaction.count({ where }),
       this.prisma.coinTransaction.aggregate({
+        where,
         _sum: { coinAmount: true, commissionAmount: true, netAmount: true },
+      }),
+      this.prisma.coinTransaction.aggregate({
+        where: { AND: [where, { coinAmount: { gt: 0 } }] },
+        _sum: { coinAmount: true },
+        _count: { _all: true },
+      }),
+      this.prisma.coinTransaction.aggregate({
+        where: { AND: [where, { coinAmount: { lt: 0 } }] },
+        _sum: { coinAmount: true },
+        _count: { _all: true },
+      }),
+      this.prisma.coinTransaction.groupBy({
+        by: ['type'],
+        _count: { _all: true },
+        orderBy: { type: 'asc' },
       }),
     ]);
 
+    const pages = Math.max(1, Math.ceil(total / limit));
     return {
       analytics: {
+        count: total,
+        credits_total: Number(credits._sum.coinAmount ?? 0n),
+        credits_count: credits._count._all,
+        debits_total: Math.abs(Number(debits._sum.coinAmount ?? 0n)),
+        debits_count: debits._count._all,
+        net_flow: Number(agg._sum.coinAmount ?? 0n),
         total_coins: Number(agg._sum.coinAmount ?? 0n),
         total_commission: Number(agg._sum.commissionAmount ?? 0n),
         total_net: Number(agg._sum.netAmount ?? 0n),
       },
+      types: typeGroups.map((g) => ({ type: g.type, count: g._count._all })),
       transactions: rows.map((t) => ({
         id: Number(t.id),
         user_id: Number(t.userId),
         user_name: t.user.displayName ?? t.user.name,
+        user_email: t.user.email,
+        user_avatar: t.user.avatarUrl,
         type: t.type,
+        title: t.title,
         amount: Number(t.coinAmount),
-        net_amount: Number(t.netAmount),
-        commission_amount: Number(t.commissionAmount),
-        status: 'SUCCESS',
+        net_amount: t.netAmount !== null ? Number(t.netAmount) : null,
+        commission_amount: t.commissionAmount !== null ? Number(t.commissionAmount) : null,
+        balance_after: t.balanceAfter !== null ? Number(t.balanceAfter) : null,
+        reference_id: t.referenceId,
+        status: t.status,
+        meta: t.meta,
         created_at: t.createdAt.toISOString(),
       })),
-      meta: { page, limit, total, pages: Math.ceil(total / limit) },
+      meta: { page, limit, total, pages },
     };
   }
 
@@ -1523,15 +2022,34 @@ export class AdminService {
     };
   }
 
-  async exportTransactionsCsv() {
+  async exportTransactionsCsv(query: Record<string, string | undefined> = {}) {
     const rows = await this.prisma.coinTransaction.findMany({
-      take: 2000,
-      include: { user: { select: { name: true, displayName: true } } },
-      orderBy: { id: 'desc' },
+      where: this.transactionWhere(query),
+      take: 20000,
+      include: { user: { select: { name: true, displayName: true, email: true } } },
+      orderBy: this.transactionOrder(query),
     });
-    const header = 'ID,User ID,User Name,Type,Amount,Net Amount,Commission,Created At\n';
+    const cell = (v: unknown) => `"${v === null || v === undefined ? '' : String(v).replace(/"/g, '""')}"`;
+    const header =
+      'ID,User ID,User Name,User Email,Type,Title,Amount,Commission,Net Amount,Balance After,Reference,Status,Created At\n';
     const lines = rows.map((t) =>
-      `"${Number(t.id)}","${Number(t.userId)}","${t.user.displayName ?? t.user.name}","${t.type}","${Number(t.coinAmount)}","${Number(t.netAmount)}","${Number(t.commissionAmount)}","${t.createdAt.toISOString()}"`,
+      [
+        Number(t.id),
+        Number(t.userId),
+        t.user.displayName ?? t.user.name,
+        t.user.email,
+        t.type,
+        t.title,
+        Number(t.coinAmount),
+        t.commissionAmount !== null ? Number(t.commissionAmount) : '',
+        t.netAmount !== null ? Number(t.netAmount) : '',
+        t.balanceAfter !== null ? Number(t.balanceAfter) : '',
+        t.referenceId,
+        t.status,
+        t.createdAt.toISOString(),
+      ]
+        .map(cell)
+        .join(','),
     );
     return header + lines.join('\n');
   }
