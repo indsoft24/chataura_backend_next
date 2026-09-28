@@ -89,21 +89,20 @@ export class RoomGiftingService {
     }
     const receiverId = BigInt(body.receiver_id);
     await this.requireActiveMember(room.id, senderId);
-    const recvMember = await this.prisma.roomMember.findFirst({
-      where: { roomId: room.id, userId: receiverId, isActive: true },
-    });
     const seated = await this.prisma.seat.findFirst({
       where: { roomId: room.id, userId: receiverId },
     });
     if (
-      !recvMember &&
       !seated &&
       room.hostId !== receiverId &&
       room.ownerId !== receiverId
     ) {
       throw new BadRequestException({
         success: false,
-        error: { code: 'NOT_IN_ROOM', message: 'Receiver is not in this room' },
+        error: {
+          code: 'RECEIVER_NOT_SEATED',
+          message: 'Gifts can only be sent to seated members',
+        },
       });
     }
     const settings = await this.prisma.adminSetting.findUnique({
@@ -337,18 +336,14 @@ export class RoomGiftingService {
 
     await this.requireActiveMember(room.id, senderId);
 
-    // Soft-filter: skip receivers who left / never joined instead of failing the whole All-send.
+    // Soft-filter: skip receivers who left / are not seated instead of failing the whole All-send.
     const eligibleIds: bigint[] = [];
     for (const rid of receiverIds) {
       if (rid === senderId) continue;
-      const recvMember = await this.prisma.roomMember.findFirst({
-        where: { roomId: room.id, userId: rid, isActive: true },
-      });
       const seated = await this.prisma.seat.findFirst({
         where: { roomId: room.id, userId: rid },
       });
       if (
-        recvMember ||
         seated ||
         room.hostId === rid ||
         room.ownerId === rid
@@ -360,8 +355,8 @@ export class RoomGiftingService {
       throw new BadRequestException({
         success: false,
         error: {
-          code: 'NOT_IN_ROOM',
-          message: 'No selected receivers are in this room',
+          code: 'NO_SEATED_RECEIVERS',
+          message: 'No selected receivers are seated in this room',
         },
       });
     }
