@@ -40,6 +40,10 @@ export function sanitizeMediaUrl(raw: string | null | undefined): string | null 
     return null;
   }
 
+  if (trimmed.includes('giphy.com')) {
+    return null;
+  }
+
   if (trimmed.startsWith('/uploads/')) {
     return trimmed;
   }

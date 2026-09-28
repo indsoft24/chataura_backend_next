@@ -39,14 +39,30 @@ export class RoomGiftingService {
     if (gifts.length === 0) {
       await this.prisma.gift.createMany({
         data: [
-          { name: 'Rose', coinCost: 10, category: 'standard', imageUrl: 'https://media.giphy.com/media/w78ifyfLK7q8308f0k/200w.gif' },
-          { name: 'Heart', coinCost: 50, category: 'standard', imageUrl: 'https://media.giphy.com/media/l4FGzFhVty9Q0cyxq/200w.gif' },
-          { name: 'Diamond', coinCost: 100, category: 'standard', imageUrl: 'https://media.giphy.com/media/FiR4O9bYEPkBi/200w.gif' },
-          { name: 'Crown', coinCost: 500, category: 'standard', imageUrl: 'https://media.giphy.com/media/26FPLMDDN5fJCir0A/200w.gif' },
-          { name: 'Rocket', coinCost: 1000, category: 'standard', imageUrl: 'https://media.giphy.com/media/mi6DsSSNKDbUY/200w.gif' },
-          { name: 'Luxury Car', coinCost: 2000, category: 'standard', imageUrl: 'https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/200w.gif' },
-          { name: 'Castle', coinCost: 5000, category: 'standard', imageUrl: 'https://media.giphy.com/media/artj92V8o75VPL7AeQ/200w.gif' },
-          { name: 'Superstar', coinCost: 10000, category: 'standard', imageUrl: 'https://media.giphy.com/media/26tPplGWjN0xLybiU/200w.gif' },
+          { name: 'Rose', coinCost: 10, category: 'standard', imageUrl: null },
+          { name: 'Kiss', coinCost: 20, category: 'standard', imageUrl: null },
+          { name: 'Sweet Box', coinCost: 30, category: 'standard', imageUrl: null },
+          { name: 'Heart', coinCost: 50, category: 'standard', imageUrl: null },
+          { name: 'Love Letter', coinCost: 80, category: 'standard', imageUrl: null },
+          { name: 'Diamond', coinCost: 100, category: 'standard', imageUrl: null },
+          { name: 'Wish Star', coinCost: 150, category: 'standard', imageUrl: null },
+          { name: 'Perfume', coinCost: 200, category: 'standard', imageUrl: null },
+          { name: 'Teddy Bear', coinCost: 300, category: 'standard', imageUrl: null },
+          { name: 'Crown', coinCost: 500, category: 'standard', imageUrl: null },
+          { name: 'Champagne', coinCost: 800, category: 'standard', imageUrl: null },
+          { name: 'Magic Ring', coinCost: 1000, category: 'standard', imageUrl: null },
+          { name: 'Rocket', coinCost: 2000, category: 'standard', imageUrl: null },
+          { name: 'Sports Car', coinCost: 5000, category: 'standard', imageUrl: null },
+          { name: 'Velvet Box', coinCost: 8000, category: 'standard', imageUrl: null },
+          { name: 'Cupid Bow', coinCost: 10000, category: 'standard', imageUrl: null },
+          { name: 'Moonlight', coinCost: 15000, category: 'standard', imageUrl: null },
+          { name: 'Soul Swans', coinCost: 20000, category: 'standard', imageUrl: null },
+          { name: 'Luxury Yacht', coinCost: 30000, category: 'standard', imageUrl: null },
+          { name: 'Besties Crown', coinCost: 50000, category: 'standard', imageUrl: null },
+          { name: 'Fireworks', coinCost: 80000, category: 'standard', imageUrl: null },
+          { name: 'Dragon Fortune', coinCost: 100000, category: 'standard', imageUrl: null },
+          { name: 'Golden Slot', coinCost: 150000, category: 'standard', imageUrl: null },
+          { name: 'Mega Jackpot', coinCost: 200000, category: 'standard', imageUrl: null },
         ],
       });
       gifts = await this.prisma.gift.findMany({
@@ -56,14 +72,18 @@ export class RoomGiftingService {
     }
 
     return {
-      gifts: gifts.map((g) => ({
-        id: Number(g.id),
-        name: g.name,
-        coin_cost: g.coinCost,
-        coin_price: g.coinCost,
-        category: normalizeGiftCategory(g.category),
-        ...catalogClientFields(g.imageUrl, g.animationUrl),
-      })),
+      gifts: gifts.map((g) => {
+        const cleanImg = g.imageUrl?.includes('giphy.com') ? null : g.imageUrl;
+        const cleanAnim = g.animationUrl?.includes('giphy.com') ? null : g.animationUrl;
+        return {
+          id: Number(g.id),
+          name: g.name,
+          coin_cost: g.coinCost,
+          coin_price: g.coinCost,
+          category: normalizeGiftCategory(g.category),
+          ...catalogClientFields(cleanImg, cleanAnim),
+        };
+      }),
     };
   }
 

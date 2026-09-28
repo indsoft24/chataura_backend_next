@@ -929,10 +929,10 @@ export class WalletService {
     if (gifts.length === 0) {
       await this.prisma.gift.createMany({
         data: [
-          { name: 'Rose', coinCost: 10, category: 'standard', imageUrl: 'https://media.giphy.com/media/w78ifyfLK7q8308f0k/200w.gif' },
-          { name: 'Heart', coinCost: 50, category: 'standard', imageUrl: 'https://media.giphy.com/media/l4FGzFhVty9Q0cyxq/200w.gif' },
-          { name: 'Diamond', coinCost: 100, category: 'standard', imageUrl: 'https://media.giphy.com/media/FiR4O9bYEPkBi/200w.gif' },
-          { name: 'Crown', coinCost: 500, category: 'standard', imageUrl: 'https://media.giphy.com/media/26FPLMDDN5fJCir0A/200w.gif' },
+          { name: 'Rose', coinCost: 10, category: 'standard', imageUrl: null },
+          { name: 'Heart', coinCost: 50, category: 'standard', imageUrl: null },
+          { name: 'Diamond', coinCost: 100, category: 'standard', imageUrl: null },
+          { name: 'Crown', coinCost: 500, category: 'standard', imageUrl: null },
         ],
       });
       gifts = await this.prisma.gift.findMany({
@@ -941,13 +941,17 @@ export class WalletService {
       });
     }
     return {
-      gifts: gifts.map((g) => ({
-        id: Number(g.id),
-        name: g.name,
-        coin_cost: g.coinCost,
-        category: normalizeGiftCategory(g.category),
-        ...catalogClientFields(g.imageUrl, g.animationUrl),
-      })),
+      gifts: gifts.map((g) => {
+        const cleanImg = g.imageUrl?.includes('giphy.com') ? null : g.imageUrl;
+        const cleanAnim = g.animationUrl?.includes('giphy.com') ? null : g.animationUrl;
+        return {
+          id: Number(g.id),
+          name: g.name,
+          coin_cost: g.coinCost,
+          category: normalizeGiftCategory(g.category),
+          ...catalogClientFields(cleanImg, cleanAnim),
+        };
+      }),
     };
   }
 
