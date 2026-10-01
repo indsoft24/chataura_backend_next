@@ -126,6 +126,47 @@ export class RoomGiftingService {
     };
   }
 
+  private async resolveGift(giftId: number | string, giftName?: string) {
+    const rawGiftName = giftName ? String(giftName).trim() : '';
+    const rawGiftId = giftId != null ? String(giftId).trim() : '';
+
+    // 1. Try finding by exact name first if provided (guarantees exact gift matching regardless of ID discrepancies)
+    if (rawGiftName) {
+      const byName = await this.prisma.gift.findFirst({
+        where: {
+          name: { equals: rawGiftName, mode: 'insensitive' },
+          isActive: true,
+        },
+      });
+      if (byName) return byName;
+    }
+
+    // 2. Try finding by numeric id
+    if (rawGiftId && !isNaN(Number(rawGiftId))) {
+      try {
+        const byId = await this.prisma.gift.findFirst({
+          where: { id: BigInt(rawGiftId), isActive: true },
+        });
+        if (byId) return byId;
+      } catch {
+        // ignore parsing error
+      }
+    }
+
+    // 3. Fallback to contains name
+    if (rawGiftName) {
+      const byPartial = await this.prisma.gift.findFirst({
+        where: {
+          name: { contains: rawGiftName, mode: 'insensitive' },
+          isActive: true,
+        },
+      });
+      if (byPartial) return byPartial;
+    }
+
+    return null;
+  }
+
   async sendRoomGift(
     senderId: bigint,
     id: string,
@@ -133,13 +174,12 @@ export class RoomGiftingService {
       gift_id: number | string;
       receiver_id: number | string;
       quantity?: number;
+      gift_name?: string;
     },
   ) {
     const room = await this.findRoom(id);
     const quantity = Math.min(Math.max(Number(body.quantity ?? 1), 1), 100);
-    const gift = await this.prisma.gift.findFirst({
-      where: { id: BigInt(body.gift_id), isActive: true },
-    });
+    const gift = await this.resolveGift(body.gift_id, body.gift_name);
     if (!gift) {
       throw new NotFoundException({
         success: false,
@@ -366,6 +406,7 @@ export class RoomGiftingService {
       receiver_ids: Array<number | string>;
       quantity?: number;
       room_id: string;
+      gift_name?: string;
     },
   ) {
     const rawIds = (body.receiver_ids ?? []).map((id) => BigInt(id));
@@ -383,9 +424,7 @@ export class RoomGiftingService {
 
     const room = await this.findRoom(body.room_id);
     const quantity = Math.min(Math.max(Number(body.quantity ?? 1), 1), 100);
-    const gift = await this.prisma.gift.findFirst({
-      where: { id: BigInt(body.gift_id), isActive: true },
-    });
+    const gift = await this.resolveGift(body.gift_id, body.gift_name);
     if (!gift) {
       throw new NotFoundException({
         success: false,

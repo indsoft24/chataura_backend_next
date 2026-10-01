@@ -15,6 +15,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { RoomGiftingService } from './room-gifting.service';
 import { RocketLaunchService } from './rocket-launch.service';
 import { RoomService } from './room.service';
+import { YouTubeSearchService } from './youtube-search.service';
 
 @Controller()
 export class RoomController {
@@ -22,6 +23,7 @@ export class RoomController {
     private readonly rooms: RoomService,
     private readonly gifting: RoomGiftingService,
     private readonly rockets: RocketLaunchService,
+    private readonly youtubeSearch: YouTubeSearchService,
   ) {}
 
   @Public()
@@ -378,6 +380,7 @@ export class RoomController {
       gift_id: number | string;
       receiver_id: number | string;
       quantity?: number;
+      gift_name?: string;
     },
   ) {
     return this.gifting.sendRoomGift(user.id, id, body);
@@ -393,6 +396,7 @@ export class RoomController {
       receiver_ids: Array<number | string>;
       quantity?: number;
       room_id: string;
+      gift_name?: string;
     },
   ) {
     return this.gifting.sendBatchGift(user.id, body);
@@ -423,5 +427,11 @@ export class RoomController {
     },
   ) {
     return this.rooms.sendSticker(user.id, id, body);
+  }
+
+  @Public()
+  @Get('youtube/search')
+  searchYouTube(@Query('q') query?: string) {
+    return this.youtubeSearch.search(query || '');
   }
 }

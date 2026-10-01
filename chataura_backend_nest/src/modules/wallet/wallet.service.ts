@@ -760,6 +760,7 @@ export class WalletService {
       gift_id: number | string;
       receiver_id: number | string;
       quantity?: number;
+      gift_name?: string;
     },
   ) {
     if (!body?.gift_id || !body?.receiver_id) {
@@ -771,9 +772,31 @@ export class WalletService {
         },
       });
     }
-    const gift = await this.prisma.gift.findFirst({
-      where: { id: BigInt(body.gift_id), isActive: true },
-    });
+
+    const rawGiftName = body.gift_name ? String(body.gift_name).trim() : '';
+    const rawGiftId = body.gift_id != null ? String(body.gift_id).trim() : '';
+
+    let gift = null;
+    if (rawGiftName) {
+      gift = await this.prisma.gift.findFirst({
+        where: { name: { equals: rawGiftName, mode: 'insensitive' }, isActive: true },
+      });
+    }
+    if (!gift && rawGiftId && !isNaN(Number(rawGiftId))) {
+      try {
+        gift = await this.prisma.gift.findFirst({
+          where: { id: BigInt(rawGiftId), isActive: true },
+        });
+      } catch {
+        // ignore
+      }
+    }
+    if (!gift && rawGiftName) {
+      gift = await this.prisma.gift.findFirst({
+        where: { name: { contains: rawGiftName, mode: 'insensitive' }, isActive: true },
+      });
+    }
+
     if (!gift) {
       throw new NotFoundException({
         success: false,

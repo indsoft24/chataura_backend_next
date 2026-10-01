@@ -12,6 +12,7 @@ import { GiftBroadcastService } from './gift-broadcast.service';
 import { RocketLaunchService } from './rocket-launch.service';
 import { RoomService } from './room.service';
 import { CpAffectionGiftsService } from './cp-affection-gifts.service';
+import { YouTubeSearchService } from './youtube-search.service';
 
 @Module({
   imports: [WalletModule, AuthModule, RelationshipModule],
@@ -23,10 +24,11 @@ import { CpAffectionGiftsService } from './cp-affection-gifts.service';
     GiftBroadcastService,
     RocketLaunchService,
     CpAffectionGiftsService,
+    YouTubeSearchService,
     AgoraService,
     RoomEvents,
     RoomGateway,
   ],
-  exports: [RoomService, RoomGiftingService, GiftBroadcastService, RocketLaunchService],
+  exports: [RoomService, RoomGiftingService, GiftBroadcastService, RocketLaunchService, YouTubeSearchService],
 })
 export class RoomModule {}
