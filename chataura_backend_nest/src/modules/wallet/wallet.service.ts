@@ -777,12 +777,7 @@ export class WalletService {
     const rawGiftId = body.gift_id != null ? String(body.gift_id).trim() : '';
 
     let gift = null;
-    if (rawGiftName) {
-      gift = await this.prisma.gift.findFirst({
-        where: { name: { equals: rawGiftName, mode: 'insensitive' }, isActive: true },
-      });
-    }
-    if (!gift && rawGiftId && !isNaN(Number(rawGiftId))) {
+    if (rawGiftId && !isNaN(Number(rawGiftId))) {
       try {
         gift = await this.prisma.gift.findFirst({
           where: { id: BigInt(rawGiftId), isActive: true },
@@ -790,6 +785,11 @@ export class WalletService {
       } catch {
         // ignore
       }
+    }
+    if (!gift && rawGiftName) {
+      gift = await this.prisma.gift.findFirst({
+        where: { name: { equals: rawGiftName, mode: 'insensitive' }, isActive: true },
+      });
     }
     if (!gift && rawGiftName) {
       gift = await this.prisma.gift.findFirst({

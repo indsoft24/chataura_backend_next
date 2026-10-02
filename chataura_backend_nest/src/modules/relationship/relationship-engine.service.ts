@@ -159,6 +159,14 @@ export class RelationshipEngineService {
 
     if (!type || pointValue <= 0) return empty;
 
+    // Strict requirement: normal / non-relationship gifts must NEVER trigger CP or BCP bonds
+    const typeCodeLower = type.code.toLowerCase();
+    if (typeCodeLower === 'cp' || typeCodeLower === 'bcp') {
+      if (category !== typeCodeLower) {
+        return empty;
+      }
+    }
+
     if (input.source === 'room' && !type.roomGiftsCount) return empty;
     if (input.source === 'dm' && !type.dmGiftsCount) return empty;
 
@@ -215,7 +223,11 @@ export class RelationshipEngineService {
         },
       },
     });
-    const threshold = BigInt(type.formationThresholdCoins ?? 0);
+    const threshold = BigInt(
+      type.formationThresholdCoins && Number(type.formationThresholdCoins) > 0
+        ? type.formationThresholdCoins
+        : DEFAULT_FORMATION_THRESHOLD_COINS,
+    );
     const giftCoins = BigInt(
       Math.max(0, Math.trunc(Number(input.giftCoinCost) || 0)) * quantity,
     );

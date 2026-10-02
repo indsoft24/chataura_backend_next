@@ -130,18 +130,7 @@ export class RoomGiftingService {
     const rawGiftName = giftName ? String(giftName).trim() : '';
     const rawGiftId = giftId != null ? String(giftId).trim() : '';
 
-    // 1. Try finding by exact name first if provided (guarantees exact gift matching regardless of ID discrepancies)
-    if (rawGiftName) {
-      const byName = await this.prisma.gift.findFirst({
-        where: {
-          name: { equals: rawGiftName, mode: 'insensitive' },
-          isActive: true,
-        },
-      });
-      if (byName) return byName;
-    }
-
-    // 2. Try finding by numeric id
+    // 1. Try finding by numeric id first (guarantees exact gift selection regardless of cross-category duplicate names)
     if (rawGiftId && !isNaN(Number(rawGiftId))) {
       try {
         const byId = await this.prisma.gift.findFirst({
@@ -151,6 +140,17 @@ export class RoomGiftingService {
       } catch {
         // ignore parsing error
       }
+    }
+
+    // 2. Try finding by exact name if id was not provided or not found
+    if (rawGiftName) {
+      const byName = await this.prisma.gift.findFirst({
+        where: {
+          name: { equals: rawGiftName, mode: 'insensitive' },
+          isActive: true,
+        },
+      });
+      if (byName) return byName;
     }
 
     // 3. Fallback to contains name
