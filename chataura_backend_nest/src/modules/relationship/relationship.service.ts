@@ -1,3 +1,17 @@
+function formatScore(n: number | bigint): string {
+  const num = Number(n);
+  if (num >= 1_000_000_000) {
+    return (num / 1_000_000_000).toFixed(2).replace(/\.00$/, '') + 'B';
+  }
+  if (num >= 1_000_000) {
+    return (num / 1_000_000).toFixed(2).replace(/\.00$/, '') + 'M';
+  }
+  if (num >= 1_000) {
+    return (num / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+  }
+  return num.toString();
+}
+
 import {
   BadRequestException,
   ForbiddenException,
@@ -8,7 +22,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
-import { RelationshipEngineService } from './relationship-engine.service';
+import { RelationshipEngineService, DEFAULT_FORMATION_THRESHOLD_COINS, DEFAULT_UNBIND_COST_COINS } from './relationship-engine.service';
 import {
   PeriodType,
   canonicalUserPair,
@@ -51,7 +65,7 @@ export class RelationshipService {
 
     const rows = await this.prisma.userRelationship.findMany({
       where: {
-        status: { in: ['active', 'pending'] },
+        status: { in: ['active', 'pending', 'disconnect_pending'] },
         OR: [{ userLowId: userId }, { userHighId: userId }],
         ...(type ? { relationshipTypeId: type.id } : {}),
         ...(opts.cursor ? { id: { lt: opts.cursor } } : {}),
@@ -69,7 +83,7 @@ export class RelationshipService {
       ? await this.prisma.userRelationship.count({
           where: {
             relationshipTypeId: type.id,
-            status: { in: ['active', 'pending'] },
+            status: { in: ['active', 'pending', 'disconnect_pending'] },
             OR: [{ userLowId: userId }, { userHighId: userId }],
           },
         })
@@ -852,12 +866,18 @@ export class RelationshipService {
       },
     });
 
+    const disconnectCoins = Number((row as any).disconnectCoins ?? 0);
+    const unbindCost = (row.relationshipType as any)?.unbindCostCoins ? Number((row.relationshipType as any).unbindCostCoins) : 3000000;
     return {
       id: row.id,
       type_code: row.relationshipType.code,
       type_name: row.relationshipType.name,
       status: row.status,
       total_score: Number(row.totalScore),
+      disconnect_coins: disconnectCoins,
+      disconnect_requested_by: (row as any).disconnectRequestedBy ? Number((row as any).disconnectRequestedBy) : null,
+      is_disconnect_pending: row.status === 'disconnect_pending',
+      disconnect_threshold_coins: unbindCost,
       level: row.relationshipType.levelsEnabled ? row.level : null,
       levels_enabled: row.relationshipType.levelsEnabled,
       visual: row.relationshipType.visual,
@@ -869,4 +889,375 @@ export class RelationshipService {
       updated_at: row.updatedAt.toISOString(),
     };
   }
+
+  async requestDisconnect(userId: bigint, id: string) {
+    const row = await this.prisma.userRelationship.findUnique({
+      where: { id },
+      include: { relationshipType: true },
+    });
+    if (!row) {
+      throw new NotFoundException({
+        success: false,
+        error: { code: 'RELATIONSHIP_NOT_FOUND', message: 'Not found' },
+      });
+    }
+    const isMember = row.userLowId === userId || row.userHighId === userId;
+    if (!isMember) throw new ForbiddenException({ success: false, error: { code: 'FORBIDDEN' } });
+    if (row.status === 'ended') this.fail('ALREADY_ENDED', 'Relationship has already ended');
+    if (row.status === 'building') this.fail('NOT_FORMED', 'Relationship is not formed yet');
+    if (row.status === 'disconnect_pending') {
+      return this.mapRelationship(row);
+    }
+
+    const updated = await this.prisma.userRelationship.update({
+      where: { id: row.id },
+      data: {
+        status: 'disconnect_pending',
+        disconnectRequestedBy: userId,
+        disconnectCoins: 0n,
+      },
+      include: { relationshipType: true },
+    });
+    return this.mapRelationship(updated);
+  }
+
+  async cancelDisconnect(userId: bigint, id: string) {
+    const row = await this.prisma.userRelationship.findUnique({
+      where: { id },
+      include: { relationshipType: true },
+    });
+    if (!row) {
+      throw new NotFoundException({
+        success: false,
+        error: { code: 'RELATIONSHIP_NOT_FOUND', message: 'Not found' },
+      });
+    }
+    const isMember = row.userLowId === userId || row.userHighId === userId;
+    if (!isMember) throw new ForbiddenException({ success: false, error: { code: 'FORBIDDEN' } });
+    if (row.status !== 'disconnect_pending') {
+      this.fail('NOT_DISCONNECT_PENDING', 'No active disconnect request');
+    }
+
+    const updated = await this.prisma.userRelationship.update({
+      where: { id: row.id },
+      data: {
+        status: 'active',
+        disconnectRequestedBy: null,
+        disconnectCoins: 0n,
+      },
+      include: { relationshipType: true },
+    });
+    return this.mapRelationship(updated);
+  }
+
+  async getCpStarData(userId: bigint, typeCode = 'cp') {
+    const type = await this.prisma.relationshipType.findFirst({
+      where: { code: typeCode.toLowerCase(), enabled: true },
+      include: { levelThresholds: true, rings: true },
+    });
+    if (!type) {
+      throw new NotFoundException({
+        success: false,
+        error: { code: 'TYPE_NOT_FOUND', message: 'Relationship type not found' },
+      });
+    }
+
+    const now = new Date();
+    const day = now.getUTCDay() || 7;
+    const nextMonday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (day - 1) + 7));
+    const totalSecsLeft = Math.max(0, Math.floor((nextMonday.getTime() - now.getTime()) / 1000));
+    const countdownDays = Math.floor(totalSecsLeft / 86400);
+    const countdownHours = Math.floor((totalSecsLeft % 86400) / 3600);
+    const countdownMins = Math.floor((totalSecsLeft % 3600) / 60);
+    const countdownSecs = totalSecsLeft % 60;
+
+    const currentWeekKey = periodKey('weekly', now);
+    const prevWeek = new Date(now.getTime() - 7 * 86400000);
+    const prevWeekKey = periodKey('weekly', prevWeek);
+
+    const weeklyScores = await this.prisma.relationshipPeriodScore.findMany({
+      where: {
+        periodType: 'weekly',
+        periodKey: currentWeekKey,
+        roomKey: '',
+        relationship: { relationshipTypeId: type.id, status: { in: ['active', 'disconnect_pending'] } },
+      },
+      include: {
+        relationship: { include: { relationshipType: true } },
+      },
+      orderBy: [{ score: 'desc' }, { relationshipId: 'asc' }],
+      take: 20,
+    });
+
+    let rankings: Array<{
+      relationshipId: string;
+      userLowId: bigint;
+      userHighId: bigint;
+      score: bigint;
+      rank: number;
+    }> = [];
+
+    if (weeklyScores.length > 0) {
+      rankings = weeklyScores.map((s, idx) => ({
+        relationshipId: s.relationshipId,
+        userLowId: s.relationship.userLowId,
+        userHighId: s.relationship.userHighId,
+        score: s.score,
+        rank: s.rank ?? idx + 1,
+      }));
+    } else {
+      const activeRels = await this.prisma.userRelationship.findMany({
+        where: {
+          relationshipTypeId: type.id,
+          status: { in: ['active', 'disconnect_pending'] },
+        },
+        orderBy: [{ totalScore: 'desc' }, { id: 'asc' }],
+        take: 20,
+      });
+      rankings = activeRels.map((r, idx) => ({
+        relationshipId: r.id,
+        userLowId: r.userLowId,
+        userHighId: r.userHighId,
+        score: r.totalScore,
+        rank: idx + 1,
+      }));
+    }
+
+    const uids = new Set<bigint>();
+    for (const r of rankings) {
+      uids.add(r.userLowId);
+      uids.add(r.userHighId);
+    }
+    const userProfiles = await this.prisma.user.findMany({
+      where: { id: { in: [...uids] } },
+      select: { id: true, name: true, avatarUrl: true },
+    });
+    const userMap = new Map(userProfiles.map((u) => [u.id.toString(), u]));
+
+    const formatCouple = (r: {
+      relationshipId: string;
+      userLowId: bigint;
+      userHighId: bigint;
+      score: bigint;
+      rank: number;
+    }) => {
+      const uA = userMap.get(r.userLowId.toString());
+      const uB = userMap.get(r.userHighId.toString());
+      return {
+        rank: r.rank,
+        relationship_id: r.relationshipId,
+        users: [
+          { id: Number(r.userLowId), name: uA?.name ?? 'User', avatar_url: uA?.avatarUrl ?? null },
+          { id: Number(r.userHighId), name: uB?.name ?? 'User', avatar_url: uB?.avatarUrl ?? null },
+        ],
+        score: Number(r.score),
+        formatted_score: formatScore(r.score),
+        ring_motif: r.rank === 1 ? 'purple_crown' : r.rank === 2 ? 'red_crown' : r.rank === 3 ? 'pink_hearts' : 'golden_ring',
+        level: 1,
+      };
+    };
+
+    const formattedRankings = rankings.map(formatCouple);
+    const top1 = formattedRankings.length > 0 ? formattedRankings[0] : null;
+    const balloons = formattedRankings.slice(1, 5);
+
+    const lastWeekScores = await this.prisma.relationshipPeriodScore.findMany({
+      where: {
+        periodType: 'weekly',
+        periodKey: prevWeekKey,
+        roomKey: '',
+        relationship: { relationshipTypeId: type.id },
+      },
+      include: {
+        relationship: { include: { relationshipType: true } },
+      },
+      orderBy: [{ score: 'desc' }, { relationshipId: 'asc' }],
+      take: 3,
+    });
+
+    let lastWeekPodium: Array<ReturnType<typeof formatCouple>> = [];
+    if (lastWeekScores.length > 0) {
+      const lwUids = new Set<bigint>();
+      for (const s of lastWeekScores) {
+        lwUids.add(s.relationship.userLowId);
+        lwUids.add(s.relationship.userHighId);
+      }
+      const lwUsers = await this.prisma.user.findMany({
+        where: { id: { in: [...lwUids] } },
+        select: { id: true, name: true, avatarUrl: true },
+      });
+      const lwUserMap = new Map(lwUsers.map((u) => [u.id.toString(), u]));
+      lastWeekPodium = lastWeekScores.map((s, idx) => {
+        const uA = lwUserMap.get(s.relationship.userLowId.toString());
+        const uB = lwUserMap.get(s.relationship.userHighId.toString());
+        return {
+          rank: s.rank ?? idx + 1,
+          relationship_id: s.relationshipId,
+          users: [
+            { id: Number(s.relationship.userLowId), name: uA?.name ?? 'User', avatar_url: uA?.avatarUrl ?? null },
+            { id: Number(s.relationship.userHighId), name: uB?.name ?? 'User', avatar_url: uB?.avatarUrl ?? null },
+          ],
+          score: Number(s.score),
+          formatted_score: formatScore(s.score),
+          ring_motif: idx === 0 ? 'purple_crown' : idx === 1 ? 'red_crown' : 'pink_hearts',
+          level: 1,
+        };
+      });
+    } else {
+      lastWeekPodium = formattedRankings.slice(0, 3);
+    }
+
+    const latestBigGift = await this.prisma.relationshipScoreLedger.findFirst({
+      where: {
+        relationship: { relationshipTypeId: type.id },
+      },
+      orderBy: { createdAt: 'desc' },
+      include: { relationship: true },
+    });
+
+    let ticker = null;
+    if (latestBigGift) {
+      const supporter = await this.prisma.user.findUnique({
+        where: { id: latestBigGift.senderId },
+        select: { id: true, name: true, avatarUrl: true },
+      });
+      const coins = Number(latestBigGift.contribution);
+      ticker = {
+        supporter_name: supporter?.name ?? 'Supporter',
+        supporter_avatar: supporter?.avatarUrl ?? null,
+        target_names: 'CP Couple',
+        coins,
+        text: (supporter?.name ?? 'Supporter') + ' supported ' + coins.toLocaleString('en-US') + ' coins',
+      };
+    } else {
+      ticker = {
+        supporter_name: 'ChatAura Star',
+        supporter_avatar: null,
+        target_names: 'CP Star',
+        coins: 1021956,
+        text: 'Top supporter contributed 1,021,956 coins',
+      };
+    }
+
+    const myRel = await this.prisma.userRelationship.findFirst({
+      where: {
+        relationshipTypeId: type.id,
+        status: { in: ['active', 'disconnect_pending'] },
+        OR: [{ userLowId: userId }, { userHighId: userId }],
+      },
+      include: { relationshipType: true },
+    });
+
+    let myPartner: { id: number; name: string; avatar_url: string | null } | null = null;
+    let myRank: number | null = null;
+    let disconnectProgress = null;
+
+    if (myRel) {
+      const partnerId = myRel.userLowId === userId ? myRel.userHighId : myRel.userLowId;
+      const partnerUser = await this.prisma.user.findUnique({
+        where: { id: partnerId },
+        select: { id: true, name: true, avatarUrl: true },
+      });
+      myPartner = {
+        id: Number(partnerId),
+        name: partnerUser?.name ?? 'Partner',
+        avatar_url: partnerUser?.avatarUrl ?? null,
+      };
+
+      const foundRank = formattedRankings.find((r) => r.relationship_id === myRel.id);
+      myRank = foundRank ? foundRank.rank : null;
+
+      if (myRel.status === 'disconnect_pending') {
+        const unbindCost = Number(type.unbindCostCoins || DEFAULT_UNBIND_COST_COINS);
+        const currentCoins = Number(myRel.disconnectCoins);
+        disconnectProgress = {
+          coins: currentCoins,
+          threshold: unbindCost,
+          remaining: Math.max(0, unbindCost - currentCoins),
+          percent: Math.min(100, Math.round((currentCoins / unbindCost) * 100)),
+        };
+      }
+    }
+
+    let outbidChallenge = null;
+    const buildingRel = await this.prisma.userRelationship.findFirst({
+      where: {
+        relationshipTypeId: type.id,
+        status: 'building',
+        OR: [{ userLowId: userId }, { userHighId: userId }],
+      },
+      orderBy: { progressCoins: 'desc' },
+    });
+
+    if (buildingRel) {
+      const partnerId = buildingRel.userLowId === userId ? buildingRel.userHighId : buildingRel.userLowId;
+      const bPartner = await this.prisma.user.findUnique({
+        where: { id: partnerId },
+        select: { id: true, name: true, avatarUrl: true },
+      });
+      const progressCoins = Number(buildingRel.progressCoins);
+      const thresholdCoins = Number(type.formationThresholdCoins || DEFAULT_FORMATION_THRESHOLD_COINS);
+      outbidChallenge = {
+        is_challenging: true,
+        target_partner: {
+          id: Number(partnerId),
+          name: bPartner?.name ?? 'User',
+          avatar_url: bPartner?.avatarUrl ?? null,
+        },
+        progress_coins: progressCoins,
+        threshold_coins: thresholdCoins,
+        remaining_coins: Math.max(0, thresholdCoins - progressCoins),
+        percent: Math.min(100, Math.round((progressCoins / thresholdCoins) * 100)),
+      };
+    }
+
+    return {
+      countdown: {
+        days: countdownDays,
+        hours: countdownHours,
+        minutes: countdownMins,
+        seconds: countdownSecs,
+        total_seconds_left: totalSecsLeft,
+        reset_at: nextMonday.toISOString(),
+      },
+      top1,
+      balloons,
+      last_week_ranking: lastWeekPodium,
+      this_week_ranking: formattedRankings,
+      banner_ticker: ticker,
+      my_status: {
+        has_cp: myRel != null,
+        relationship_id: myRel?.id ?? null,
+        partner: myPartner,
+        total_score: myRel ? Number(myRel.totalScore) : 0,
+        formatted_score: myRel ? formatScore(myRel.totalScore) : '0',
+        rank: myRank,
+        status: myRel ? myRel.status : 'none',
+        disconnect_progress: disconnectProgress,
+        outbid_challenge: outbidChallenge,
+      },
+      rules: {
+        title: 'CP Star Official Rules',
+        sections: [
+          {
+            title: '1. CP & BCP Formation (30 Lakh Threshold)',
+            body: 'To connect as CP or BCP with someone, send CP/BCP gifts to each other. Gifts from both partners accumulate mutually. When the total mutual gifting reaches 30 Lakh coins (3,000,000 coins), you become connected automatically! Each user can only have 1 CP and 1 BCP partner at a time.',
+          },
+          {
+            title: '2. Dedicated Gifting Disconnection (Gifting Only)',
+            body: 'To disconnect with your CP or BCP, tap "Request Disconnect". This activates a dedicated 30 Lakh gifting progress bar. Disconnection is completed strictly through sending 3,000,000 coins of CP/BCP gifts. No direct coin deductions are made—only dedicated gifting progress dissolves the bond!',
+          },
+          {
+            title: '3. Third-Person Outbid / Dethroning Challenge',
+            body: 'If a user already has an active partner (e.g., A & B have accumulated 90 Lakh score), a challenger C can dethrone B by mutually gifting with A! Mutual gifts between C and A accumulate in an outbid progress bar. Once mutual gifting between C and A exceeds the existing couple total score (e.g. >90 Lakh coins), the existing CP is dissolved and (C, A) instantly becomes the new official CP!',
+          },
+          {
+            title: '4. Weekly CP Star Ranking & Rewards',
+            body: 'Weekly rankings reset every Monday at 00:00 UTC. The TOP couples are immortalized on the celestial palace podium, hot air balloons, and receive exclusive crowned avatar frames, animated wings, custom room entrance effects, and luxury rings!',
+          },
+        ],
+      },
+    };
+  }
+
 }

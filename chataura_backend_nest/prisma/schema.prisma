@@ -1232,8 +1232,10 @@ model UserRelationship {
   status             String   @default("active") @db.VarChar(16)
   totalScore         BigInt   @default(0) @map("total_score")
   /// Gift coin value accumulated towards formation_threshold_coins while building.
-  progressCoins      BigInt   @default(0) @map("progress_coins")
-  level              Int?
+  progressCoins         BigInt   @default(0) @map("progress_coins")
+  disconnectCoins       BigInt   @default(0) @map("disconnect_coins")
+  disconnectRequestedBy BigInt?  @map("disconnect_requested_by")
+  level                 Int?
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 

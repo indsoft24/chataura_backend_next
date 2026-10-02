@@ -130,6 +130,31 @@ export class RelationshipController {
     });
   }
 
+  
+  @Get('relationships/cp-star')
+  cpStar(
+    @CurrentUser() user: { id: bigint },
+    @Query('type') type = 'cp',
+  ) {
+    return this.relationships.getCpStarData(user.id, type);
+  }
+
+  @Post('relationships/:id/request-disconnect')
+  requestDisconnect(
+    @CurrentUser() user: { id: bigint },
+    @Param('id') id: string,
+  ) {
+    return this.relationships.requestDisconnect(user.id, id);
+  }
+
+  @Post('relationships/:id/cancel-disconnect')
+  cancelDisconnect(
+    @CurrentUser() user: { id: bigint },
+    @Param('id') id: string,
+  ) {
+    return this.relationships.cancelDisconnect(user.id, id);
+  }
+
   @Get('relationships/:id')
   getOne(@Param('id') id: string) {
     return this.relationships.getById(id);

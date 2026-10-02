@@ -39,6 +39,11 @@ export type FormationProgress = {
   remaining_coins: number;
   formed: boolean;
   blocked_reason: PartnerBlockReason | null;
+  is_outbid_challenge?: boolean;
+  outbid_target_score?: number;
+  is_disconnect_progress?: boolean;
+  disconnect_coins?: number;
+  disconnect_threshold_coins?: number;
 };
 
 export type RelationshipApplyResult = {
@@ -79,7 +84,7 @@ export type RelationshipApplyResult = {
 
 type Tx = Prisma.TransactionClient | PrismaService;
 
-export const DEFAULT_FORMATION_THRESHOLD_COINS = 2_000_000;
+export const DEFAULT_FORMATION_THRESHOLD_COINS = 3_000_000;
 export const DEFAULT_UNBIND_COST_COINS = 3_000_000;
 
 function defaultRulesText(name: string, micExp: boolean): string {
@@ -215,26 +220,132 @@ export class RelationshipEngineService {
       Math.max(0, Math.trunc(Number(input.giftCoinCost) || 0)) * quantity,
     );
 
-    if (rel?.status === 'active') {
+    if (rel?.status === 'disconnect_pending') {
+      const unbindThreshold = BigInt(type.unbindCostCoins || DEFAULT_UNBIND_COST_COINS);
+      const newDisconnect = BigInt(rel.disconnectCoins ?? 0) + giftCoins;
+      if (newDisconnect >= unbindThreshold) {
+        rel = await tx.userRelationship.update({
+          where: { id: rel.id },
+          data: {
+            status: 'ended',
+            disconnectCoins: 0n,
+            disconnectRequestedBy: null,
+            totalScore: 0n,
+            progressCoins: 0n,
+            level: null,
+          },
+        });
+        formationProgress = {
+          type_code: type.code,
+          user_a_id: Number(rel.userLowId),
+          user_b_id: Number(rel.userHighId),
+          progress_coins: Number(newDisconnect),
+          threshold_coins: Number(unbindThreshold),
+          remaining_coins: 0,
+          formed: false,
+          blocked_reason: null,
+          is_disconnect_progress: true,
+          disconnect_coins: Number(newDisconnect),
+          disconnect_threshold_coins: Number(unbindThreshold),
+        };
+        await this.recordLedger(tx, rel.id, input, quantity, pointValue, contribution);
+        return {
+          ...empty,
+          applied: true,
+          contribution: Number(contribution),
+          formation_progress: formationProgress,
+          realtime: {
+            cmd: 'SCORE',
+            type_code: type.code,
+            relationship_id: rel.id,
+            user_a_id: Number(rel.userLowId),
+            user_b_id: Number(rel.userHighId),
+            score: 0,
+            contribution: Number(contribution),
+            transaction_id: input.giftTransactionId,
+          },
+        };
+      } else {
+        rel = await tx.userRelationship.update({
+          where: { id: rel.id },
+          data: {
+            disconnectCoins: newDisconnect,
+            totalScore: { increment: contribution },
+          },
+        });
+        formationProgress = {
+          type_code: type.code,
+          user_a_id: Number(rel.userLowId),
+          user_b_id: Number(rel.userHighId),
+          progress_coins: Number(newDisconnect),
+          threshold_coins: Number(unbindThreshold),
+          remaining_coins: Math.max(0, Number(unbindThreshold - newDisconnect)),
+          formed: false,
+          blocked_reason: null,
+          is_disconnect_progress: true,
+          disconnect_coins: Number(newDisconnect),
+          disconnect_threshold_coins: Number(unbindThreshold),
+        };
+        await this.recordLedger(tx, rel.id, input, quantity, pointValue, contribution);
+        return {
+          ...empty,
+          applied: true,
+          contribution: Number(contribution),
+          formation_progress: formationProgress,
+        };
+      }
+    } else if (rel?.status === 'active') {
       rel = await tx.userRelationship.update({
         where: { id: rel.id },
         data: { totalScore: { increment: contribution } },
       });
     } else if (threshold > 0n) {
+      // Check if either partner currently has an active partner (third-party outbid/dethroning challenge)
+      const existingSenderRel = await tx.userRelationship.findFirst({
+        where: {
+          relationshipTypeId: type.id,
+          status: { in: ['active', 'disconnect_pending'] },
+          OR: [{ userLowId: input.senderId }, { userHighId: input.senderId }],
+          ...(rel?.id ? { id: { not: rel.id } } : {}),
+        },
+      });
+
+      const existingReceiverRel = await tx.userRelationship.findFirst({
+        where: {
+          relationshipTypeId: type.id,
+          status: { in: ['active', 'disconnect_pending'] },
+          OR: [{ userLowId: input.receiverId }, { userHighId: input.receiverId }],
+          ...(rel?.id ? { id: { not: rel.id } } : {}),
+        },
+      });
+
+      const isOutbidChallenge = Boolean(existingSenderRel || existingReceiverRel);
+      const scoreSender = existingSenderRel ? Number(existingSenderRel.totalScore) : 0;
+      const scoreReceiver = existingReceiverRel ? Number(existingReceiverRel.totalScore) : 0;
+      const maxExistingScore = Math.max(scoreSender, scoreReceiver);
+      const baseThreshold = Number(threshold > 0n ? threshold : BigInt(DEFAULT_FORMATION_THRESHOLD_COINS));
+      const effectiveThreshold = BigInt(isOutbidChallenge ? Math.max(baseThreshold, maxExistingScore + 1) : baseThreshold);
+
       const restart = !rel || rel.status === 'ended';
       const progress = (restart ? 0n : rel!.progressCoins) + giftCoins;
       const score = (restart ? 0n : rel!.totalScore) + contribution;
-      const blocked =
-        progress >= threshold
-          ? await this.partnerBlock(
-              tx,
-              type,
-              input.senderId,
-              input.receiverId,
-              rel?.id,
-            )
-          : null;
-      const forms = progress >= threshold && !blocked;
+      const forms = progress >= effectiveThreshold;
+
+      if (forms) {
+        if (existingSenderRel) {
+          await tx.userRelationship.update({
+            where: { id: existingSenderRel.id },
+            data: { status: 'ended', totalScore: 0n, progressCoins: 0n, level: null },
+          });
+        }
+        if (existingReceiverRel && existingReceiverRel.id !== existingSenderRel?.id) {
+          await tx.userRelationship.update({
+            where: { id: existingReceiverRel.id },
+            data: { status: 'ended', totalScore: 0n, progressCoins: 0n, level: null },
+          });
+        }
+      }
+
       const data = {
         status: forms ? 'active' : 'building',
         progressCoins: progress,
@@ -252,7 +363,18 @@ export class RelationshipEngineService {
               ...data,
             },
           });
-      formationProgress = this.progressOf(type, rel, forms, blocked);
+      formationProgress = {
+        type_code: type.code,
+        user_a_id: Number(rel.userLowId),
+        user_b_id: Number(rel.userHighId),
+        progress_coins: Number(progress),
+        threshold_coins: Number(effectiveThreshold),
+        remaining_coins: Math.max(0, Number(effectiveThreshold - progress)),
+        formed: forms,
+        blocked_reason: null,
+        is_outbid_challenge: isOutbidChallenge,
+        outbid_target_score: maxExistingScore,
+      };
 
       if (!forms) {
         await this.recordLedger(tx, rel.id, input, quantity, pointValue, contribution);
