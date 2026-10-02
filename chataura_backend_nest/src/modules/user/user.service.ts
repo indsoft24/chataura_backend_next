@@ -13,6 +13,11 @@ import {
   bandForXp,
   ensureLaravelLevelBands,
 } from '../gamification/level-bands';
+import {
+  legacyBonusSection,
+  resolveReferralMilestone,
+  resolveReferralRewards,
+} from '../gamification/bonus-config.resolver';
 import { profileForApi, userForApi } from './user.serializer';
 import { selectedFrameClientFields } from '../../common/utils/catalog-media';
 
@@ -34,19 +39,43 @@ export class UserService {
       where: { invitedBy: userId },
     });
     const code = user.inviteCode ?? '';
+    const { milestone, rewards } = await this.referralConfig();
     return {
       invite_code: code,
       invite_link: `${PUBLIC_BASE}/invite/${code}`,
       referral_register_url: `${PUBLIC_BASE}/${(process.env.API_PREFIX || 'api/v2').replace(/^\/+|\/+$/g, '')}/auth/register?invite_code=${code}`,
-      reward_rules: { signup_bonus: 50 },
+      reward_rules: {
+        signup_bonus: rewards.referee_coins,
+        referrer_bonus: rewards.referrer_coins,
+      },
       total_invited: totalInvited,
       total_earned_coins: Number(user.referralBalance),
       referral_milestone: {
-        enabled: true,
-        required_count: 5,
-        bonus_coins: 100,
+        enabled: milestone.enabled,
+        required_count: milestone.required_count,
+        bonus_coins: milestone.coins,
         current_count: totalInvited,
       },
+    };
+  }
+
+  private async referralConfig(
+    client: Pick<Prisma.TransactionClient, 'adminSetting'> = this.prisma,
+  ) {
+    const settings = await client.adminSetting.findUnique({ where: { id: 1 } });
+    const admin = (settings?.extraSettings as Record<string, unknown>) ?? {};
+    const legacy = legacyBonusSection(settings?.bonusConfig, 'referral_milestone');
+    return {
+      milestone: resolveReferralMilestone(
+        {
+          enabled: true,
+          required_count: 5,
+          coins: 100,
+          ...legacy,
+        } as { enabled: boolean; required_count: number; coins: number },
+        admin,
+      ),
+      rewards: resolveReferralRewards(admin),
     };
   }
 
@@ -59,18 +88,9 @@ export class UserService {
       });
     }
 
-    const settings = await this.prisma.adminSetting.findUnique({
-      where: { id: 1 },
-    });
-    const extra = (settings?.extraSettings as Record<string, unknown>) ?? {};
-    const referee = Number(
-      extra.referral_reward_referee ?? process.env.REFERRAL_REWARD_REFEREE ?? '50',
-    );
-    const referrerAmt = Number(
-      extra.referral_reward_referrer ??
-        process.env.REFERRAL_REWARD_REFERRER ??
-        '100',
-    );
+    const { milestone, rewards } = await this.referralConfig();
+    const referee = rewards.referee_coins;
+    const referrerAmt = rewards.referrer_coins;
 
     return this.prisma.$transaction(async (tx) => {
       const referrer = await tx.user.findUnique({
@@ -151,18 +171,9 @@ export class UserService {
         }
       }
 
-      const settings = await tx.adminSetting.findUnique({ where: { id: 1 } });
-      const extra = (settings?.bonusConfig ?? {}) as {
-        referral_milestone?: {
-          enabled?: boolean;
-          required_count?: number;
-          coins?: number;
-        };
-      };
-      const milestone = extra.referral_milestone ?? {};
-      const required = milestone.required_count ?? 5;
-      const milestoneCoins = milestone.coins ?? 100;
-      const milestoneEnabled = milestone.enabled !== false;
+      const required = milestone.required_count;
+      const milestoneCoins = milestone.coins;
+      const milestoneEnabled = milestone.enabled;
       const invited = await tx.user.count({
         where: { invitedBy: referrer.id },
       });

@@ -39,6 +39,9 @@ export default function SettingsPage() {
     streak_day_7_coins: 100,
     referral_reward_referrer: 50,
     referral_reward_referee: 50,
+    referral_milestone_enabled: true,
+    referral_milestone_required_count: 5,
+    referral_milestone_coins: 100,
     referral_coin_conversion_rate: 1,
     admob_enabled: false,
     admob_ad_coins: 10,
@@ -396,6 +399,48 @@ export default function SettingsPage() {
                     min="0"
                     value={form.referral_reward_referee ?? ''}
                     onChange={(e) => handleChange('referral_reward_referee', Number(e.target.value))}
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+
+              <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#111827', margin: '24px 0 12px' }}>
+                Referral Milestone Bonus
+              </h3>
+              <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <input
+                  type="checkbox"
+                  id="referral_milestone_enabled"
+                  checked={Boolean(form.referral_milestone_enabled)}
+                  onChange={(e) => handleChange('referral_milestone_enabled', e.target.checked)}
+                  style={{ width: 18, height: 18 }}
+                />
+                <label htmlFor="referral_milestone_enabled" style={{ fontWeight: 600, color: '#111827', fontSize: '0.95rem' }}>
+                  Enable one-time bonus after inviting N friends
+                </label>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                    Friends Required
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={form.referral_milestone_required_count ?? ''}
+                    onChange={(e) => handleChange('referral_milestone_required_count', Number(e.target.value))}
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                    Milestone Bonus (Coins)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={form.referral_milestone_coins ?? ''}
+                    onChange={(e) => handleChange('referral_milestone_coins', Number(e.target.value))}
                     style={inputStyle}
                   />
                 </div>

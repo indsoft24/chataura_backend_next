@@ -52,7 +52,7 @@ describe('resolveCatalogMedia', () => {
 
   it('plays a GIF that was stored only as the catalog image', () => {
     const media = resolveCatalogMedia(
-      'https://media.giphy.com/media/abc/200w.gif',
+      'https://chataura.in/uploads/test.gif',
       null,
     );
     expect(media.media_type).toBe('animated_image');
