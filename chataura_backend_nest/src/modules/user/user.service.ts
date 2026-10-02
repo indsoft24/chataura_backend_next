@@ -231,7 +231,7 @@ export class UserService {
   }
 
   async me(userId: bigint) {
-    const user = await this.prisma.user.findUniqueOrThrow({
+    let user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       include: {
         selectedFrame: true,
@@ -239,6 +239,18 @@ export class UserService {
         selectedEntryBar: true,
       },
     });
+    if (!user.displayId) {
+      const genId = await this.uniqueDisplayId();
+      user = await this.prisma.user.update({
+        where: { id: userId },
+        data: { displayId: genId },
+        include: {
+          selectedFrame: true,
+          selectedRoleFrame: true,
+          selectedEntryBar: true,
+        },
+      });
+    }
     const counts = await this.countsFor(userId);
     return {
       ...userForApi(user, user.selectedFrame, user.selectedRoleFrame),
@@ -487,6 +499,7 @@ export class UserService {
       { displayName: { contains: trimmed, mode: 'insensitive' } },
       { email: { contains: trimmed, mode: 'insensitive' } },
       { inviteCode: { equals: trimmed, mode: 'insensitive' } },
+      { displayId: { contains: trimmed, mode: 'insensitive' } },
     ];
     if (/^\d+$/.test(trimmed)) {
       try {
@@ -507,11 +520,26 @@ export class UserService {
     return users.map((user) => userForApi(user, user.selectedFrame));
   }
 
-  async show(viewerId: bigint | null, targetId: bigint) {
-    const user = await this.prisma.user.findFirst({
-      where: { id: targetId, deletedAt: null },
-      include: { selectedFrame: true, selectedRoleFrame: true },
-    });
+  async show(viewerId: bigint | null, targetId: bigint | string) {
+    const raw = String(targetId).trim();
+    let user = null;
+    if (/^\d+$/.test(raw)) {
+      user = await this.prisma.user.findFirst({
+        where: {
+          OR: [
+            { id: BigInt(raw) },
+            { displayId: raw },
+          ],
+          deletedAt: null,
+        },
+        include: { selectedFrame: true, selectedRoleFrame: true },
+      });
+    } else {
+      user = await this.prisma.user.findFirst({
+        where: { displayId: raw, deletedAt: null },
+        include: { selectedFrame: true, selectedRoleFrame: true },
+      });
+    }
     if (!user) {
       throw new NotFoundException({
         success: false,
@@ -519,7 +547,8 @@ export class UserService {
       });
     }
 
-    const counts = await this.rawCounts(targetId);
+    const resolvedTargetId = user.id;
+    const counts = await this.rawCounts(resolvedTargetId);
     let isFollowing = false;
     let isFriend = false;
     let relationshipStatus = 'none';
@@ -534,40 +563,40 @@ export class UserService {
             where: {
               followerId_followingId: {
                 followerId: viewerId,
-                followingId: targetId,
+                followingId: resolvedTargetId,
               },
             },
           }),
           this.prisma.friendship.findFirst({
             where: {
               OR: [
-                { userId: viewerId, friendId: targetId },
-                { userId: targetId, friendId: viewerId },
+                { userId: viewerId, friendId: resolvedTargetId },
+                { userId: resolvedTargetId, friendId: viewerId },
               ],
             },
           }),
           this.prisma.friendRequest.findFirst({
             where: {
               senderId: viewerId,
-              receiverId: targetId,
+              receiverId: resolvedTargetId,
               status: 'pending',
             },
           }),
           this.prisma.friendRequest.findFirst({
             where: {
-              senderId: targetId,
+              senderId: resolvedTargetId,
               receiverId: viewerId,
               status: 'pending',
             },
           }),
           this.prisma.blockedUser.findUnique({
             where: {
-              blockerId_blockedId: { blockerId: viewerId, blockedId: targetId },
+              blockerId_blockedId: { blockerId: viewerId, blockedId: resolvedTargetId },
             },
           }),
           this.prisma.blockedUser.findUnique({
             where: {
-              blockerId_blockedId: { blockerId: targetId, blockedId: viewerId },
+              blockerId_blockedId: { blockerId: resolvedTargetId, blockedId: viewerId },
             },
           }),
         ]);
@@ -586,7 +615,7 @@ export class UserService {
       (user.isPrivate || user.privateAccount) &&
       !isFriend &&
       !isFollowing &&
-      viewerId !== targetId;
+      viewerId !== resolvedTargetId;
 
     return {
       ...userForApi(user, user.selectedFrame),
@@ -1168,5 +1197,16 @@ export class UserService {
       following_count: c.following,
       friend_requests_count: c.friendRequests,
     };
+  }
+
+  async uniqueDisplayId(): Promise<string> {
+    for (let i = 0; i < 30; i++) {
+      const id = String(1000000 + Math.floor(Math.random() * 9000000));
+      const exists = await this.prisma.user.findFirst({
+        where: { displayId: id },
+      });
+      if (!exists) return id;
+    }
+    return String(1000000 + (Date.now() % 9000000));
   }
 }

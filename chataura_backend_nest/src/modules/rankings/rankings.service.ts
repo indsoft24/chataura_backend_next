@@ -56,6 +56,7 @@ export class RankingsService {
         displayName: true,
         name: true,
         avatarUrl: true,
+        displayId: true,
       },
     });
     const byId = new Map(users.map((u) => [u.id.toString(), u]));
@@ -65,6 +66,7 @@ export class RankingsService {
       return {
         rank: i + 1,
         user_id: Number(s.userId),
+        display_id: u?.displayId ?? String(s.userId),
         name: u?.displayName || u?.name || 'User',
         avatar_url: u?.avatarUrl ?? null,
         coins: s.coins,

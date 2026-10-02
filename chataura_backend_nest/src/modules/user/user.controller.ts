@@ -219,7 +219,7 @@ export class UserController {
     @CurrentUser() user: AuthUser | undefined,
     @Param('id') id: string,
   ) {
-    return this.users.show(user?.id ?? null, BigInt(id));
+    return this.users.show(user?.id ?? null, id);
   }
 
   @Public()
@@ -228,7 +228,7 @@ export class UserController {
     @CurrentUser() user: AuthUser | undefined,
     @Param('id') id: string,
   ) {
-    return this.users.show(user?.id ?? null, BigInt(id));
+    return this.users.show(user?.id ?? null, id);
   }
 
   @Public()

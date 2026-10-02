@@ -67,6 +67,7 @@ export class AuthService {
         name: displayName,
         displayName,
         inviteCode,
+        displayId: await this.uniqueDisplayId(),
         invitedBy,
         country: dto.country ?? null,
         lastClientCountry: dto.country ?? null,
@@ -168,6 +169,7 @@ export class AuthService {
           avatarUrl: payload.picture ? String(payload.picture) : null,
           password: passwordHash,
           inviteCode: await this.uniqueInviteCode(),
+          displayId: await this.uniqueDisplayId(),
           invitedBy,
           emailVerifiedAt: emailVerified ? new Date() : null,
           country: dto.country ?? null,
@@ -471,6 +473,17 @@ export class AuthService {
       if (!exists) return code;
     }
     return randomBytes(6).toString('hex');
+  }
+
+  private async uniqueDisplayId(): Promise<string> {
+    for (let i = 0; i < 30; i++) {
+      const id = String(1000000 + Math.floor(Math.random() * 9000000));
+      const exists = await this.prisma.user.findFirst({
+        where: { displayId: id },
+      });
+      if (!exists) return id;
+    }
+    return String(1000000 + (Date.now() % 9000000));
   }
 
   private async grantSignupBonus(userId: bigint) {

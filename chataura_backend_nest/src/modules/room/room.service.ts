@@ -44,6 +44,7 @@ const personWithFrame = {
 
 type UserLite = {
   id: bigint;
+  displayId?: string | null;
   name: string | null;
   displayName: string | null;
   avatarUrl: string | null;
@@ -2276,6 +2277,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       membership_id: Number(member.id),
       room_id: member.roomId,
       user_id: Number(member.userId),
+      display_id: user.displayId ?? String(member.userId),
       role: member.role,
       seat_index: member.seatIndex,
       agora_uid: member.agoraUid ?? this.agoraUid(member.userId),
@@ -2307,6 +2309,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     const label = user.displayName ?? user.name;
     return {
       id: Number(user.id),
+      display_id: user.displayId ?? String(user.id),
       name: label,
       display_name: label,
       avatar_url: user.avatarUrl,

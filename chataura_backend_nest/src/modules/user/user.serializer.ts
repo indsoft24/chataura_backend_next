@@ -133,6 +133,7 @@ export function userForApi(
   return {
     id: Number(user.id),
     user_id: Number(user.id),
+    display_id: user.displayId ?? String(user.id),
     email: user.email,
     phone: user.phone,
     name: user.name ?? user.displayName,

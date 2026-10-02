@@ -47,6 +47,7 @@ model User {
   country          String?        @db.VarChar(8)
   role             UserRole       @default(user)
   inviteCode       String?        @unique @map("invite_code") @db.VarChar(16)
+  displayId        String?        @unique @map("display_id") @db.VarChar(32)
   invitedBy        BigInt?        @map("invited_by")
   emailVerifiedAt  DateTime?      @map("email_verified_at") @db.Timestamptz(6)
   fcmToken         String?        @map("fcm_token") @db.Text
