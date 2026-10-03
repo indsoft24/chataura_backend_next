@@ -637,13 +637,11 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
               where: { roomId: room.id, userId: room.hostId, isActive: true },
             })
           : null;
-      if (
-        role === 'host' ||
-        room.hostId === userId ||
-        (keepAliveEmpty && userId === room.ownerId)
-      ) {
+      // Room host is strictly and permanently the room owner (room.ownerId).
+      // Under NO circumstances should any other user ever become 'host'!
+      if (room.ownerId === userId) {
         role = 'host';
-        if (room.hostId !== userId && hostReclaimedFrom == null) {
+        if (room.hostId !== userId) {
           await tx.room.update({
             where: { id: room.id },
             data: { hostId: userId, hostLastHeartbeatAt: new Date() },
@@ -651,27 +649,14 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         }
       } else if (room.coHostId === userId && liveHost) {
         role = 'co_host';
-      } else if (!liveHost) {
-        if (keepAliveEmpty) {
-          // Permanent / agency: join as audience; owner remains nominal host.
-          role = 'listener';
-          if (room.hostId !== room.ownerId) {
-            await tx.room.update({
-              where: { id: room.id },
-              data: { hostId: room.ownerId },
-            });
-          }
-        } else {
-          const updated = await tx.room.updateMany({
-            where: {
-              id: room.id,
-              OR: [{ hostId: null }, { hostId: room.hostId }],
-            },
-            data: { hostId: userId, hostLastHeartbeatAt: new Date() },
+      } else {
+        role = 'listener';
+        // Ensure room.hostId permanently stays locked to room.ownerId
+        if (room.hostId !== room.ownerId) {
+          await tx.room.update({
+            where: { id: room.id },
+            data: { hostId: room.ownerId },
           });
-          if (updated.count > 0) {
-            role = 'host';
-          }
         }
       }
 
@@ -779,29 +764,22 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
             lockedRoom[0].is_permanent || room.isPermanent,
             tx,
           );
-          const successor = await this.pickHostSuccessor(room.id, userId, tx);
-          if (successor && !keepAlive) {
-            await tx.room.update({
-              where: { id: room.id },
-              data: { hostId: successor, hostLastHeartbeatAt: new Date() },
+          // Room owner is permanently the host. Host is NEVER transferred to a successor under any circumstances!
+          await tx.room.update({
+            where: { id: room.id },
+            data: { hostId: room.ownerId },
+          });
+          if (!keepAlive) {
+            const otherActiveCount = await tx.roomMember.count({
+              where: { roomId: room.id, isActive: true, userId: { not: userId } },
             });
-            await tx.roomMember.updateMany({
-              where: { roomId: room.id, userId: successor },
-              data: { role: 'host' },
-            });
-          } else if (keepAlive) {
-            // Public permanent / agency-linked: Leave only removes this member.
-            // Owner stays host; room stays live until explicit Delete Room.
-            await tx.room.update({
-              where: { id: room.id },
-              data: { hostId: room.ownerId },
-            });
-          } else {
-            await tx.room.update({
-              where: { id: room.id },
-              data: { isLive: false, endedAt: new Date(), hostId: null },
-            });
-            roomEnded = true;
+            if (otherActiveCount === 0) {
+              await tx.room.update({
+                where: { id: room.id },
+                data: { isLive: false, endedAt: new Date(), hostId: room.ownerId },
+              });
+              roomEnded = true;
+            }
           }
         }
       }
@@ -1136,6 +1114,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         host_reclaimed_from:
           reclaim.previousHostId != null ? Number(reclaim.previousHostId) : null,
       };
+    }
+    if (targetId !== room.ownerId) {
+      throw new ForbiddenException({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Host cannot be transferred. The room owner is always the host.' },
+      });
     }
     this.assertHost(room, actorId);
     return this.prisma.$transaction(async (tx) => {
@@ -1874,34 +1858,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         tx,
       );
 
-      const successor = staleHostId
-        ? await this.pickFreshHostSuccessor(room.id, staleHostId, cutoff, tx)
-        : await this.pickFreshHostSuccessor(room.id, BigInt(0), cutoff, tx);
-
-      if (successor && !keepAlive) {
-        await tx.room.update({
-          where: { id: room.id },
-          data: {
-            hostId: successor,
-            hostLastHeartbeatAt: new Date(),
-            lastActivityAt: new Date(),
-          },
-        });
-        await tx.roomMember.updateMany({
-          where: { roomId: room.id, userId: successor },
-          data: { role: 'host', isActive: true },
-        });
-        return;
-      }
-
-      // Permanent / agency-linked: keep owner as host; room stays live until Delete.
-      if (keepAlive) {
-        await tx.room.update({
-          where: { id: room.id },
-          data: { hostId: row.owner_id },
-        });
-        return;
-      }
+      // Room host is strictly and permanently the room owner. Never transfer to a successor!
+      await tx.room.update({
+        where: { id: room.id },
+        data: { hostId: row.owner_id },
+      });
+      return;
 
       await tx.room.update({
         where: { id: room.id },
