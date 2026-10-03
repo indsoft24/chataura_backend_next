@@ -675,6 +675,13 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
+      // Ensure seatIndex strictly reflects actual seat occupancy in the database
+      const actualSeat = await tx.seat.findFirst({
+        where: { roomId: room.id, userId },
+      });
+      const finalSeatIndex =
+        role === 'listener' ? null : (actualSeat ? actualSeat.seatIndex : null);
+
       const m = await tx.roomMember.upsert({
         where: { roomId_userId: { roomId: room.id, userId } },
         create: {
@@ -682,6 +689,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
           userId,
           role,
           agoraUid,
+          seatIndex: finalSeatIndex,
           isActive: true,
           lastHeartbeatAt: new Date(),
         },
@@ -689,6 +697,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
           isActive: true,
           role,
           agoraUid,
+          seatIndex: finalSeatIndex,
           lastHeartbeatAt: new Date(),
         },
       });
@@ -1170,8 +1179,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     const member = await this.requireActiveMember(room.id, userId);
     const seatMode = (room.seatMode || SEAT_MODE_REQUEST).toLowerCase();
     const canSelfSeat =
-      ['host', 'co_host', 'speaker'].includes(member.role) ||
-      (seatMode === SEAT_MODE_DIRECT && member.role === 'listener');
+      ['host', 'co_host'].includes(member.role) ||
+      (seatMode === SEAT_MODE_DIRECT && ['listener', 'speaker'].includes(member.role));
     if (!canSelfSeat) {
       throw new ForbiddenException({
         success: false,
