@@ -90,6 +90,75 @@ export const BCP_GIFTS: GiftDef[] = [
   { key: 'eternal_bond', name: 'Eternal Bond', coinCost: 2_000_000, category: 'bcp', imagePath: 'gifts/bcp/bcp_gift_eternal_bond.png', animationPath: 'gifts/bcp/bcp_fx_eternal_bond.webm' },
 ];
 
+export const CORE_STANDARD_GIFTS: GiftDef[] = [
+  { key: 'dance', name: 'dance', coinCost: 11, category: 'standard', imagePath: 'gifts/standard/normal_gift_dance.webp' },
+  { key: 'rose', name: 'Rose', coinCost: 10, category: 'standard', imagePath: 'gifts/standard/normal_gift_rose.webp' },
+  { key: 'kiss', name: 'Kiss', coinCost: 20, category: 'standard', imagePath: 'gifts/standard/normal_gift_kiss.webp', animationPath: 'gifts/v1/cp/cp_fx_kiss_heart.webm' },
+  { key: 'sweet_box', name: 'Sweet Box', coinCost: 30, category: 'standard', imagePath: 'gifts/standard/normal_gift_sweet_box.webp' },
+  { key: 'heart', name: 'Heart', coinCost: 50, category: 'standard', imagePath: 'gifts/standard/normal_gift_heart.webp' },
+  { key: 'love_letter', name: 'Love Letter', coinCost: 80, category: 'standard', imagePath: 'gifts/standard/normal_gift_love_letter.webp' },
+  { key: 'diamond', name: 'Diamond', coinCost: 100, category: 'standard', imagePath: 'gifts/standard/normal_gift_diamond.webp' },
+  { key: 'wish_star', name: 'Wish Star', coinCost: 150, category: 'standard', imagePath: 'gifts/standard/cp_gift_star_heart.webp' },
+  { key: 'dance_2', name: 'dance 2', coinCost: 199, category: 'standard', imagePath: 'gifts/standard/normal_gift_dance_stage.webp' },
+  { key: 'perfume', name: 'Perfume', coinCost: 200, category: 'standard', imagePath: 'gifts/standard/normal_gift_perfume.webp', animationPath: 'gifts/v1/cp/cp_fx_perfume.webm' },
+  { key: 'love_box', name: 'Love box', coinCost: 300, category: 'standard', imagePath: 'gifts/standard/normal_gift_love_box.webp' },
+  { key: 'teddy_bear', name: 'Teddy Bear', coinCost: 300, category: 'standard', imagePath: 'gifts/standard/normal_gift_teddy.webp' },
+  { key: 'crown', name: 'Crown', coinCost: 500, category: 'standard', imagePath: 'gifts/standard/normal_gift_crown.webp' },
+  { key: 'champagne', name: 'Champagne', coinCost: 800, category: 'standard', imagePath: 'gifts/standard/normal_gift_champagne.webp', animationPath: 'gifts/v1/cp/cp_fx_champagne.webm' },
+  { key: 'magic_ring', name: 'Magic Ring', coinCost: 1000, category: 'standard', imagePath: 'gifts/standard/normal_gift_ring.webp', animationPath: 'gifts/v1/cp/cp_fx_ring.webm' },
+  { key: 'sports_car', name: 'Sports Car', coinCost: 5000, category: 'standard', imagePath: 'gifts/standard/cp_gift_love_car.webp', animationPath: 'gifts/v1/cp/cp_fx_love_car.webm' },
+  { key: 'velvet_box', name: 'Velvet Box', coinCost: 8000, category: 'standard', imagePath: 'gifts/standard/normal_gift_love_box.webp' },
+  { key: 'cupid_bow', name: 'Cupid Bow', coinCost: 10000, category: 'standard', imagePath: 'gifts/standard/cp_gift_cupid.webp', animationPath: 'gifts/v1/cp/cp_fx_cupid.webm' },
+  { key: 'moonlight', name: 'Moonlight', coinCost: 15000, category: 'standard', imagePath: 'gifts/standard/cp_gift_moon_heart.webp', animationPath: 'gifts/v1/cp/cp_fx_moon_heart.webm' },
+  { key: 'soul_swans', name: 'Soul Swans', coinCost: 20000, category: 'standard', imagePath: 'gifts/standard/cp_gift_swans.webp', animationPath: 'gifts/v1/cp/cp_fx_swans.webm' },
+  { key: 'luxury_yacht', name: 'Luxury Yacht', coinCost: 30000, category: 'standard', imagePath: 'gifts/standard/bcp_gift_bcp_voyage.webp', animationPath: 'gifts/v1/bcp/bcp_fx_bcp_voyage.webm' },
+  { key: 'besties_crown', name: 'Besties Crown', coinCost: 50000, category: 'standard', imagePath: 'gifts/standard/bcp_gift_besties_crown.webp', animationPath: 'gifts/v1/bcp/bcp_fx_besties_crown.webm' },
+  { key: 'fireworks', name: 'Fireworks', coinCost: 80000, category: 'standard', imagePath: 'gifts/standard/bcp_gift_bcp_galaxy.webp', animationPath: 'gifts/v1/bcp/bcp_fx_bcp_galaxy.webm' },
+  { key: 'dragon_fortune', name: 'Dragon Fortune', coinCost: 100000, category: 'standard', imagePath: 'gifts/standard/normal_gift_dragon.webp', animationPath: 'gifts/v1/lucky/lucky_fx_dragon_fortune.webm' },
+  { key: 'golden_slot', name: 'Golden Slot', coinCost: 150000, category: 'standard', imagePath: 'gifts/standard/lucky_gift_golden_slot.webp', animationPath: 'gifts/v1/lucky/lucky_fx_golden_slot.webm' },
+  { key: 'mega_jackpot', name: 'Mega Jackpot', coinCost: 200000, category: 'standard', imagePath: 'gifts/standard/lucky_gift_mega_jackpot.webp', animationPath: 'gifts/v1/lucky/lucky_fx_mega_jackpot.webm' },
+  { key: 'power_ring', name: 'Power Ring', coinCost: 15000, category: 'standard', imagePath: 'gifts/standard/normal_gift_power_ring.webp' },
+  { key: 'good_friend', name: 'Good Friend', coinCost: 36000, category: 'standard', imagePath: 'gifts/standard/bcp_gift_handshake_gold.webp', animationPath: 'gifts/v1/bcp/bcp_fx_handshake_gold.webm' },
+  { key: 'love_perfume', name: 'Love Perfume', coinCost: 60000, category: 'standard', imagePath: 'gifts/standard/cp_gift_perfume.webp', animationPath: 'gifts/v1/cp/cp_fx_perfume.webm' },
+  { key: 'luxury_belt', name: 'Luxury Belt', coinCost: 120000, category: 'standard', imagePath: 'gifts/standard/normal_gift_luxury_belt.webp' },
+  { key: 'luxury_perfume', name: 'Luxury Perfume', coinCost: 120000, category: 'standard', imagePath: 'gifts/standard/cp_gift_perfume.webp', animationPath: 'gifts/v1/cp/cp_fx_perfume.webm' },
+  { key: 'luxury_bag', name: 'Luxury Bag', coinCost: 200000, category: 'standard', imagePath: 'gifts/standard/normal_gift_luxury_bag.webp' },
+  { key: 'rocket_std', name: 'Rocket', coinCost: 200000, category: 'standard', imagePath: 'gifts/standard/lucky_gift_lucky_rocket.webp', animationPath: 'gifts/v1/lucky/lucky_fx_lucky_rocket.webm' },
+  { key: 'kiss_kiss', name: 'Kiss kiss', coinCost: 300000, category: 'standard', imagePath: 'gifts/standard/normal_gift_kiss.webp', animationPath: 'gifts/v1/cp/cp_fx_kiss_heart.webm' },
+  { key: 'luxury_watch', name: 'Luxury Watch', coinCost: 400000, category: 'standard', imagePath: 'gifts/standard/normal_gift_luxury_watch.webp' },
+  { key: 'rich_tiger', name: 'Rich Tiger', coinCost: 400000, category: 'standard', imagePath: 'gifts/standard/lucky_gift_dragon_fortune.webp', animationPath: 'gifts/v1/lucky/lucky_fx_dragon_fortune.webm' },
+  { key: 'fountain', name: 'Fountain', coinCost: 500000, category: 'standard', imagePath: 'gifts/standard/normal_gift_fountain.webp', animationPath: 'gifts/v1/lucky/lucky_fx_coin_rain.webm' },
+  { key: 'wedding_hall', name: 'Wedding Hall', coinCost: 600000, category: 'standard', imagePath: 'gifts/standard/normal_gift_wedding_hall.webp', animationPath: 'gifts/v1/cp/cp_fx_wedding_hall.webm' },
+  { key: 'brilliant_fireworks', name: 'Brilliant Fireworks', coinCost: 600000, category: 'standard', imagePath: 'gifts/standard/normal_gift_galaxy_fireworks.webp', animationPath: 'gifts/v1/cp/cp_fx_galaxy_fireworks.webm' },
+  { key: 'bear_bouquet', name: 'Bear Bouquet', coinCost: 600000, category: 'standard', imagePath: 'gifts/standard/normal_gift_teddy_love.webp', animationPath: 'gifts/v1/cp/cp_fx_bear_bouquet.webm' },
+  { key: 'love_carousel', name: 'Love Carousel', coinCost: 600000, category: 'standard', imagePath: 'gifts/standard/cp_gift_love_carousel.webp', animationPath: 'gifts/v1/cp/cp_fx_love_carousel.webm' },
+  { key: 'teddy_love', name: 'Teddy Love', coinCost: 600000, category: 'standard', imagePath: 'gifts/standard/normal_gift_teddy_love.webp', animationPath: 'gifts/v1/cp/cp_fx_bear_bouquet.webm' },
+  { key: 'super_rich', name: 'Super Rich', coinCost: 600000, category: 'standard', imagePath: 'gifts/standard/normal_gift_rolls_royce.webp', animationPath: 'gifts/v1/bcp/bcp_fx_bcp_voyage.webm' },
+  { key: 'galaxy_fireworks', name: 'Galaxy Fireworks', coinCost: 800000, category: 'standard', imagePath: 'gifts/standard/normal_gift_galaxy_fireworks.webp', animationPath: 'gifts/v1/cp/cp_fx_galaxy_fireworks.webm' },
+  { key: 'alpaca_love', name: 'Alpaca Love', coinCost: 900000, category: 'standard', imagePath: 'gifts/standard/normal_gift_alpaca.webp' },
+  { key: 'alpaca', name: 'Alpaca', coinCost: 960000, category: 'standard', imagePath: 'gifts/standard/normal_gift_alpaca.webp' },
+  { key: 'rolls_royce', name: 'Rolls-Royce', coinCost: 960000, category: 'standard', imagePath: 'gifts/standard/normal_gift_rolls_royce.webp', animationPath: 'gifts/v1/bcp/bcp_fx_bcp_voyage.webm' },
+  { key: 'wedding_std', name: 'Wedding', coinCost: 120000, category: 'standard', imagePath: 'gifts/standard/cp_gift_wedding.webp', animationPath: 'gifts/v1/cp/cp_fx_wedding.webm' },
+  { key: 'sweet_cake', name: 'Sweet Cake', coinCost: 1200000, category: 'standard', imagePath: 'gifts/standard/cp_gift_chocolate.webp' },
+  { key: 'yacht_party', name: 'Yacht Party', coinCost: 1200000, category: 'standard', imagePath: 'gifts/standard/bcp_gift_bcp_voyage.webp', animationPath: 'gifts/v1/bcp/bcp_fx_bcp_voyage.webm' },
+  { key: 'mysterious_car', name: 'Mysterious Car', coinCost: 1500000, category: 'standard', imagePath: 'gifts/standard/normal_gift_mysterious_car.webp', animationPath: 'gifts/v1/bcp/bcp_fx_bcp_voyage.webm' },
+  { key: 'dj_cat', name: 'DJ Cat', coinCost: 1500000, category: 'standard', imagePath: 'gifts/standard/normal_gift_dance_cat.webp' },
+  { key: 'flower_yacht', name: 'Flower Yacht', coinCost: 1500000, category: 'standard', imagePath: 'gifts/standard/normal_gift_love_yacht.webp', animationPath: 'gifts/v1/cp/cp_fx_flower_yacht.webm' },
+  { key: 'love_yacht', name: 'Love Yacht', coinCost: 1800000, category: 'standard', imagePath: 'gifts/standard/normal_gift_love_yacht.webp', animationPath: 'gifts/v1/cp/cp_fx_flower_yacht.webm' },
+  { key: 'pink_rose_cp', name: 'Pink Rose CP', coinCost: 2000000, category: 'standard', imagePath: 'gifts/standard/normal_gift_pink_rose_cp.webp', animationPath: 'gifts/v1/cp/cp_fx_rose_love.webm' },
+  { key: 'rose_stairs', name: 'Rose Stairs', coinCost: 2000000, category: 'standard', imagePath: 'gifts/standard/normal_gift_rose_stairs.webp', animationPath: 'gifts/v1/cp/cp_fx_rose_love_vip.webm' },
+  { key: 'forever_love', name: 'Forever Love', coinCost: 2400000, category: 'standard', imagePath: 'gifts/standard/cp_gift_forever_love.webp', animationPath: 'gifts/v1/cp/cp_fx_forever_love.webm' },
+  { key: 'rose_ball', name: 'Rose Ball', coinCost: 2400000, category: 'standard', imagePath: 'gifts/standard/normal_gift_rose_ball.webp', animationPath: 'gifts/v1/cp/cp_fx_waltz.webm' },
+  { key: 'dance_cat', name: 'Dance Cat', coinCost: 2400000, category: 'standard', imagePath: 'gifts/standard/normal_gift_dance_cat.webp' },
+  { key: 'waltz_std', name: 'Waltz', coinCost: 2400000, category: 'standard', imagePath: 'gifts/standard/cp_gift_waltz.webp', animationPath: 'gifts/v1/cp/cp_fx_waltz.webm' },
+  { key: 'love_melody', name: 'Love Melody', coinCost: 2500000, category: 'standard', imagePath: 'gifts/standard/cp_gift_melody.webp', animationPath: 'gifts/v1/cp/cp_fx_melody.webm' },
+  { key: 'lion', name: 'Lion', coinCost: 2500000, category: 'standard', imagePath: 'gifts/standard/normal_gift_lion.webp' },
+  { key: 'wealth_queen', name: 'Wealth Queen', coinCost: 2500000, category: 'standard', imagePath: 'gifts/standard/normal_gift_wealth_queen.webp', animationPath: 'gifts/v1/bcp/bcp_fx_besties_crown.webm' },
+  { key: 'lion_king', name: 'Lion King', coinCost: 3000000, category: 'standard', imagePath: 'gifts/standard/normal_gift_lion_king.webp' },
+  { key: 'lion_guardian', name: 'Lion Guardian', coinCost: 5000000, category: 'standard', imagePath: 'gifts/standard/normal_gift_lion_guardian.webp' },
+  { key: 'temple_throne', name: 'Temple Throne', coinCost: 6000000, category: 'standard', imagePath: 'gifts/standard/normal_gift_temple.webp' },
+];
+
 function absUrl(_publicBase: string, path: string): string {
   return giftsCdnExtraUrl(path);
 }
@@ -143,6 +212,7 @@ export async function ensureExtraGiftCatalogs(
   await upsertGiftCatalog(prisma, publicBase, COUNTRY_FLAG_GIFTS);
   await upsertGiftCatalog(prisma, publicBase, LUCKY_GIFTS);
   await upsertGiftCatalog(prisma, publicBase, BCP_GIFTS);
+  await upsertGiftCatalog(prisma, publicBase, CORE_STANDARD_GIFTS);
 
   // Soft-deactivate placeholder BCP1 if real BCP catalog is present
   await prisma.gift.updateMany({
