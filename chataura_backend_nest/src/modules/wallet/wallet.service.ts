@@ -13,6 +13,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import Razorpay from 'razorpay';
 import { catalogClientFields } from '../../common/utils/catalog-media';
 import { normalizeGiftCategory } from '../../common/utils/gift-category';
+import { resolveGiftForSend } from '../../common/utils/gift-resolve';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { IndianState, resolveIndianState } from '../../common/gst/indian-states';
 import { indianStateFromIp } from '../../common/gst/ip-geo';
@@ -798,48 +799,22 @@ export class WalletService {
       receiver_id: number | string;
       quantity?: number;
       gift_name?: string;
+      gift_key?: string;
+      gift_category?: string;
+      expected_coin_cost?: number | string;
     },
   ) {
-    if (!body?.gift_id || !body?.receiver_id) {
+    if ((!body?.gift_id && !body?.gift_key) || !body?.receiver_id) {
       throw new BadRequestException({
         success: false,
         error: {
           code: 'VALIDATION_ERROR',
-          message: 'gift_id and receiver_id are required',
+          message: 'gift_id (or gift_key) and receiver_id are required',
         },
       });
     }
 
-    const rawGiftName = body.gift_name ? String(body.gift_name).trim() : '';
-    const rawGiftId = body.gift_id != null ? String(body.gift_id).trim() : '';
-
-    let gift = null;
-    if (rawGiftId && !isNaN(Number(rawGiftId))) {
-      try {
-        gift = await this.prisma.gift.findFirst({
-          where: { id: BigInt(rawGiftId), isActive: true },
-        });
-      } catch {
-        // ignore
-      }
-    }
-    if (!gift && rawGiftName) {
-      gift = await this.prisma.gift.findFirst({
-        where: { name: { equals: rawGiftName, mode: 'insensitive' }, isActive: true },
-      });
-    }
-    if (!gift && rawGiftName) {
-      gift = await this.prisma.gift.findFirst({
-        where: { name: { contains: rawGiftName, mode: 'insensitive' }, isActive: true },
-      });
-    }
-
-    if (!gift) {
-      throw new NotFoundException({
-        success: false,
-        error: { code: 'GIFT_NOT_FOUND', message: 'Gift not found' },
-      });
-    }
+    const gift = await resolveGiftForSend(this.prisma, body);
     const receiverId = BigInt(body.receiver_id);
     const quantity = Math.min(Math.max(Number(body.quantity ?? 1), 1), 100);
     const settings = await this.getSettings();
@@ -934,6 +909,9 @@ export class WalletService {
         return {
           transaction_id: ref,
           gift_id: Number(gift.id),
+          gift_key: gift.giftKey ?? null,
+          unit_coin_cost: gift.coinCost,
+          quantity,
           coin_cost: Number(cost),
           coin_amount: Number(cost),
           sender_balance_after: Number(after),
@@ -1006,6 +984,7 @@ export class WalletService {
         const cleanAnim = g.animationUrl?.includes('giphy.com') ? null : g.animationUrl;
         return {
           id: Number(g.id),
+          gift_key: g.giftKey ?? null,
           name: g.name,
           coin_cost: g.coinCost,
           category: normalizeGiftCategory(g.category),

@@ -21,6 +21,7 @@ type GiftCategory = (typeof GIFT_CATEGORIES)[number]['value'];
 
 type Gift = {
   id: number;
+  gift_key?: string | null;
   name: string;
   coin_cost: number;
   category?: string | null;
@@ -300,6 +301,12 @@ export default function GiftsPage() {
               </div>
 
               <div style={{ fontWeight: 600, color: '#111827', fontSize: '1.05rem', marginBottom: '4px', textAlign: 'center' }}>{g.name}</div>
+              <div
+                title="Unique gift key (permanent, used by the app)"
+                style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '0.7rem', color: '#6b7280', marginBottom: '6px', textAlign: 'center', wordBreak: 'break-all' }}
+              >
+                #{g.id}{g.gift_key ? ` · ${g.gift_key}` : ''}
+              </div>
               <div style={{ color: '#d97706', fontWeight: 700, fontSize: '0.95rem' }}>🪙 {g.coin_cost.toLocaleString()} Coins</div>
               <div style={{ marginTop: '6px', fontSize: '0.72rem', backgroundColor: '#f3f4f6', color: '#374151', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>
                 {categoryLabel(g.category)}
@@ -405,6 +412,11 @@ export default function GiftsPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, color: '#111827' }}>
                 Edit Gift #{editingGift.id}
+                {editingGift.gift_key ? (
+                  <span style={{ marginLeft: '8px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '0.8rem', fontWeight: 500, color: '#6b7280' }}>
+                    {editingGift.gift_key}
+                  </span>
+                ) : null}
               </h2>
               <button
                 type="button"

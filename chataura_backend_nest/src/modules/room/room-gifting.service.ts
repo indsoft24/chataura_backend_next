@@ -6,6 +6,10 @@ import {
 } from '@nestjs/common';
 import { catalogClientFields } from '../../common/utils/catalog-media';
 import { normalizeGiftCategory } from '../../common/utils/gift-category';
+import {
+  GiftSendSelector,
+  resolveGiftForSend,
+} from '../../common/utils/gift-resolve';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { RelationshipEngineService } from '../relationship/relationship-engine.service';
@@ -116,6 +120,7 @@ export class RoomGiftingService {
         const cleanAnim = g.animationUrl?.includes('giphy.com') ? null : g.animationUrl;
         return {
           id: Number(g.id),
+          gift_key: g.giftKey ?? null,
           name: g.name,
           coin_cost: g.coinCost,
           coin_price: g.coinCost,
@@ -126,67 +131,8 @@ export class RoomGiftingService {
     };
   }
 
-  private async resolveGift(giftId: number | string, giftName?: string) {
-    const rawGiftName = giftName ? String(giftName).trim() : '';
-    const rawGiftId = giftId != null ? String(giftId).trim() : '';
-
-    // 1. Try finding by numeric id first (guarantees exact gift selection regardless of cross-category duplicate names)
-    if (rawGiftId && !isNaN(Number(rawGiftId))) {
-      try {
-        const byId = await this.prisma.gift.findFirst({
-          where: { id: BigInt(rawGiftId), isActive: true },
-        });
-        if (byId) return byId;
-      } catch {
-        // ignore parsing error
-      }
-    }
-
-    // 2. Try finding by exact name if id was not provided or not found
-    if (rawGiftName) {
-      const byName = await this.prisma.gift.findFirst({
-        where: {
-          name: { equals: rawGiftName, mode: 'insensitive' },
-          isActive: true,
-        },
-      });
-      if (byName) return byName;
-    }
-
-    // 3. Fallback to contains name
-    if (rawGiftName) {
-      const byPartial = await this.prisma.gift.findFirst({
-        where: {
-          name: { contains: rawGiftName, mode: 'insensitive' },
-          isActive: true,
-        },
-      });
-      if (byPartial) return byPartial;
-    }
-
-    // 4. Fallback search without isActive constraint
-    if (rawGiftName) {
-      const byNameAny = await this.prisma.gift.findFirst({
-        where: { name: { equals: rawGiftName, mode: 'insensitive' } },
-      });
-      if (byNameAny) {
-        await this.prisma.gift.update({ where: { id: byNameAny.id }, data: { isActive: true } }).catch(() => {});
-        return byNameAny;
-      }
-    }
-    if (rawGiftId && !isNaN(Number(rawGiftId))) {
-      try {
-        const byIdAny = await this.prisma.gift.findFirst({
-          where: { id: BigInt(rawGiftId) },
-        });
-        if (byIdAny) {
-          await this.prisma.gift.update({ where: { id: byIdAny.id }, data: { isActive: true } }).catch(() => {});
-          return byIdAny;
-        }
-      } catch {}
-    }
-
-    return null;
+  private resolveGift(selector: GiftSendSelector) {
+    return resolveGiftForSend(this.prisma, selector);
   }
 
   async sendRoomGift(
@@ -197,17 +143,14 @@ export class RoomGiftingService {
       receiver_id: number | string;
       quantity?: number;
       gift_name?: string;
+      gift_key?: string;
+      gift_category?: string;
+      expected_coin_cost?: number | string;
     },
   ) {
     const room = await this.findRoom(id);
     const quantity = Math.min(Math.max(Number(body.quantity ?? 1), 1), 100);
-    const gift = await this.resolveGift(body.gift_id, body.gift_name);
-    if (!gift) {
-      throw new NotFoundException({
-        success: false,
-        error: { code: 'GIFT_NOT_FOUND', message: 'Gift not found' },
-      });
-    }
+    const gift = await this.resolveGift(body);
     const receiverId = BigInt(body.receiver_id);
     await this.requireActiveMember(room.id, senderId);
     const seated = await this.prisma.seat.findFirst({
@@ -327,6 +270,10 @@ export class RoomGiftingService {
         });
         return {
           transaction_id: ref,
+          gift_id: Number(gift.id),
+          gift_key: gift.giftKey ?? null,
+          unit_coin_cost: gift.coinCost,
+          quantity,
           coin_amount: Number(cost),
           commission_amount: Number(commission),
           net_amount: Number(netGems),
@@ -396,6 +343,8 @@ export class RoomGiftingService {
 
       this.giftBroadcast.enqueue(room.id, {
         giftId: Number(gift.id),
+        giftKey: gift.giftKey ?? null,
+        unitCoinCost: gift.coinCost,
         ...catalogClientFields(gift.imageUrl, gift.animationUrl),
         senderId: Number(senderId),
         receiverId: Number(receiverId),
@@ -429,6 +378,9 @@ export class RoomGiftingService {
       quantity?: number;
       room_id: string;
       gift_name?: string;
+      gift_key?: string;
+      gift_category?: string;
+      expected_coin_cost?: number | string;
     },
   ) {
     const rawIds = (body.receiver_ids ?? []).map((id) => BigInt(id));
@@ -446,13 +398,7 @@ export class RoomGiftingService {
 
     const room = await this.findRoom(body.room_id);
     const quantity = Math.min(Math.max(Number(body.quantity ?? 1), 1), 100);
-    const gift = await this.resolveGift(body.gift_id, body.gift_name);
-    if (!gift) {
-      throw new NotFoundException({
-        success: false,
-        error: { code: 'GIFT_NOT_FOUND', message: 'Gift not found' },
-      });
-    }
+    const gift = await this.resolveGift(body);
 
     await this.requireActiveMember(room.id, senderId);
 
@@ -620,6 +566,10 @@ export class RoomGiftingService {
 
         return {
           transaction_ids: txIds,
+          gift_id: Number(gift.id),
+          gift_key: gift.giftKey ?? null,
+          unit_coin_cost: gift.coinCost,
+          quantity,
           coin_amount: Number(totalCost),
           per_receiver_coin_amount: Number(perCost),
           receiver_count: eligibleIds.length,
@@ -675,6 +625,8 @@ export class RoomGiftingService {
       for (const rid of eligibleIds) {
         this.giftBroadcast.enqueue(room.id, {
           giftId: Number(gift.id),
+          giftKey: gift.giftKey ?? null,
+          unitCoinCost: gift.coinCost,
           ...media,
           senderId: Number(senderId),
           receiverId: Number(rid),

@@ -5,6 +5,10 @@ export type GiftVisualTier = 'LOW' | 'MEDIUM' | 'HIGH' | 'ULTRA';
 
 export interface GiftDisplayEvent {
   giftId: number;
+  /** Stable unique gift key (e.g. "cp.wedding"). */
+  giftKey?: string | null;
+  /** Unit price (coins) of one gift at send time. */
+  unitCoinCost?: number;
   senderId: number;
   senderName?: string;
   receiverId: number;
@@ -89,6 +93,8 @@ export class GiftBroadcastService implements OnModuleDestroy {
     // Emit the single aggregated display event to all room subscribers
     this.events.emitGiftOverlay(roomId, {
       gift_id: payload.giftId,
+      gift_key: payload.giftKey ?? null,
+      unit_coin_cost: payload.unitCoinCost ?? null,
       image_url: payload.image_url ?? null,
       animation_url: payload.animation_url ?? null,
       media_type: payload.media_type ?? null,

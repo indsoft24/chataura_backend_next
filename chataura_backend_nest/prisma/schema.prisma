@@ -477,6 +477,9 @@ model EntryBar {
 
 model Gift {
   id           BigInt   @id @default(autoincrement())
+  /// Stable, immutable, human-readable unique key (e.g. "cp.wedding", "standard.wedding").
+  /// Set once at creation; never changes when the gift is renamed or re-priced.
+  giftKey      String?  @unique @map("gift_key") @db.VarChar(200)
   name         String   @db.VarChar(128)
   coinCost     Int      @map("coin_cost")
   category     String   @default("standard") @db.VarChar(32)

@@ -4,6 +4,11 @@
  */
 import { PrismaClient } from '@prisma/client';
 import { giftsCdnExtraUrl } from '../../common/gcs/gifts-cdn';
+import {
+  backfillMissingGiftKeys,
+  buildGiftKey,
+  isUniqueViolation,
+} from '../../common/utils/gift-key';
 
 type GiftDef = {
   key: string;
@@ -165,42 +170,48 @@ function absUrl(_publicBase: string, path: string): string {
 
 type PrismaLike = Pick<PrismaClient, 'gift' | 'relationshipType' | 'relationshipGiftRule'>;
 
+/**
+ * Seed-only: creates catalog gifts that do not exist yet. Existing rows are
+ * NEVER modified — price, media, category and is_active are owned by the admin
+ * panel once the row exists. Matching is by stable gift_key, then by
+ * (name, category) for rows that pre-date gift_key.
+ */
 async function upsertGiftCatalog(
   prisma: PrismaLike,
   publicBase: string,
   defs: GiftDef[],
 ): Promise<void> {
+  const existing = await prisma.gift.findMany({
+    select: { name: true, category: true, giftKey: true },
+  });
+  const haveKeys = new Set(existing.map((g) => g.giftKey).filter(Boolean));
+  const haveNameCat = new Set(
+    existing.map((g) => `${g.category}\u0000${g.name}`),
+  );
   for (const g of defs) {
-    const imageUrl = absUrl(publicBase, g.imagePath);
-    const animationUrl = g.animationPath
-      ? absUrl(publicBase, g.animationPath)
-      : null;
-    const existing = await prisma.gift.findFirst({
-      where: { name: g.name, category: g.category },
-    });
-    if (existing) {
-      await prisma.gift.update({
-        where: { id: existing.id },
-        data: {
-          coinCost: g.coinCost,
-          imageUrl,
-          animationUrl,
-          isActive: true,
-          category: g.category,
-        },
-      });
-    } else {
+    const giftKey = buildGiftKey(g.category, g.name);
+    if (haveKeys.has(giftKey)) continue;
+    if (haveNameCat.has(`${g.category}\u0000${g.name}`)) continue;
+    try {
       await prisma.gift.create({
         data: {
+          giftKey,
           name: g.name,
           coinCost: g.coinCost,
           category: g.category,
-          imageUrl,
-          animationUrl,
+          imageUrl: absUrl(publicBase, g.imagePath),
+          animationUrl: g.animationPath
+            ? absUrl(publicBase, g.animationPath)
+            : null,
           isActive: true,
         },
       });
+    } catch (err) {
+      // Another request created it concurrently — fine.
+      if (!isUniqueViolation(err)) throw err;
     }
+    haveKeys.add(giftKey);
+    haveNameCat.add(`${g.category}\u0000${g.name}`);
   }
 }
 
@@ -209,6 +220,7 @@ export async function ensureExtraGiftCatalogs(
   prisma: PrismaLike,
   publicBase: string,
 ): Promise<void> {
+  await backfillMissingGiftKeys(prisma);
   await upsertGiftCatalog(prisma, publicBase, COUNTRY_FLAG_GIFTS);
   await upsertGiftCatalog(prisma, publicBase, LUCKY_GIFTS);
   await upsertGiftCatalog(prisma, publicBase, BCP_GIFTS);

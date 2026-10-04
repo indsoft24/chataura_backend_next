@@ -4,6 +4,13 @@
  * properly populated with official coin costs, category="standard", and durable media paths.
  */
 const { PrismaClient } = require('@prisma/client');
+if (process.env.ALLOW_GIFT_CATALOG_OVERWRITE !== '1') {
+  console.error(
+    'Refusing to run: this legacy script overwrites admin-managed gift prices, media and active flags.\n' +
+      'Gifts are managed from the admin panel now. Set ALLOW_GIFT_CATALOG_OVERWRITE=1 only to deliberately reset them.',
+  );
+  process.exit(1);
+}
 const prisma = new PrismaClient();
 
 function giftsCdnBase() {

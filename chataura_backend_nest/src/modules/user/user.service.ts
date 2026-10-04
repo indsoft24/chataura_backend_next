@@ -1143,6 +1143,7 @@ export class UserService {
         return {
           id: String(g.giftId),
           gift_id: String(g.giftId),
+          gift_key: item?.giftKey ?? null,
           name: item?.name ?? `Gift ${g.giftId}`,
           icon_url: item?.imageUrl ?? null,
           count_received: g.count,

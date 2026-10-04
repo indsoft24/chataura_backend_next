@@ -381,6 +381,9 @@ export class RoomController {
       receiver_id: number | string;
       quantity?: number;
       gift_name?: string;
+      gift_key?: string;
+      gift_category?: string;
+      expected_coin_cost?: number | string;
     },
   ) {
     return this.gifting.sendRoomGift(user.id, id, body);
@@ -397,6 +400,9 @@ export class RoomController {
       quantity?: number;
       room_id: string;
       gift_name?: string;
+      gift_key?: string;
+      gift_category?: string;
+      expected_coin_cost?: number | string;
     },
   ) {
     return this.gifting.sendBatchGift(user.id, body);

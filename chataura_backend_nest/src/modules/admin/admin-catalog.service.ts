@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma } from '@prisma/client';
+import { Gift, Prisma } from '@prisma/client';
 import { resolve } from 'path';
 import {
   classifyMediaUrl,
@@ -11,6 +11,7 @@ import {
   isGiftCategory,
   normalizeGiftCategory,
 } from '../../common/utils/gift-category';
+import { allocateGiftKey, isUniqueViolation } from '../../common/utils/gift-key';
 import { extractVideoPoster } from '../../common/utils/video-poster';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import {
@@ -170,6 +171,7 @@ export class AdminCatalogService {
         const media = resolveCatalogMedia(g.imageUrl, g.animationUrl);
         return {
           id: Number(g.id),
+          gift_key: g.giftKey ?? null,
           name: g.name,
           coin_cost: g.coinCost,
           category: normalizeGiftCategory(g.category),
@@ -209,17 +211,28 @@ export class AdminCatalogService {
       body.image_url ?? body.imageUrl,
       body.animation_url ?? body.animationUrl ?? body.video_url,
     );
-    const g = await this.prisma.gift.create({
-      data: {
-        name: body.name,
-        coinCost: Number(cost),
-        category,
-        imageUrl: paired.imageUrl,
-        animationUrl: paired.animationUrl,
-      },
-    });
+    let g: Gift | null = null;
+    for (let attempt = 0; attempt < 3 && !g; attempt++) {
+      try {
+        g = await this.prisma.gift.create({
+          data: {
+            giftKey: await allocateGiftKey(this.prisma, category, body.name),
+            name: body.name,
+            coinCost: Number(cost),
+            category,
+            imageUrl: paired.imageUrl,
+            animationUrl: paired.animationUrl,
+          },
+        });
+      } catch (err) {
+        // Concurrent create took the same key — allocate a new one and retry.
+        if (!isUniqueViolation(err) || attempt === 2) throw err;
+      }
+    }
+    if (!g) throw new BadRequestException('Could not create gift');
     return {
       id: Number(g.id),
+      gift_key: g.giftKey ?? null,
       name: g.name,
       coin_cost: g.coinCost,
       category: normalizeGiftCategory(g.category),
@@ -287,6 +300,7 @@ export class AdminCatalogService {
     });
     return {
       id: Number(g.id),
+      gift_key: g.giftKey ?? null,
       name: g.name,
       coin_cost: g.coinCost,
       category: normalizeGiftCategory(g.category),

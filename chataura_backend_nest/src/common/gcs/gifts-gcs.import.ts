@@ -6,6 +6,7 @@ import { contentTypeForPath, uploadPublicFile } from './gcs.storage';
 import { resolveGiftsCdnBase } from './gifts-cdn';
 import { ensureCpAffectionGiftCatalog } from '../../modules/room/cp-affection-gifts.catalog';
 import { ensureExtraGiftCatalogs } from '../../modules/room/extra-gift-catalogs';
+import { allocateGiftKey } from '../utils/gift-key';
 
 export type GiftManifestEntry = {
   gift_key: string;
@@ -113,17 +114,24 @@ export async function importGiftsFromDir(
         const existing = await prisma.gift.findFirst({
           where: { name: g.name, category: g.category },
         });
-        const data = {
-          name: g.name,
-          category: g.category,
-          coinCost: Number(g.coin_cost) || 0,
-          imageUrl: imageUp.url,
-          animationUrl: animUp.url,
-          isActive: true,
-        };
+        // Existing rows: refresh media only — price / is_active / category are
+        // owned by the admin panel and must never be reset by an import.
         const row = existing
-          ? await prisma.gift.update({ where: { id: existing.id }, data })
-          : await prisma.gift.create({ data });
+          ? await prisma.gift.update({
+              where: { id: existing.id },
+              data: { imageUrl: imageUp.url, animationUrl: animUp.url },
+            })
+          : await prisma.gift.create({
+              data: {
+                giftKey: await allocateGiftKey(prisma, g.category, g.name),
+                name: g.name,
+                category: g.category,
+                coinCost: Number(g.coin_cost) || 0,
+                imageUrl: imageUp.url,
+                animationUrl: animUp.url,
+                isActive: true,
+              },
+            });
 
         gifts.push({
           name: row.name,

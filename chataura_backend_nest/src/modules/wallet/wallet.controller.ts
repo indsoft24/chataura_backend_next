@@ -159,7 +159,16 @@ export class WalletController {
   @Post('wallet/send-gift')
   sendGift(
     @CurrentUser() user: AuthUser,
-    @Body() body: { gift_id: number | string; receiver_id: number | string; quantity?: number; gift_name?: string },
+    @Body()
+    body: {
+      gift_id: number | string;
+      receiver_id: number | string;
+      quantity?: number;
+      gift_name?: string;
+      gift_key?: string;
+      gift_category?: string;
+      expected_coin_cost?: number | string;
+    },
   ) {
     return this.wallet.sendGift(user.id, body);
   }

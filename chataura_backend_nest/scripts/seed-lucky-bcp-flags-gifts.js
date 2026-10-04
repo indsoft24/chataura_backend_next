@@ -3,6 +3,13 @@
  * Prefer GCS gifts/v1 via GIFTS_PUBLIC_BASE or GCS_BUCKET; else Nest /uploads.
  */
 const { PrismaClient } = require('@prisma/client');
+if (process.env.ALLOW_GIFT_CATALOG_OVERWRITE !== '1') {
+  console.error(
+    'Refusing to run: this legacy script overwrites admin-managed gift prices, media and active flags.\n' +
+      'Gifts are managed from the admin panel now. Set ALLOW_GIFT_CATALOG_OVERWRITE=1 only to deliberately reset them.',
+  );
+  process.exit(1);
+}
 const prisma = new PrismaClient();
 
 function giftsCdnBase() {

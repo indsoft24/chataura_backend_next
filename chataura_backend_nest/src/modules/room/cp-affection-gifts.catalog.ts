@@ -9,6 +9,11 @@ import {
   giftsCdnCpFxUrl,
   giftsCdnCpImageUrl,
 } from '../../common/gcs/gifts-cdn';
+import {
+  backfillMissingGiftKeys,
+  buildGiftKey,
+  isUniqueViolation,
+} from '../../common/utils/gift-key';
 
 export type CpAffectionGiftDef = {
   key: string;
@@ -107,7 +112,7 @@ export function cpFxPublicUrl(_publicBase: string, file: string): string {
 
 type PrismaLike = Pick<PrismaClient, 'gift' | 'relationshipType' | 'relationshipGiftRule'>;
 
-/** Idempotent: activate all 41 Antigravity gifts; deactivate legacy soft placeholders. */
+/** Idempotent: create any missing Antigravity CP gifts (never overwrites admin edits); deactivate legacy soft placeholders. */
 export async function ensureCpAffectionGiftCatalog(
   prisma: PrismaLike,
   publicBase: string,
@@ -126,40 +131,40 @@ export async function ensureCpAffectionGiftCatalog(
   });
 
   const catalogNames = CP_AFFECTION_GIFTS.map((g) => g.name);
+
+  // Seed-only: create CP catalog gifts that are missing. Existing rows are NEVER
+  // modified — price, media and is_active are owned by the admin panel.
+  await backfillMissingGiftKeys(prisma);
   const existing = await prisma.gift.findMany({
-    where: { category: 'cp', name: { in: catalogNames } },
-    select: { id: true, name: true },
+    select: { name: true, category: true, giftKey: true },
   });
-  const have = new Set(existing.map((g) => g.name));
-  const missing = CP_AFFECTION_GIFTS.filter((g) => !have.has(g.name));
-
-  if (missing.length > 0) {
-    await prisma.gift.createMany({
-      data: missing.map((g) => ({
-        name: g.name,
-        coinCost: g.coinCost,
-        category: 'cp',
-        imageUrl: cpGiftPublicUrl(publicBase, g.file),
-        animationUrl: g.animationFile
-          ? cpFxPublicUrl(publicBase, g.animationFile)
-          : null,
-        isActive: true,
-      })),
-    });
-  }
-
+  const haveKeys = new Set(existing.map((g) => g.giftKey).filter(Boolean));
+  const haveCpNames = new Set(
+    existing.filter((g) => g.category === 'cp').map((g) => g.name),
+  );
   for (const g of CP_AFFECTION_GIFTS) {
-    await prisma.gift.updateMany({
-      where: { name: g.name, category: 'cp' },
-      data: {
-        imageUrl: cpGiftPublicUrl(publicBase, g.file),
-        animationUrl: g.animationFile
-          ? cpFxPublicUrl(publicBase, g.animationFile)
-          : null,
-        isActive: true,
-        coinCost: g.coinCost,
-      },
-    });
+    const giftKey = buildGiftKey('cp', g.name);
+    if (haveKeys.has(giftKey) || haveCpNames.has(g.name)) continue;
+    try {
+      await prisma.gift.create({
+        data: {
+          giftKey,
+          name: g.name,
+          coinCost: g.coinCost,
+          category: 'cp',
+          imageUrl: cpGiftPublicUrl(publicBase, g.file),
+          animationUrl: g.animationFile
+            ? cpFxPublicUrl(publicBase, g.animationFile)
+            : null,
+          isActive: true,
+        },
+      });
+    } catch (err) {
+      // Another request created it concurrently — fine.
+      if (!isUniqueViolation(err)) throw err;
+    }
+    haveKeys.add(giftKey);
+    haveCpNames.add(g.name);
   }
 
   const cpType = await prisma.relationshipType.findFirst({

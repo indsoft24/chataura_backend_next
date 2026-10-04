@@ -77,6 +77,10 @@ export class RoomGateway implements OnGatewayConnection {
       receiver_id: number | string;
       quantity?: number;
       idempotency_key?: string;
+      gift_name?: string;
+      gift_key?: string;
+      gift_category?: string;
+      expected_coin_cost?: number | string;
     },
   ) {
     if (wsEventThrottler.isEventRateLimited(client.id, 'gift.send', 5, 1000)) {
@@ -104,6 +108,9 @@ export class RoomGateway implements OnGatewayConnection {
           code: e?.response?.error?.code ?? 'GIFT_SEND_FAILED',
           message:
             e?.response?.error?.message ?? e?.message ?? 'Failed to send gift',
+          ...(e?.response?.error?.details
+            ? { details: e.response.error.details }
+            : {}),
         },
       };
     }
@@ -119,6 +126,10 @@ export class RoomGateway implements OnGatewayConnection {
       receiver_id: number | string;
       quantity?: number;
       idempotency_key?: string;
+      gift_name?: string;
+      gift_key?: string;
+      gift_category?: string;
+      expected_coin_cost?: number | string;
     },
   ) {
     return this.handleGiftSend(client, body);
