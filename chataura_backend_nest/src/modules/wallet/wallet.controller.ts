@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Ip, Param, Post, Query } from '@nestjs/common';
 import { Throttle, seconds } from '@nestjs/throttler';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
@@ -30,9 +30,10 @@ export class WalletController {
   initiate(
     @CurrentUser() user: AuthUser,
     @Body()
-    body: { package_id: number | string; country?: string; currency?: string },
+    body: { package_id: number | string; country?: string; currency?: string; state?: string },
+    @Ip() ip: string,
   ) {
-    return this.wallet.initiateRecharge(user.id, body);
+    return this.wallet.initiateRecharge(user.id, body, ip);
   }
 
   @Throttle({ default: { limit: 10, ttl: seconds(60) } })
@@ -40,9 +41,10 @@ export class WalletController {
   initiateLegacy(
     @CurrentUser() user: AuthUser,
     @Body()
-    body: { package_id: number | string; country?: string; currency?: string },
+    body: { package_id: number | string; country?: string; currency?: string; state?: string },
+    @Ip() ip: string,
   ) {
-    return this.wallet.initiateRecharge(user.id, body);
+    return this.wallet.initiateRecharge(user.id, body, ip);
   }
 
   @Throttle({ default: { limit: 10, ttl: seconds(60) } })

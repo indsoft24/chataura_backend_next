@@ -164,6 +164,28 @@ export class RoomGiftingService {
       if (byPartial) return byPartial;
     }
 
+    // 4. Fallback search without isActive constraint
+    if (rawGiftName) {
+      const byNameAny = await this.prisma.gift.findFirst({
+        where: { name: { equals: rawGiftName, mode: 'insensitive' } },
+      });
+      if (byNameAny) {
+        await this.prisma.gift.update({ where: { id: byNameAny.id }, data: { isActive: true } }).catch(() => {});
+        return byNameAny;
+      }
+    }
+    if (rawGiftId && !isNaN(Number(rawGiftId))) {
+      try {
+        const byIdAny = await this.prisma.gift.findFirst({
+          where: { id: BigInt(rawGiftId) },
+        });
+        if (byIdAny) {
+          await this.prisma.gift.update({ where: { id: byIdAny.id }, data: { isActive: true } }).catch(() => {});
+          return byIdAny;
+        }
+      } catch {}
+    }
+
     return null;
   }
 

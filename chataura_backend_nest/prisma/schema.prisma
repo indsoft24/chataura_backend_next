@@ -297,6 +297,17 @@ model CoinPurchaseTransaction {
   status             PurchaseStatus @default(pending)
   paymentSource      PaymentSource  @default(RAZORPAY) @map("payment_source")
   country            String?        @db.VarChar(8)
+  /// GST place of supply (canonical Indian state name), see common/gst/indian-states.ts
+  state              String?        @db.VarChar(64)
+  /// Where `state` came from: client (app at checkout) | admin (manual correction)
+  stateSource        String?        @map("state_source") @db.VarChar(16)
+  clientIp           String?        @map("client_ip") @db.VarChar(64)
+  /// Last known Razorpay payment status for this order (captured, failed, authorized, refunded, no_attempt…)
+  gatewayStatus      String?        @map("gateway_status") @db.VarChar(24)
+  paymentMethod      String?        @map("payment_method") @db.VarChar(24)
+  /// Razorpay payment details: contact, vpa, bank, card, rrn, fee, tax, error…
+  gatewayData        Json?          @map("gateway_data")
+  gatewaySyncedAt    DateTime?      @map("gateway_synced_at") @db.Timestamptz(6)
   createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -305,6 +316,8 @@ model CoinPurchaseTransaction {
 
   @@index([userId, createdAt])
   @@index([status])
+  @@index([createdAt])
+  @@index([status, updatedAt])
   @@map("coin_purchase_transactions")
 }
 

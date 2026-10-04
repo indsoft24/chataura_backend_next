@@ -19,6 +19,7 @@ import { MediaService } from '../media/media.service';
 import { RocketLaunchService } from '../room/rocket-launch.service';
 import { FxAssetsService } from '../fx-assets/fx-assets.service';
 import { AdminCatalogService } from './admin-catalog.service';
+import { AdminRechargeService } from './admin-recharge.service';
 import { AdminService } from './admin.service';
 import {
   AdjustBalanceDto,
@@ -48,6 +49,7 @@ export class AdminController {
   constructor(
     private readonly admin: AdminService,
     private readonly catalog: AdminCatalogService,
+    private readonly recharges: AdminRechargeService,
     private readonly media: MediaService,
     private readonly rockets: RocketLaunchService,
     private readonly fxAssets: FxAssetsService,
@@ -598,6 +600,56 @@ export class AdminController {
   @Get('transactions/export')
   exportTransactionsCsv(@Query() query: Record<string, string | undefined>) {
     return this.admin.exportTransactionsCsv(query);
+  }
+
+  // Recharges (real-money coin purchases) + GST reporting
+  @Get('recharges')
+  adminRecharges(@Query() query: Record<string, string | undefined>) {
+    return this.recharges.list(query);
+  }
+
+  @Get('recharges/export')
+  exportRechargesExcel(@Query() query: Record<string, string | undefined>) {
+    return this.recharges.exportExcel(query);
+  }
+
+  @Get('recharges/gst-config')
+  rechargeGstConfig() {
+    return this.recharges.gstConfig().then((config) => ({ config }));
+  }
+
+  @Patch('recharges/gst-config')
+  updateRechargeGstConfig(@Body() body: Record<string, unknown>) {
+    return this.recharges.updateGstConfig(body);
+  }
+
+  @Throttle({ default: { limit: 6, ttl: seconds(60) } })
+  @Post('recharges/sync')
+  syncRecharges(@Body() body: { from?: string; to?: string }) {
+    return this.recharges.syncWithRazorpay(body ?? {});
+  }
+
+  @Post('recharges/import')
+  importRazorpayRecharges(@Body() body: { payment_ids?: string[] }) {
+    return this.recharges.importRazorpayPayments(body ?? {});
+  }
+
+  @Post('recharges/:id/credit')
+  creditReviewedRecharge(@Param('id') id: string) {
+    if (!/^\d{1,18}$/.test(id)) throw new BadRequestException('Invalid recharge id');
+    return this.recharges.creditReviewed(BigInt(id));
+  }
+
+  @Post('recharges/:id/mark-paid')
+  markReviewedRechargePaid(@Param('id') id: string, @Body() body: { note?: string }) {
+    if (!/^\d{1,18}$/.test(id)) throw new BadRequestException('Invalid recharge id');
+    return this.recharges.markReviewedPaid(BigInt(id), body ?? {});
+  }
+
+  @Patch('recharges/:id/place-of-supply')
+  setRechargePlaceOfSupply(@Param('id') id: string, @Body() body: { state?: string | null }) {
+    if (!/^\d{1,18}$/.test(id)) throw new BadRequestException('Invalid recharge id');
+    return this.recharges.setPlaceOfSupply(BigInt(id), body);
   }
 
   // Rockit crowdfund campaigns

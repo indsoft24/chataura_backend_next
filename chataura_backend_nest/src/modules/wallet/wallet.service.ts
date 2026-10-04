@@ -8,11 +8,14 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
+import { Prisma } from '@prisma/client';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import Razorpay from 'razorpay';
 import { catalogClientFields } from '../../common/utils/catalog-media';
 import { normalizeGiftCategory } from '../../common/utils/gift-category';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { IndianState, resolveIndianState } from '../../common/gst/indian-states';
+import { indianStateFromIp } from '../../common/gst/ip-geo';
 import { ensureCpAffectionGiftCatalog } from '../room/cp-affection-gifts.catalog';
 import { ensureExtraGiftCatalogs } from '../room/extra-gift-catalogs';
 import { RelationshipEngineService } from '../relationship/relationship-engine.service';
@@ -94,7 +97,8 @@ export class WalletService {
 
   async initiateRecharge(
     userId: bigint,
-    body: { package_id: number | string; country?: string; currency?: string },
+    body: { package_id: number | string; country?: string; currency?: string; state?: string },
+    clientIp?: string,
   ) {
     const pkg = await this.prisma.coinPackage.findFirst({
       where: { id: BigInt(body.package_id), isActive: true },
@@ -108,6 +112,7 @@ export class WalletService {
 
     const currency = (body.currency ?? pkg.currency ?? 'INR').toUpperCase();
     const amountMinor = Math.round(Number(pkg.price) * 100);
+    const placeOfSupply = await this.resolvePlaceOfSupply(userId, body, currency, clientIp);
     const keyId = this.config.get<string>('RAZORPAY_KEY_ID') || 'rzp_test_mock';
 
     let orderId: string;
@@ -149,6 +154,10 @@ export class WalletService {
         status: 'pending',
         paymentSource: this.razorpay ? 'RAZORPAY' : 'MOCK',
         country: body.country ?? null,
+        // GST place of supply: only stored when it resolves to a real Indian state.
+        state: placeOfSupply?.state.name ?? null,
+        stateSource: placeOfSupply?.source ?? null,
+        clientIp: clientIp?.slice(0, 64) ?? null,
       },
     });
 
@@ -165,6 +174,34 @@ export class WalletService {
       resolved_country: body.country ?? 'IN',
       client_country: body.country ?? null,
     };
+  }
+
+  /**
+   * Buyer's state for GST place of supply, best signal first:
+   * app-provided → IP geolocation → the buyer's previous recharge.
+   */
+  private async resolvePlaceOfSupply(
+    userId: bigint,
+    body: { country?: string; state?: string },
+    currency: string,
+    clientIp?: string,
+  ): Promise<{ state: IndianState; source: 'client' | 'ip' | 'previous' } | null> {
+    const fromApp = resolveIndianState(body.state);
+    if (fromApp) return { state: fromApp, source: 'client' };
+
+    const fromIp = indianStateFromIp(clientIp);
+    if (fromIp) return { state: fromIp, source: 'ip' };
+
+    const country = (body.country ?? '').trim().toUpperCase();
+    const domestic = currency === 'INR' || country === 'IN' || country === 'IND' || country === 'INDIA';
+    if (!domestic) return null;
+    const previous = await this.prisma.coinPurchaseTransaction.findFirst({
+      where: { userId, state: { not: null } },
+      orderBy: { id: 'desc' },
+      select: { state: true },
+    });
+    const carried = resolveIndianState(previous?.state);
+    return carried ? { state: carried, source: 'previous' } : null;
   }
 
   async verifyRecharge(
@@ -1003,13 +1040,18 @@ export class WalletService {
     try {
       await this.reconcilePendingPayments();
     } catch (e) {
-      this.logger.warn(`Payment reconcile cron error: ${String(e)}`);
+      this.logger.warn(`Payment reconcile cron error: ${describeError(e)}`);
     }
   }
 
+  /**
+   * Backstop for orders the app never verified. Walks pending orders
+   * least-recently-checked first (each check bumps updated_at), so abandoned
+   * orders can't starve newer ones.
+   */
   async reconcilePendingPayments(olderThanMinutes = 2, limit = 50) {
     if (!this.razorpay) {
-      return { checked: 0, success: 0, failed: 0 };
+      return { checked: 0, success: 0, failed: 0, review: 0 };
     }
 
     const threshold = new Date(Date.now() - olderThanMinutes * 60_000);
@@ -1017,83 +1059,231 @@ export class WalletService {
       where: {
         status: 'pending',
         paymentSource: 'RAZORPAY',
+        razorpayOrderId: { not: null },
         createdAt: { lte: threshold },
+        // captured-but-pending is flagged for admin review — nothing more the cron can do
+        OR: [{ gatewayStatus: null }, { gatewayStatus: { not: 'captured' } }],
       },
-      orderBy: { id: 'asc' },
+      orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
       take: limit,
     });
 
-    let checked = 0;
-    let success = 0;
-    let failed = 0;
-
+    const totals = { checked: 0, success: 0, failed: 0, review: 0 };
     for (const order of pendingOrders) {
-      checked++;
+      totals.checked++;
       try {
-        if (!order.razorpayOrderId) continue;
-        const payments = await this.razorpay.orders.fetchPayments(
-          order.razorpayOrderId,
-        );
-        const items = (payments as any)?.items || [];
-        const captured = items.find((p: any) => p.status === 'captured');
-
-        if (captured) {
-          const paymentId = String(captured.id);
-          const dup = await this.prisma.coinPurchaseTransaction.findFirst({
-            where: {
-              razorpayPaymentId: paymentId,
-              status: 'success',
-            },
-          });
-          if (dup) {
-            await this.prisma.coinPurchaseTransaction.update({
-              where: { id: order.id },
-              data: { status: 'failed' },
-            });
-            continue;
-          }
-
-          await this.prisma.$transaction(async (tx) => {
-            const claim = await tx.coinPurchaseTransaction.updateMany({
-              where: { id: order.id, status: 'pending' },
-              data: {
-                status: 'success',
-                razorpayPaymentId: paymentId,
-              },
-            });
-            if (claim.count === 0) return;
-            await this.ledger.creditCoins(
-              tx,
-              order.userId,
-              order.coinsCredited,
-              'RECHARGE',
-              'Coin recharge (reconciled)',
-              paymentId,
-            );
-          });
-          success++;
-          this.logger.log(
-            `Reconciliation credited order ${order.razorpayOrderId} (${paymentId}) with ${order.coinsCredited} coins`,
-          );
-        } else {
-          const allFailed =
-            items.length > 0 &&
-            items.every((p: any) => ['failed', 'cancelled'].includes(p.status));
-          if (allFailed) {
-            await this.prisma.coinPurchaseTransaction.update({
-              where: { id: order.id },
-              data: { status: 'failed' },
-            });
-            failed++;
-          }
-        }
-      } catch (err: any) {
-        this.logger.warn(
-          `Reconciliation check failed for order ${order.razorpayOrderId}: ${String(err?.message || err)}`,
-        );
+        const payments = await this.razorpay.orders.fetchPayments(order.razorpayOrderId!);
+        const outcome = await this.applyGatewayPayments(order, ((payments as any)?.items ?? []) as RazorpayPayment[], {
+          allowAutoCredit: true,
+        });
+        if (outcome === 'credited') totals.success++;
+        else if (outcome === 'failed') totals.failed++;
+        else if (outcome === 'review') totals.review++;
+      } catch (err) {
+        await this.prisma.coinPurchaseTransaction
+          .update({ where: { id: order.id }, data: { gatewaySyncedAt: new Date() } })
+          .catch(() => undefined);
+        this.logger.warn(`Reconciliation check failed for order ${order.razorpayOrderId}: ${describeError(err)}`);
       }
     }
-
-    return { checked, success, failed };
+    return totals;
   }
+
+  /**
+   * Applies what Razorpay reports for an order's payments:
+   *  - stores the payment details (method, vpa, bank, card, rrn, fee…)
+   *  - captured + recent      → credit coins (when allowAutoCredit)
+   *  - captured + old/no-auto → keep pending, flag for admin review
+   *  - all attempts failed    → failed
+   *  - no attempt after 24h   → failed (abandoned checkout)
+   */
+  async applyGatewayPayments(
+    order: { id: bigint; userId: bigint; status: string; createdAt: Date; coinsCredited: number; razorpayPaymentId: string | null },
+    items: RazorpayPayment[],
+    opts: { allowAutoCredit: boolean },
+  ): Promise<'credited' | 'review' | 'failed' | 'unchanged'> {
+    const now = new Date();
+    const captured = items.find((p) => p.status === 'captured' || p.status === 'refunded');
+    const chosen =
+      captured ??
+      items.find((p) => p.status === 'authorized') ??
+      [...items].sort((a, b) => Number(b.created_at ?? 0) - Number(a.created_at ?? 0))[0];
+
+    const ageMs = now.getTime() - order.createdAt.getTime();
+    const base = {
+      gatewaySyncedAt: now,
+      ...(chosen
+        ? {
+            gatewayStatus: String(chosen.status).slice(0, 24),
+            paymentMethod: chosen.method ? String(chosen.method).slice(0, 24) : null,
+            gatewayData: gatewayDetails(chosen, items.length) as Prisma.InputJsonValue,
+          }
+        : { gatewayStatus: 'no_attempt' }),
+    };
+
+    if (order.status === 'success') {
+      await this.prisma.coinPurchaseTransaction.update({ where: { id: order.id }, data: base });
+      return 'unchanged';
+    }
+
+    if (captured && captured.status === 'captured') {
+      const paymentId = String(captured.id);
+      const alreadyUsed = await this.prisma.coinPurchaseTransaction.findFirst({
+        where: { razorpayPaymentId: paymentId, status: 'success', NOT: { id: order.id } },
+        select: { id: true },
+      });
+      const autoCredit = opts.allowAutoCredit && !alreadyUsed && ageMs <= AUTO_CREDIT_WINDOW_MS;
+      if (!autoCredit) {
+        // Old or ambiguous capture: an admin decides (credit vs. already compensated).
+        await this.prisma.coinPurchaseTransaction.update({
+          where: { id: order.id },
+          data: { ...base, razorpayPaymentId: alreadyUsed ? order.razorpayPaymentId : paymentId },
+        });
+        return 'review';
+      }
+      let credited = false;
+      await this.prisma.$transaction(async (tx) => {
+        const claim = await tx.coinPurchaseTransaction.updateMany({
+          where: { id: order.id, status: { in: ['pending', 'failed'] } },
+          data: { ...base, status: 'success', razorpayPaymentId: paymentId },
+        });
+        if (claim.count === 0) return;
+        await this.ledger.creditCoins(tx, order.userId, order.coinsCredited, 'RECHARGE', 'Coin recharge (reconciled)', paymentId);
+        credited = true;
+      });
+      if (credited) {
+        this.logger.log(`Reconciliation credited purchase #${order.id} (${paymentId}) with ${order.coinsCredited} coins`);
+      }
+      return credited ? 'credited' : 'unchanged';
+    }
+
+    const allFailed = items.length > 0 && items.every((p) => p.status === 'failed' || p.status === 'cancelled');
+    const abandoned = items.length === 0 && ageMs > ABANDONED_AFTER_MS;
+    if (order.status === 'pending' && (allFailed || abandoned)) {
+      await this.prisma.coinPurchaseTransaction.update({ where: { id: order.id }, data: { ...base, status: 'failed' } });
+      return 'failed';
+    }
+
+    await this.prisma.coinPurchaseTransaction.update({ where: { id: order.id }, data: base });
+    return 'unchanged';
+  }
+
+  /** Admin review: credit coins for a captured payment the system never credited. */
+  async creditCapturedPurchase(id: bigint) {
+    const order = await this.prisma.coinPurchaseTransaction.findUnique({ where: { id } });
+    if (!order) throw new NotFoundException('Recharge not found');
+    if (order.status === 'success') throw new BadRequestException('This recharge is already marked successful');
+    if (order.gatewayStatus !== 'captured' || !order.razorpayPaymentId) {
+      throw new BadRequestException('Razorpay has not confirmed a captured payment for this order — sync first');
+    }
+    const paymentId = order.razorpayPaymentId;
+    const [dup, ledgerDup] = await Promise.all([
+      this.prisma.coinPurchaseTransaction.findFirst({ where: { razorpayPaymentId: paymentId, status: 'success', NOT: { id } } }),
+      this.prisma.coinTransaction.findFirst({ where: { type: 'RECHARGE', referenceId: paymentId } }),
+    ]);
+    if (dup || ledgerDup) throw new BadRequestException('Coins for this payment were already credited');
+
+    let after: bigint | null = null;
+    await this.prisma.$transaction(async (tx) => {
+      const claim = await tx.coinPurchaseTransaction.updateMany({
+        where: { id, status: { in: ['pending', 'failed'] } },
+        data: { status: 'success' },
+      });
+      if (claim.count === 0) throw new BadRequestException('Recharge was updated by someone else — refresh');
+      after = await this.ledger.creditCoins(tx, order.userId, order.coinsCredited, 'RECHARGE', 'Coin recharge (admin reviewed)', paymentId);
+    });
+    return { credited_coins: order.coinsCredited, wallet_balance: after !== null ? Number(after) : null };
+  }
+
+  /** Admin review: payment was captured but the buyer was compensated another way — record revenue, no coins. */
+  async markCapturedPurchasePaid(id: bigint, note?: string) {
+    const order = await this.prisma.coinPurchaseTransaction.findUnique({ where: { id } });
+    if (!order) throw new NotFoundException('Recharge not found');
+    if (order.status === 'success') throw new BadRequestException('This recharge is already marked successful');
+    if (order.gatewayStatus !== 'captured') {
+      throw new BadRequestException('Razorpay has not confirmed a captured payment for this order — sync first');
+    }
+    const data = (order.gatewayData as Record<string, unknown>) ?? {};
+    await this.prisma.coinPurchaseTransaction.update({
+      where: { id },
+      data: {
+        status: 'success',
+        gatewayData: {
+          ...data,
+          admin_resolution: 'paid_without_credit',
+          admin_note: (note ?? '').slice(0, 500) || null,
+          resolved_at: new Date().toISOString(),
+        } as Prisma.InputJsonValue,
+      },
+    });
+    return { message: 'Marked as paid without crediting coins' };
+  }
+
+  get razorpayClient() {
+    return this.razorpay;
+  }
+}
+
+type RazorpayPayment = {
+  id: string;
+  status: string;
+  order_id?: string | null;
+  amount?: number;
+  currency?: string;
+  method?: string | null;
+  created_at?: number;
+  [k: string]: any;
+};
+
+/** Captured payments older than this are not auto-credited; an admin reviews them. */
+const AUTO_CREDIT_WINDOW_MS = 72 * 60 * 60 * 1000;
+/** A Razorpay order with no payment attempt after this long is an abandoned checkout. */
+const ABANDONED_AFTER_MS = 24 * 60 * 60 * 1000;
+
+export function describeError(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  try {
+    const o = e as any;
+    return o?.error?.description ? `${o.statusCode ?? ''} ${o.error.description}`.trim() : JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
+}
+
+/** The useful, non-secret parts of a Razorpay payment entity. */
+export function gatewayDetails(p: RazorpayPayment, attempts: number) {
+  const email = p.email && p.email !== 'void@razorpay.com' ? p.email : null;
+  return {
+    payment_id: p.id,
+    order_id: p.order_id ?? null,
+    status: p.status,
+    method: p.method ?? null,
+    amount: typeof p.amount === 'number' ? p.amount / 100 : null,
+    currency: p.currency ?? null,
+    contact: p.contact || null,
+    email,
+    vpa: p.vpa ?? p.upi?.vpa ?? null,
+    upi_flow: p.upi?.flow ?? null,
+    bank: p.bank ?? null,
+    wallet: p.wallet ?? null,
+    card_network: p.card?.network ?? null,
+    card_issuer: p.card?.issuer ?? null,
+    card_type: p.card?.type ?? null,
+    card_last4: p.card?.last4 ?? null,
+    card_country: p.card?.country ?? null,
+    international: p.international ?? null,
+    rrn: p.acquirer_data?.rrn ?? null,
+    bank_transaction_id: p.acquirer_data?.bank_transaction_id ?? null,
+    fee: typeof p.fee === 'number' ? p.fee / 100 : null,
+    tax: typeof p.tax === 'number' ? p.tax / 100 : null,
+    amount_refunded: typeof p.amount_refunded === 'number' ? p.amount_refunded / 100 : null,
+    refund_status: p.refund_status ?? null,
+    error_code: p.error_code ?? null,
+    error_description: p.error_description ?? null,
+    error_reason: p.error_reason ?? null,
+    description: p.description ?? null,
+    notes: p.notes && typeof p.notes === 'object' ? p.notes : null,
+    paid_at: p.created_at ? new Date(p.created_at * 1000).toISOString() : null,
+    attempts,
+  };
 }
