@@ -6,7 +6,8 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { FastifyReply } from 'fastify';
+import { FastifyReply, FastifyRequest } from 'fastify';
+import { renderNotFoundPage } from '../../modules/web/templates/not-found.template';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -15,11 +16,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<FastifyReply>();
+    const request = ctx.getRequest<FastifyRequest>();
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let code = 'SERVER_ERROR';
     let message = 'Something went wrong. Please try again.';
     let errors: unknown = undefined;
+    let details: unknown = undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -34,6 +37,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
           code = String(err.code ?? this.defaultCode(status));
           message = String(err.message ?? message);
           errors = err.errors;
+          details = err.details;
         } else {
           code = String(obj.code ?? this.defaultCode(status));
           if (Array.isArray(obj.message)) {
@@ -49,14 +53,44 @@ export class AllExceptionsFilter implements ExceptionFilter {
       this.logger.error(exception.message, exception.stack);
     }
 
+    if (status === HttpStatus.NOT_FOUND && this.wantsHtmlPage(request)) {
+      const path = (request?.url ?? '/').split('?')[0];
+      void response
+        .status(status)
+        .type('text/html; charset=utf-8')
+        .send(
+          renderNotFoundPage({
+            path,
+            playStoreUrl: process.env.PLAY_STORE_URL || undefined,
+          }),
+        );
+      return;
+    }
+
     void response.status(status).send({
       success: false,
       error: {
         code,
         message,
         ...(errors !== undefined ? { errors } : {}),
+        ...(details !== undefined ? { details } : {}),
       },
     });
+  }
+
+  /**
+   * Browser page navigations to unknown website URLs get the branded 404 page.
+   * API, uploads, websocket and non-HTML clients keep the JSON error contract.
+   */
+  private wantsHtmlPage(request: FastifyRequest | undefined): boolean {
+    if (!request) return false;
+    if (request.method !== 'GET' && request.method !== 'HEAD') return false;
+    const accept = String(request.headers?.accept ?? '');
+    if (!accept.includes('text/html')) return false;
+    const path = (request.url ?? '/').split('?')[0].toLowerCase();
+    const apiPrefix = `/${(process.env.API_PREFIX || 'api/v2').replace(/^\/+|\/+$/g, '').toLowerCase()}`;
+    const jsonOnly = [apiPrefix, '/api', '/uploads', '/socket.io', '/ws'];
+    return !jsonOnly.some((p) => path === p || path.startsWith(`${p}/`));
   }
 
   private defaultCode(status: number): string {
