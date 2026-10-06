@@ -18,6 +18,7 @@ import {
   LUCKY77_MAX,
   LUCKY77_MIN,
   LUCKY77_OPTIONS,
+  lucky77ComboError,
   pickWeighted,
   secondsRemaining,
 } from './game.constants';
@@ -129,7 +130,11 @@ export class GameService {
         error: { code: 'INVALID_ITEM', message: 'Invalid item' },
       });
     }
-    if (amount < GREEDY_MIN || amount > GREEDY_MAX) {
+    if (
+      !Number.isSafeInteger(amount) ||
+      amount < GREEDY_MIN ||
+      amount > GREEDY_MAX
+    ) {
       throw new BadRequestException({
         success: false,
         error: { code: 'INVALID_AMOUNT', message: 'Invalid bet amount' },
@@ -327,6 +332,10 @@ export class GameService {
     }
     const chosen = bets[0]?.option ?? null;
     const remaining = secondsRemaining(round.bettingEndsAt);
+    const userBets: Record<string, number> = {};
+    for (const b of bets) {
+      userBets[b.option] = (userBets[b.option] ?? 0) + Number(b.chipAmount);
+    }
     const phase =
       remaining <= 0 && round.phase === 'betting' ? 'drawing' : round.phase;
     return {
@@ -336,6 +345,7 @@ export class GameService {
       user_balance: Number(user.walletBalance),
       user_chosen_option: chosen,
       user_bet_amount: bets.reduce((s, b) => s + Number(b.chipAmount), 0),
+      user_bets: userBets,
       pools,
     };
   }
@@ -351,7 +361,11 @@ export class GameService {
         error: { code: 'INVALID_OPTION', message: 'Invalid option' },
       });
     }
-    if (amount < LUCKY77_MIN || amount > LUCKY77_MAX) {
+    if (
+      !Number.isSafeInteger(amount) ||
+      amount < LUCKY77_MIN ||
+      amount > LUCKY77_MAX
+    ) {
       throw new BadRequestException({
         success: false,
         error: { code: 'INVALID_AMOUNT', message: 'Invalid bet amount' },
@@ -359,30 +373,62 @@ export class GameService {
     }
     await this.ensureLuckyRound();
     const round = await this.currentLucky();
+    const bettingClosed = () =>
+      new BadRequestException({
+        success: false,
+        error: { code: 'BETTING_CLOSED', message: 'Betting is closed' },
+      });
     if (
       secondsRemaining(round.bettingEndsAt) <= 1 ||
       round.phase !== 'betting'
     ) {
-      throw new BadRequestException({
-        success: false,
-        error: { code: 'BETTING_CLOSED', message: 'Betting is closed' },
-      });
-    }
-    const existing = await this.prisma.lucky77Bet.findMany({
-      where: { roundId: round.id, userId },
-    });
-    const options = new Set(existing.map((e) => e.option));
-    if (!options.has(option) && options.size >= 2) {
-      throw new BadRequestException({
-        success: false,
-        error: {
-          code: 'MAX_OPTIONS',
-          message: 'Maximum 2 options per round',
-        },
-      });
+      throw bettingClosed();
     }
     const spec = LUCKY77_OPTIONS[option];
+    const lockKey = `lucky77_bet_${round.id}_${userId}`;
     const after = await this.prisma.$transaction(async (tx) => {
+      // Serialize this user's bets for the round: parallel requests can no longer
+      // each read "no conflicting option yet" and both get through.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+      // Shared lock on the round row. Settlement takes FOR UPDATE SKIP LOCKED on it,
+      // so a bet can never be written into a round that is being / has been settled.
+      const locked = await tx.$queryRaw<
+        Array<{ phase: string; betting_ends_at: Date }>
+      >`SELECT phase, betting_ends_at FROM lucky77_rounds WHERE id = ${round.id} FOR SHARE`;
+      const current = locked[0];
+      if (
+        !current ||
+        current.phase !== 'betting' ||
+        secondsRemaining(new Date(current.betting_ends_at)) <= 1
+      ) {
+        throw bettingClosed();
+      }
+
+      const existing = await tx.lucky77Bet.findMany({
+        where: { roundId: round.id, userId },
+        select: { option: true },
+      });
+      const options = new Set(existing.map((e) => e.option));
+      if (lucky77ComboError(options, option)) {
+        throw new BadRequestException({
+          success: false,
+          error: {
+            code: 'FRUIT_CONFLICT',
+            message:
+              'You can choose only one fruit per round (Watermelon or Plum). You may also add 77.',
+          },
+        });
+      }
+      if (!options.has(option) && options.size >= 2) {
+        throw new BadRequestException({
+          success: false,
+          error: {
+            code: 'MAX_OPTIONS',
+            message: 'Maximum 2 options per round',
+          },
+        });
+      }
+
       try {
         const { after } = await this.ledger.debitCoins(
           tx,
@@ -392,7 +438,12 @@ export class GameService {
           `Lucky77 ${option}`,
           `lucky77_${round.id}_${option}_${Date.now()}`,
           undefined,
-          { source: 'game', currency: 'coins', round_id: round.id.toString(), option },
+          {
+            source: 'game',
+            currency: 'coins',
+            round_id: round.id.toString(),
+            option,
+          },
         );
         await tx.lucky77Bet.create({
           data: {
@@ -449,6 +500,10 @@ export class GameService {
       where: { roundId, userId },
     });
     const next = await this.currentLucky();
+    const userBets: Record<string, number> = {};
+    for (const b of bets) {
+      userBets[b.option] = (userBets[b.option] ?? 0) + Number(b.chipAmount);
+    }
     return {
       round_id: Number(round.id),
       winning_item: round.winningItem,
@@ -457,10 +512,47 @@ export class GameService {
       user_balance: Number(user.walletBalance),
       user_chosen_option: bets[0]?.option ?? null,
       user_bet_amount: bets.reduce((s, b) => s + Number(b.chipAmount), 0),
+      user_bets: userBets,
       phase: 'completed',
       seconds_remaining: secondsRemaining(next.bettingEndsAt),
       next_round_id: Number(next.id),
+      round_winners: await this.luckyRoundWinners(roundId),
     };
+  }
+
+  /** Real top winners of a settled round (by payout), for the result podium. */
+  private async luckyRoundWinners(roundId: bigint, take = 3) {
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        user_id: bigint;
+        name: string | null;
+        avatar_url: string | null;
+        total_bet: bigint;
+        total_won: bigint;
+      }>
+    >`
+      SELECT
+        b.user_id,
+        COALESCE(u.display_name, u.name) AS name,
+        u.avatar_url,
+        SUM(b.chip_amount)::bigint AS total_bet,
+        SUM(b.actual_payout)::bigint AS total_won
+      FROM lucky77_bets b
+      JOIN users u ON u.id = b.user_id
+      WHERE b.round_id = ${roundId}
+      GROUP BY b.user_id, u.display_name, u.name, u.avatar_url
+      HAVING SUM(b.actual_payout) > 0
+      ORDER BY total_won DESC
+      LIMIT ${take}
+    `;
+    return rows.map((row, i) => ({
+      rank: i + 1,
+      user_id: Number(row.user_id),
+      name: row.name ?? 'Player',
+      avatar_url: row.avatar_url,
+      total_bet: Number(row.total_bet),
+      total_won: Number(row.total_won),
+    }));
   }
 
   async ensureGreedyRound() {

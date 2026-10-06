@@ -118,6 +118,56 @@ describe('Games (e2e)', () => {
     expect(settled.data!.user_balance).toBeGreaterThanOrEqual(0);
   }, 60000);
 
+  it('lucky77 rejects betting on both fruits, sequentially and in parallel', async () => {
+    const user = await registerVerified(app);
+    await creditCoins(user.id, 2_000_000);
+    const open = await waitForOpenRound(
+      app,
+      user.token,
+      '/api/v1/game/lucky77/state',
+    );
+    const balanceOf = async () =>
+      Number(
+        (
+          await prisma.user.findUniqueOrThrow({
+            where: { id: BigInt(user.id) },
+          })
+        ).walletBalance,
+      );
+    const startBalance = await balanceOf();
+    const bet = (option: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/v1/game/lucky77/bet',
+        headers: authHeader(user.token),
+        payload: { option, amount: 50000 },
+      });
+
+    // Parallel burst on both fruits: the per-user lock must let only one fruit win.
+    const burst = await Promise.all(
+      Array.from({ length: 6 }, (_, i) => bet(i % 2 ? 'plum' : 'watermelon')),
+    );
+    const codes = burst.map((r) => parse(r.payload).error?.code ?? 'OK');
+    expect(codes).toContain('FRUIT_CONFLICT');
+
+    // Fruit + 77 is still allowed.
+    expect(parse((await bet('lucky_77')).payload).success).toBe(true);
+
+    const fruits = await prisma.lucky77Bet.findMany({
+      where: {
+        roundId: BigInt(open.round_id),
+        userId: BigInt(user.id),
+        option: { in: ['watermelon', 'plum'] },
+      },
+      select: { option: true },
+    });
+    expect(new Set(fruits.map((f) => f.option)).size).toBe(1);
+
+    // Coins were only debited for accepted bets.
+    const accepted = codes.filter((c) => c === 'OK').length + 1;
+    expect(await balanceOf()).toBe(startBalance - accepted * 50000);
+  }, 60000);
+
   it('seller cannot play; admin and agency can play', async () => {
     const seller = await registerVerified(app);
     const admin = await registerVerified(app);

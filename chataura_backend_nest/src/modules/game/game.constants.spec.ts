@@ -1,4 +1,9 @@
-import { GREEDY_ITEMS, LUCKY77_OPTIONS, pickWeighted } from './game.constants';
+import {
+  GREEDY_ITEMS,
+  LUCKY77_OPTIONS,
+  lucky77ComboError,
+  pickWeighted,
+} from './game.constants';
 
 function empiricalRtp(
   table: Record<string, { multiplier: number; weight: number }>,
@@ -32,5 +37,29 @@ describe('game RNG weights', () => {
     const { empirical, theoretical } = empiricalRtp(LUCKY77_OPTIONS, DRAWS);
     const drift = Math.abs(empirical - theoretical) / theoretical;
     expect(drift).toBeLessThan(0.005);
+  });
+});
+
+describe('lucky77 bet combinations', () => {
+  it.each([
+    [[], 'watermelon'],
+    [[], 'plum'],
+    [[], 'lucky_77'],
+    [['watermelon'], 'watermelon'],
+    [['watermelon'], 'lucky_77'],
+    [['lucky_77'], 'plum'],
+    [['plum', 'lucky_77'], 'plum'],
+    [['plum', 'lucky_77'], 'lucky_77'],
+  ])('allows %j + %s', (existing, option) => {
+    expect(lucky77ComboError(existing, option)).toBeNull();
+  });
+
+  it.each([
+    [['watermelon'], 'plum'],
+    [['plum'], 'watermelon'],
+    [['watermelon', 'lucky_77'], 'plum'],
+    [['lucky_77', 'plum'], 'watermelon'],
+  ])('rejects %j + %s (both fruits)', (existing, option) => {
+    expect(lucky77ComboError(existing, option)).toBe('FRUIT_CONFLICT');
   });
 });
