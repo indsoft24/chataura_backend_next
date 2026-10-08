@@ -117,10 +117,10 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     const freshCutoff = new Date(Date.now() - STALE_MS);
     // Non-permanent rooms need a fresh host heartbeat or at least one fresh
     // active member. Permanent rooms stay listed while isLive.
-    // Private rooms never appear in public discovery / global room rankings.
+    // Private rooms are listed for everyone (clients show a lock; join requires the
+    // password). They stay excluded from global room rankings (rankings.service).
     const where: Prisma.RoomWhereInput = {
       isLive: true,
-      isPrivate: false,
       OR: [
         { isPermanent: true },
         { hostLastHeartbeatAt: { gte: freshCutoff } },
@@ -708,6 +708,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     const globalVideo = await this.isGlobalVideoEnabled();
     const agency = await this.enrichRoomAgencyFields(fresh.id, fresh.ownerId);
     const roleFields = this.roleBadgeFields(user);
+    const seatsSnap = await this.seatsSnapshot(room.id, userId, room.maxSeats);
     return {
       room: await this.serializeRoom(fresh, globalVideo, agency),
       member: this.serializeMember(member, user),
@@ -715,6 +716,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         hostReclaimedFrom != null ? Number(hostReclaimedFrom) : null,
       ...token,
       media_defaults: { mic_on: false, camera_on: false },
+      seats: seatsSnap.seats,
       join_event: {
         type: 'join',
         uid: agoraUid,
@@ -1657,6 +1659,38 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       }
       return s;
     });
+
+    // Ensure Seat 0 is always populated with the room host/owner if unoccupied
+    const seatZero = liveSeats.find((s) => s.seatIndex === 0);
+    if (!seatZero || !seatZero.userId) {
+      const room = await this.prisma.room.findUnique({
+        where: { id: roomId },
+        include: {
+          host: { include: { selectedFrame: true } },
+          owner: { include: { selectedFrame: true } },
+        },
+      });
+      const hostUser = room?.host ?? room?.owner;
+      if (hostUser) {
+        if (seatZero) {
+          seatZero.userId = hostUser.id;
+          (seatZero as any).user = hostUser;
+        } else {
+          liveSeats.unshift({
+            id: BigInt(0),
+            roomId,
+            seatIndex: 0,
+            userId: hostUser.id,
+            user: hostUser,
+            isMuted: false,
+            mutedByUserId: null,
+            isLocked: false,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          } as any);
+        }
+      }
+    }
 
     const member = viewerId
       ? await this.prisma.roomMember.findUnique({

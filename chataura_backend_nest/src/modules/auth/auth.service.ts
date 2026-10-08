@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -26,6 +27,8 @@ import { User } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tokens: TokenService,
@@ -47,14 +50,9 @@ export class AuthService {
       });
     }
 
-    const referralCode = dto.referral_code ?? dto.invite_code ?? null;
-    let invitedBy: bigint | null = null;
-    if (referralCode) {
-      const referrer = await this.prisma.user.findUnique({
-        where: { inviteCode: referralCode },
-      });
-      if (referrer) invitedBy = referrer.id;
-    }
+    const invitedBy = await this.resolveReferrerId(
+      dto.referral_code ?? dto.invite_code,
+    );
 
     const displayName = dto.display_name ?? dto.name ?? email.split('@')[0];
     const passwordHash = await bcrypt.hash(dto.password, 10);
@@ -152,14 +150,9 @@ export class AuthService {
               payload.email_verified === 'true',
             );
 
-      const referralCode = dto.referral_code ?? dto.invite_code ?? null;
-      let invitedBy: bigint | null = null;
-      if (referralCode) {
-        const referrer = await this.prisma.user.findUnique({
-          where: { inviteCode: referralCode },
-        });
-        if (referrer) invitedBy = referrer.id;
-      }
+      const invitedBy = await this.resolveReferrerId(
+        dto.referral_code ?? dto.invite_code,
+      );
 
       user = await this.prisma.user.create({
         data: {
@@ -462,6 +455,26 @@ export class AuthService {
         },
       });
     }
+  }
+
+  /**
+   * Resolve a referral/invite code to the referrer's id. Codes are lowercase hex, but
+   * clients have sent them uppercased (caps keyboard) or padded — match trimmed and
+   * case-insensitively so a valid code is never silently dropped at signup.
+   */
+  private async resolveReferrerId(
+    rawCode: string | null | undefined,
+  ): Promise<bigint | null> {
+    const code = String(rawCode ?? '').trim();
+    if (!code) return null;
+    const referrer = await this.prisma.user.findFirst({
+      where: { inviteCode: { equals: code, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    if (!referrer) {
+      this.logger.warn(`Signup referral code not found: "${code}"`);
+    }
+    return referrer?.id ?? null;
   }
 
   private async uniqueInviteCode(): Promise<string> {

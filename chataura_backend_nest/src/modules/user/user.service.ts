@@ -93,8 +93,9 @@ export class UserService {
     const referrerAmt = rewards.referrer_coins;
 
     return this.prisma.$transaction(async (tx) => {
-      const referrer = await tx.user.findUnique({
-        where: { inviteCode: code },
+      // Codes are lowercase hex; accept any casing (caps keyboards, copied text).
+      const referrer = await tx.user.findFirst({
+        where: { inviteCode: { equals: code, mode: 'insensitive' } },
       });
       if (!referrer) {
         throw new BadRequestException({
