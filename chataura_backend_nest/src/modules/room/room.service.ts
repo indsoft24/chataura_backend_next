@@ -178,19 +178,23 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       query.sort === 'popular'
         ? { members: { _count: 'desc' } }
         : { lastActivityAt: 'desc' };
-    const rooms = await this.prisma.room.findMany({
-      where,
-      include: {
-        owner: personWithFrame,
-        host: personWithFrame,
-        coHost: personWithFrame,
-        theme: true,
-        _count: { select: { members: { where: { isActive: true } } } },
-      },
-      orderBy,
-      skip: (page - 1) * take,
-      take,
-    });
+    const [rooms, total] = await Promise.all([
+      this.prisma.room.findMany({
+        where,
+        include: {
+          owner: personWithFrame,
+          host: personWithFrame,
+          coHost: personWithFrame,
+          theme: true,
+          _count: { select: { members: { where: { isActive: true } } } },
+        },
+        orderBy,
+        skip: (page - 1) * take,
+        take,
+      }),
+      this.prisma.room.count({ where }),
+    ]);
+    const lastPage = Math.max(1, Math.ceil(total / take));
     const globalVideo = await this.isGlobalVideoEnabled();
     const rocketByRoom = await this.rockets.summariesForRooms(
       rooms.map((r) => ({
@@ -200,7 +204,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         settings: r.settings,
       })),
     );
-    return Promise.all(
+    const serialized = await Promise.all(
       rooms.map(async (r) => {
         const agency = await this.enrichRoomAgencyFields(r.id, r.ownerId);
         return this.serializeRoom(
@@ -211,23 +215,48 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         );
       }),
     );
+    return {
+      success: true,
+      data: serialized,
+      meta: {
+        total,
+        page,
+        current_page: page,
+        last_page: lastPage,
+        limit: take,
+      },
+      current_page: page,
+      last_page: lastPage,
+      per_page: take,
+      total,
+      has_more: page < lastPage,
+    };
   }
 
   async mine(userId: bigint, page = 1, limit = 50) {
     const take = Math.min(Math.max(limit, 1), 100);
-    const rooms = await this.prisma.room.findMany({
-      where: { ownerId: userId, OR: [{ isLive: true }, { isPermanent: true }] },
-      include: {
-        owner: personWithFrame,
-        host: personWithFrame,
-        coHost: personWithFrame,
-        theme: true,
-        _count: { select: { members: { where: { isActive: true } } } },
-      },
-      skip: (Math.max(page, 1) - 1) * take,
-      take,
-      orderBy: { createdAt: 'desc' },
-    });
+    const safePage = Math.max(page, 1);
+    const where: Prisma.RoomWhereInput = {
+      ownerId: userId,
+      OR: [{ isLive: true }, { isPermanent: true }],
+    };
+    const [rooms, total] = await Promise.all([
+      this.prisma.room.findMany({
+        where,
+        include: {
+          owner: personWithFrame,
+          host: personWithFrame,
+          coHost: personWithFrame,
+          theme: true,
+          _count: { select: { members: { where: { isActive: true } } } },
+        },
+        skip: (safePage - 1) * take,
+        take,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.room.count({ where }),
+    ]);
+    const lastPage = Math.max(1, Math.ceil(total / take));
     const globalVideo = await this.isGlobalVideoEnabled();
     const rocketByRoom = await this.rockets.summariesForRooms(
       rooms.map((r) => ({
@@ -237,7 +266,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         settings: r.settings,
       })),
     );
-    return Promise.all(
+    const serialized = await Promise.all(
       rooms.map(async (r) => {
         const agency = await this.enrichRoomAgencyFields(r.id, r.ownerId);
         return this.serializeRoom(
@@ -248,6 +277,22 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         );
       }),
     );
+    return {
+      success: true,
+      data: serialized,
+      meta: {
+        total,
+        page: safePage,
+        current_page: safePage,
+        last_page: lastPage,
+        limit: take,
+      },
+      current_page: safePage,
+      last_page: lastPage,
+      per_page: take,
+      total,
+      has_more: safePage < lastPage,
+    };
   }
 
   async themes() {
