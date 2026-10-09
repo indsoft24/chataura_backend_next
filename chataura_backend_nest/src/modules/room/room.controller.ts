@@ -132,8 +132,12 @@ export class RoomController {
   }
 
   @Post('rooms/:id/leave')
-  leave(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.rooms.leave(user.id, id);
+  leave(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body?: { session_id?: string },
+  ) {
+    return this.rooms.leave(user.id, id, body?.session_id);
   }
 
   @Throttle({ default: { limit: 240, ttl: seconds(60) } })

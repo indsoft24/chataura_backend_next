@@ -90,6 +90,20 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     private readonly rockets: RocketLaunchService,
   ) {}
 
+  private readonly roomSeatsVersions = new Map<string, number>();
+  private readonly userActiveSessions = new Map<string, string>();
+
+  private getNextSeatsVersion(roomId: string): number {
+    const current = this.roomSeatsVersions.get(roomId) ?? 1;
+    const next = current + 1;
+    this.roomSeatsVersions.set(roomId, next);
+    return next;
+  }
+
+  private getCurrentSeatsVersion(roomId: string): number {
+    return this.roomSeatsVersions.get(roomId) ?? 1;
+  }
+
   onModuleInit() {
     this.cleanupTimer = setInterval(() => {
       void this.cleanupStaleMembers().catch((e) =>
@@ -709,6 +723,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     const agency = await this.enrichRoomAgencyFields(fresh.id, fresh.ownerId);
     const roleFields = this.roleBadgeFields(user);
     const seatsSnap = await this.seatsSnapshot(room.id, userId, room.maxSeats);
+    const sessionId = `${userId}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    this.userActiveSessions.set(`${userId}:${room.id}`, sessionId);
     return {
       room: await this.serializeRoom(fresh, globalVideo, agency),
       member: this.serializeMember(member, user),
@@ -716,6 +732,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         hostReclaimedFrom != null ? Number(hostReclaimedFrom) : null,
       ...token,
       media_defaults: { mic_on: false, camera_on: false },
+      session_id: sessionId,
+      seats_version: seatsSnap.seats_version,
       seats: seatsSnap.seats,
       join_event: {
         type: 'join',
@@ -736,7 +754,24 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async leave(userId: bigint, id: string) {
+  async leave(userId: bigint, id: string, sessionId?: string) {
+    const sessionKey = `${userId}:${id}`;
+    const activeSession = this.userActiveSessions.get(sessionKey);
+    if (sessionId && activeSession && sessionId !== activeSession) {
+      this.logger.warn(
+        `stale leave ignored: user=${userId} room=${id} incomingSession=${sessionId} activeSession=${activeSession}`,
+      );
+      return {
+        room_ended: false,
+        room_deleted: false,
+        bonus_earned: [],
+        stale_ignored: true,
+      };
+    }
+    if (activeSession && (!sessionId || sessionId === activeSession)) {
+      this.userActiveSessions.delete(sessionKey);
+    }
+    this.getNextSeatsVersion(id);
     const room = await this.findRoom(id);
     let roomEnded = false;
     let roomDeleted = false;
@@ -1185,7 +1220,9 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     await this.occupySeat(room, userId, seatIndex, 'speaker');
     const snap = await this.seatsSnapshot(room.id, userId, room.maxSeats);
     this.events.emitSeatUpdated(room.id, snap);
-    return { ...snap, rtc_role: 'publisher' };
+    const agoraUid = this.agoraUid(userId);
+    const token = this.agora.buildToken(room.agoraChannelName, agoraUid, true);
+    return { ...snap, ...token, rtc_role: 'publisher' };
   }
 
   async assignSeat(
@@ -1204,11 +1241,14 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     });
     const snap = await this.seatsSnapshot(room.id, actorId, room.maxSeats);
     this.events.emitSeatUpdated(room.id, snap);
-    return { ...snap, rtc_role: 'publisher' };
+    const targetAgoraUid = this.agoraUid(targetId);
+    const token = this.agora.buildToken(room.agoraChannelName, targetAgoraUid, true);
+    return { ...snap, ...token, rtc_role: 'publisher' };
   }
 
   async leaveSeat(userId: bigint, id: string) {
     const room = await this.findRoom(id);
+    this.getNextSeatsVersion(room.id);
     await this.prisma.seat.updateMany({
       where: { roomId: room.id, userId },
       data: { userId: null, isMuted: false, mutedByUserId: null },
@@ -1229,7 +1269,10 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     }
     const snap = await this.seatsSnapshot(room.id, userId, room.maxSeats);
     this.events.emitSeatUpdated(room.id, snap);
-    return snap;
+    const agoraUid = this.agoraUid(userId);
+    const isPublisher = ['host', 'co_host'].includes(member?.role ?? '');
+    const token = this.agora.buildToken(room.agoraChannelName, agoraUid, isPublisher);
+    return { ...snap, ...token, rtc_role: isPublisher ? 'publisher' : 'audience' };
   }
 
   async freeSeat(actorId: bigint, id: string, seatIndex: number) {
@@ -1554,6 +1597,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     role: RoomMemberRole,
   ) {
     await this.ensureSeats(room.id, undefined);
+    this.getNextSeatsVersion(room.id);
     return this.prisma.$transaction(async (tx) => {
       await tx.seat.updateMany({
         where: { roomId: room.id, userId, seatIndex: { not: seatIndex } },
@@ -1671,7 +1715,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         },
       });
       const hostUser = room?.host ?? room?.owner;
-      if (hostUser) {
+      if (hostUser && activeIds.has(hostUser.id.toString())) {
         if (seatZero) {
           seatZero.userId = hostUser.id;
           (seatZero as any).user = hostUser;
@@ -1706,6 +1750,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         ? 'publisher'
         : 'audience';
     return {
+      seats_version: this.getCurrentSeatsVersion(roomId),
       seats: liveSeats.map((s) => ({
         seat_index: s.seatIndex,
         user_id: s.userId ? Number(s.userId) : null,
