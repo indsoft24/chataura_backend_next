@@ -3,6 +3,17 @@ import { RoomEvents } from './room.events';
 
 export type GiftVisualTier = 'LOW' | 'MEDIUM' | 'HIGH' | 'ULTRA';
 
+/**
+ * Gift visual tier — same table as the Android client (GiftAnimationManager.VisualTier.resolve):
+ * coins for one recipient (unit cost × quantity), or quantity alone.
+ */
+export function resolveGiftVisualTier(totalCoins: number, quantity: number): GiftVisualTier {
+  if (totalCoins >= 15_000 || quantity >= 50) return 'ULTRA';
+  if (totalCoins >= 3_000 || quantity >= 10) return 'HIGH';
+  if (totalCoins >= 500 || quantity >= 5) return 'MEDIUM';
+  return 'LOW';
+}
+
 export interface GiftDisplayEvent {
   giftId: number;
   /** Stable unique gift key (e.g. "cp.wedding"). */

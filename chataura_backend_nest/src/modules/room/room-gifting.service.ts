@@ -17,7 +17,7 @@ import { resolveAgencyRoomMeta } from './agency-room-meta';
 import { RoomEvents } from './room.events';
 import { RocketLaunchService } from './rocket-launch.service';
 import { CpAffectionGiftsService } from './cp-affection-gifts.service';
-import { GiftBroadcastService } from './gift-broadcast.service';
+import { GiftBroadcastService, resolveGiftVisualTier } from './gift-broadcast.service';
 import { RedisService } from '../../common/redis/redis.service';
 
 @Injectable()
@@ -331,15 +331,7 @@ export class RoomGiftingService {
     }
 
     {
-      // Resolve admin-configured visualTier from gift metadata.
-      // Falls back to coin-cost heuristic until gift table has a visualTier column.
-      const resolvedTier: import('./gift-broadcast.service').GiftVisualTier = (() => {
-        const cost = gift.coinCost;
-        if (cost >= 5000) return 'ULTRA';
-        if (cost >= 500) return 'HIGH';
-        if (cost >= 50) return 'MEDIUM';
-        return 'LOW';
-      })();
+      const resolvedTier = resolveGiftVisualTier(gift.coinCost * quantity, quantity);
 
       this.giftBroadcast.enqueue(room.id, {
         giftId: Number(gift.id),
@@ -613,13 +605,7 @@ export class RoomGiftingService {
 
     {
       const media = catalogClientFields(gift.imageUrl, gift.animationUrl);
-      const resolvedTier: import('./gift-broadcast.service').GiftVisualTier = (() => {
-        const cost = gift.coinCost;
-        if (cost >= 5000) return 'ULTRA';
-        if (cost >= 500) return 'HIGH';
-        if (cost >= 50) return 'MEDIUM';
-        return 'LOW';
-      })();
+      const resolvedTier = resolveGiftVisualTier(gift.coinCost * quantity, quantity);
 
       const now = Date.now();
       for (const rid of eligibleIds) {
