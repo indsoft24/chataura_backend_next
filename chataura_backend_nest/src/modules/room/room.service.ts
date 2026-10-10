@@ -30,6 +30,7 @@ import {
   RocketLaunchService,
   type RocketListSummary,
 } from './rocket-launch.service';
+import { pickCpSeat } from './cp-seat-placement';
 
 const STALE_MS = 45_000;
 const KICK_SECONDS = 600;
@@ -37,6 +38,8 @@ const KICK_SECONDS = 600;
 const STAFF_ADMIN_LIMIT = 5;
 const SEAT_MODE_DIRECT = 'direct';
 const SEAT_MODE_REQUEST = 'request';
+/** Relationship types whose partners are seated side by side, highest priority first. */
+const CP_SEAT_TYPE_CODES = ['cp', 'bcp'] as const;
 
 const personWithFrame = {
   include: { selectedFrame: true, selectedRoleFrame: true },
@@ -93,15 +96,25 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   private readonly roomSeatsVersions = new Map<string, number>();
   private readonly userActiveSessions = new Map<string, string>();
 
+  /**
+   * Seats versions are wall-clock based (ms) and strictly increasing per room, so they stay
+   * monotonic across server restarts. A plain in-memory counter restarted at 1, and clients
+   * holding a higher version then dropped every later snapshot as "stale".
+   */
   private getNextSeatsVersion(roomId: string): number {
-    const current = this.roomSeatsVersions.get(roomId) ?? 1;
-    const next = current + 1;
+    const current = this.getCurrentSeatsVersion(roomId);
+    const next = Math.max(current + 1, Date.now());
     this.roomSeatsVersions.set(roomId, next);
     return next;
   }
 
   private getCurrentSeatsVersion(roomId: string): number {
-    return this.roomSeatsVersions.get(roomId) ?? 1;
+    let current = this.roomSeatsVersions.get(roomId);
+    if (current === undefined) {
+      current = Date.now();
+      this.roomSeatsVersions.set(roomId, current);
+    }
+    return current;
   }
 
   onModuleInit() {
@@ -573,6 +586,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (nextMaxSeats != null && nextMaxSeats !== room.maxSeats) {
+      this.getNextSeatsVersion(room.id);
       const snap = await this.seatsSnapshot(room.id, userId, nextMaxSeats);
       this.events.emitSeatUpdated(room.id, snap);
     }
@@ -604,7 +618,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.$transaction(async (tx) => {
       await tx.roomMember.updateMany({
         where: { roomId: room.id },
-        data: { isActive: false },
+        data: { isActive: false, hostMutedByUserId: null },
       });
       await this.presence.closeAll(tx, room.id, 'room_ended');
     });
@@ -753,6 +767,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       return m;
     });
     if (hostReclaimedFrom != null) {
+      this.getNextSeatsVersion(room.id);
       const snap = await this.seatsSnapshot(room.id, userId, room.maxSeats);
       this.events.emitSeatUpdated(room.id, snap);
     }
@@ -867,6 +882,11 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       }
       bonusEarned = await this.presence.close(tx, userId, room.id, 'leave');
       if (roomEnded) {
+        // A new party session starts without mutes from the previous one.
+        await tx.roomMember.updateMany({
+          where: { roomId: room.id, hostMutedByUserId: { not: null } },
+          data: { hostMutedByUserId: null },
+        });
         await this.presence.closeAll(tx, room.id, 'room_ended');
       }
     });
@@ -1017,9 +1037,10 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       where: { roomId: room.id, userId: targetId },
       data: { isActive: false, seatIndex: null, role: 'listener' },
     });
+    this.getNextSeatsVersion(room.id);
     await this.prisma.seat.updateMany({
       where: { roomId: room.id, userId: targetId },
-      data: { userId: null },
+      data: { userId: null, isMuted: false, mutedByUserId: null },
     });
     await this.presence.closeActive(
       targetId,
@@ -1188,6 +1209,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         });
       }
       if (reclaim.previousHostId != null) {
+        this.getNextSeatsVersion(room.id);
         const snap = await this.seatsSnapshot(room.id, actorId, room.maxSeats);
         this.events.emitSeatUpdated(room.id, snap);
       }
@@ -1240,12 +1262,25 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     return this.seatsSnapshot(room.id, userId, room.maxSeats);
   }
 
+  /**
+   * Self seat take. Allowed for host/co-host, for anyone in "direct" mode, and for any member
+   * who already holds a seat (seat switch) — switching never needs host approval.
+   * First-time seating is CP/BCP aware (see [resolveCpAwareSeat]); a switch goes exactly
+   * where the user asked.
+   */
   async takeSeat(userId: bigint, id: string, seatIndex: number) {
     const room = await this.findRoom(id);
+    this.assertSeatIndex(room, seatIndex);
     const member = await this.requireActiveMember(room.id, userId);
     const seatMode = (room.seatMode || SEAT_MODE_REQUEST).toLowerCase();
+    const currentSeat = await this.prisma.seat.findFirst({
+      where: { roomId: room.id, userId, seatIndex: { lt: room.maxSeats } },
+      select: { seatIndex: true },
+    });
+    const isSwitch = currentSeat != null;
     const canSelfSeat =
       ['host', 'co_host'].includes(member.role) ||
+      isSwitch ||
       (seatMode === SEAT_MODE_DIRECT && ['listener', 'speaker'].includes(member.role));
     if (!canSelfSeat) {
       throw new ForbiddenException({
@@ -1256,20 +1291,34 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         },
       });
     }
-    if (member.role === 'listener' && seatMode === SEAT_MODE_DIRECT) {
-      await this.prisma.roomMember.updateMany({
-        where: { roomId: room.id, userId, role: 'listener' },
-        data: { role: 'speaker' },
-      });
-    }
-    await this.occupySeat(room, userId, seatIndex, 'speaker');
+    const placement = isSwitch
+      ? { seatIndex, cpAdjusted: false }
+      : await this.resolveCpAwareSeat(room, userId, seatIndex);
+    const assigned = await this.occupySeatWithFallback(
+      room,
+      userId,
+      seatIndex,
+      placement,
+    );
     const snap = await this.seatsSnapshot(room.id, userId, room.maxSeats);
     this.events.emitSeatUpdated(room.id, snap);
     const agoraUid = this.agoraUid(userId);
     const token = this.agora.buildToken(room.agoraChannelName, agoraUid, true);
-    return { ...snap, ...token, rtc_role: 'publisher' };
+    return {
+      ...snap,
+      ...token,
+      rtc_role: 'publisher',
+      assigned_seat_index: assigned.seatIndex,
+      cp_adjusted: assigned.cpAdjusted,
+    };
   }
 
+  /**
+   * Host / co-host seats [targetId] (request approval or accepted invite). CP/BCP aware when the
+   * target is not seated yet. The response carries no Agora token: it would be the TARGET's
+   * token, and the actor's client renews its own engine with any token in a seats response.
+   * The target fetches its own publisher token via GET /rooms/:id/token after the grant.
+   */
   async assignSeat(
     actorId: bigint,
     id: string,
@@ -1277,18 +1326,139 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     targetId: bigint,
   ) {
     const room = await this.findRoom(id);
-    this.assertHost(room, actorId);
+    this.assertHostOrCoHost(room, actorId);
+    this.assertSeatIndex(room, seatIndex);
     await this.requireActiveMember(room.id, targetId);
-    await this.occupySeat(room, targetId, seatIndex, 'speaker');
-    await this.prisma.roomMember.updateMany({
-      where: { roomId: room.id, userId: targetId, role: 'listener' },
-      data: { role: 'speaker' },
+    const alreadySeated = await this.prisma.seat.findFirst({
+      where: { roomId: room.id, userId: targetId, seatIndex: { lt: room.maxSeats } },
+      select: { seatIndex: true },
     });
+    const placement = alreadySeated
+      ? { seatIndex, cpAdjusted: false }
+      : await this.resolveCpAwareSeat(room, targetId, seatIndex);
+    const assigned = await this.occupySeatWithFallback(
+      room,
+      targetId,
+      seatIndex,
+      placement,
+    );
     const snap = await this.seatsSnapshot(room.id, actorId, room.maxSeats);
     this.events.emitSeatUpdated(room.id, snap);
-    const targetAgoraUid = this.agoraUid(targetId);
-    const token = this.agora.buildToken(room.agoraChannelName, targetAgoraUid, true);
-    return { ...snap, ...token, rtc_role: 'publisher' };
+    return {
+      ...snap,
+      assigned_user_id: Number(targetId),
+      assigned_seat_index: assigned.seatIndex,
+      cp_adjusted: assigned.cpAdjusted,
+    };
+  }
+
+  /**
+   * Claims [placement.seatIndex]; if a CP-adjusted seat was lost to a concurrent claim, falls
+   * back once to the seat the user actually asked for (normal SEAT_TAKEN rules apply there).
+   */
+  private async occupySeatWithFallback(
+    room: { id: string; hostId: bigint | null; ownerId: bigint },
+    userId: bigint,
+    requestedSeat: number,
+    placement: { seatIndex: number; cpAdjusted: boolean },
+  ): Promise<{ seatIndex: number; cpAdjusted: boolean }> {
+    try {
+      await this.occupySeat(room, userId, placement.seatIndex, 'speaker');
+      return placement;
+    } catch (e) {
+      const code = (e as { response?: { error?: { code?: string } } })?.response
+        ?.error?.code;
+      if (!placement.cpAdjusted || code !== 'SEAT_TAKEN') throw e;
+      await this.occupySeat(room, userId, requestedSeat, 'speaker');
+      return { seatIndex: requestedSeat, cpAdjusted: false };
+    }
+  }
+
+  /** Seat index must be an integer inside the room's current capacity. */
+  private assertSeatIndex(room: { maxSeats: number }, seatIndex: number) {
+    if (!Number.isInteger(seatIndex) || seatIndex < 0 || seatIndex >= room.maxSeats) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'INVALID_SEAT',
+          message: `Seat must be between 1 and ${room.maxSeats}`,
+        },
+      });
+    }
+  }
+
+  /**
+   * CP/BCP seating: when an active CP/BCP partner of [userId] is already seated, the user is
+   * placed on a free same-row seat beside that partner, whatever seat they asked for. CP wins
+   * over BCP, then the lowest partner seat. Seat 0 (host) is never handed to a guest. When no
+   * neighbour is free the requested seat is used unchanged. The room host is never relocated.
+   */
+  private async resolveCpAwareSeat(
+    room: { id: string; hostId: bigint | null; ownerId: bigint; maxSeats: number },
+    userId: bigint,
+    requested: number,
+  ): Promise<{ seatIndex: number; cpAdjusted: boolean }> {
+    const unchanged = { seatIndex: requested, cpAdjusted: false };
+    if (userId === room.hostId || userId === room.ownerId) return unchanged;
+    try {
+      const rels = await this.prisma.userRelationship.findMany({
+        where: {
+          status: 'active',
+          relationshipType: { code: { in: [...CP_SEAT_TYPE_CODES] } },
+          OR: [{ userLowId: userId }, { userHighId: userId }],
+        },
+        select: {
+          userLowId: true,
+          userHighId: true,
+          relationshipType: { select: { code: true } },
+        },
+      });
+      if (!rels.length) return unchanged;
+      const partnerRank = new Map<string, number>();
+      for (const r of rels) {
+        const partner = r.userLowId === userId ? r.userHighId : r.userLowId;
+        const rank = (CP_SEAT_TYPE_CODES as readonly string[]).indexOf(
+          r.relationshipType.code.toLowerCase(),
+        );
+        if (rank < 0) continue;
+        const key = partner.toString();
+        const prev = partnerRank.get(key);
+        if (prev === undefined || rank < prev) partnerRank.set(key, rank);
+      }
+
+      const [seats, activeMembers] = await Promise.all([
+        this.prisma.seat.findMany({
+          where: { roomId: room.id, seatIndex: { lt: room.maxSeats } },
+          select: { seatIndex: true, userId: true },
+        }),
+        this.prisma.roomMember.findMany({
+          where: { roomId: room.id, isActive: true },
+          select: { userId: true },
+        }),
+      ]);
+      const active = new Set(activeMembers.map((m) => m.userId.toString()));
+      // Live occupancy exactly as seatsSnapshot renders it (orphans free, host shown on 0).
+      const occupant = new Map<number, string>();
+      for (const s of seats) {
+        if (s.userId && active.has(s.userId.toString())) {
+          occupant.set(s.seatIndex, s.userId.toString());
+        }
+      }
+      const hostKey = (room.hostId ?? room.ownerId).toString();
+      if (!occupant.has(0) && active.has(hostKey)) occupant.set(0, hostKey);
+
+      return pickCpSeat({
+        occupant,
+        partnerRank,
+        me: userId.toString(),
+        requested,
+        maxSeats: room.maxSeats,
+      });
+    } catch (e) {
+      // Relationship lookup must never block normal seating.
+      this.logger.warn(`CP seat resolve failed room=${room.id}: ${String(e)}`);
+      return unchanged;
+    }
   }
 
   async leaveSeat(userId: bigint, id: string) {
@@ -1323,6 +1493,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   async freeSeat(actorId: bigint, id: string, seatIndex: number) {
     const room = await this.findRoom(id);
     await this.assertHostCoHostOrStaffAdmin(room, actorId);
+    this.assertSeatIndex(room, seatIndex);
     const seat = await this.prisma.seat.findUnique({
       where: { roomId_seatIndex: { roomId: room.id, seatIndex } },
     });
@@ -1334,6 +1505,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     }
     const demoted = seat?.userId ?? null;
     if (demoted) {
+      this.getNextSeatsVersion(room.id);
       await this.prisma.seat.update({
         where: { id: seat!.id },
         data: { userId: null, isMuted: false, mutedByUserId: null },
@@ -1355,6 +1527,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     muted: boolean,
   ) {
     const room = await this.findRoom(id);
+    this.assertSeatIndex(room, seatIndex);
     const seat = await this.prisma.seat.findUnique({
       where: { roomId_seatIndex: { roomId: room.id, seatIndex } },
     });
@@ -1395,12 +1568,23 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         error: { code: 'FORBIDDEN', message: 'Cannot mute the host' },
       });
     }
-    await this.prisma.seat.update({
-      where: { id: seat.id },
-      data: {
-        isMuted: muted,
-        mutedByUserId: muted ? actorId : null,
-      },
+    this.getNextSeatsVersion(room.id);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.seat.update({
+        where: { id: seat.id },
+        data: {
+          isMuted: muted,
+          mutedByUserId: muted ? actorId : null,
+        },
+      });
+      // Remember a host/co-host/admin mute on the member so leaving the seat or the room and
+      // sitting again cannot clear it; any authorised unmute clears it. Self-mute is not stored.
+      if (seat.userId && (!muted || !isSelf)) {
+        await tx.roomMember.updateMany({
+          where: { roomId: room.id, userId: seat.userId },
+          data: { hostMutedByUserId: muted ? actorId : null },
+        });
+      }
     });
     const snap = await this.seatsSnapshot(room.id, actorId, room.maxSeats);
     this.events.emitSeatUpdated(room.id, snap);
@@ -1454,6 +1638,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     });
     if (next > room.maxSeats) {
       await this.ensureSeats(room.id, next);
+      this.getNextSeatsVersion(room.id);
     }
     const snap = await this.seatsSnapshot(room.id, actorId, next);
     this.events.emitSeatUpdated(room.id, snap);
@@ -1468,6 +1653,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
   /** Free occupants and delete seat rows with index >= keepCount. */
   private async trimSeatsAbove(roomId: string, keepCount: number) {
+    this.getNextSeatsVersion(roomId);
     await this.prisma.seat.updateMany({
       where: { roomId, seatIndex: { gte: keepCount } },
       data: { userId: null, isMuted: false, mutedByUserId: null },
@@ -1636,14 +1822,41 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async occupySeat(
-    room: { id: string; hostId: bigint | null },
+    room: { id: string; hostId: bigint | null; ownerId: bigint },
     userId: bigint,
     seatIndex: number,
     role: RoomMemberRole,
   ) {
+    // Seat 0 is the host tile on every client; a guest there would be hidden/fought over.
+    if (seatIndex === 0 && userId !== room.hostId && userId !== room.ownerId) {
+      throw new ForbiddenException({
+        success: false,
+        error: { code: 'HOST_SEAT_RESERVED', message: 'Seat 1 is reserved for the host' },
+      });
+    }
     await this.ensureSeats(room.id, undefined);
     this.getNextSeatsVersion(room.id);
     return this.prisma.$transaction(async (tx) => {
+      // A host/co-host/admin mute follows the user to their new seat (switching must not
+      // escape it). Self-mute is client-side; a fresh occupant always starts unmuted here.
+      const held = await tx.seat.findMany({
+        where: { roomId: room.id, userId },
+        select: { isMuted: true, mutedByUserId: true },
+      });
+      const fromSeat = held.find(
+        (h) => h.isMuted && h.mutedByUserId != null && h.mutedByUserId !== userId,
+      );
+      // Remembered on the member: survives leaving the seat / room (closes the re-sit escape).
+      const memberMute = await tx.roomMember.findUnique({
+        where: { roomId_userId: { roomId: room.id, userId } },
+        select: { hostMutedByUserId: true },
+      });
+      const imposed = fromSeat
+        ? { mutedByUserId: fromSeat.mutedByUserId }
+        : memberMute?.hostMutedByUserId != null && memberMute.hostMutedByUserId !== userId
+          ? { mutedByUserId: memberMute.hostMutedByUserId }
+          : null;
+
       await tx.seat.updateMany({
         where: { roomId: room.id, userId, seatIndex: { not: seatIndex } },
         data: { userId: null, isMuted: false, mutedByUserId: null },
@@ -1658,8 +1871,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         data: {
           userId,
           lastHeartbeatAt: new Date(),
-          isMuted: false,
-          mutedByUserId: null,
+          isMuted: !!imposed,
+          mutedByUserId: imposed?.mutedByUserId ?? null,
         },
       });
 
@@ -1672,7 +1885,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
       await tx.roomMember.updateMany({
         where: { roomId: room.id, userId },
-        data: { seatIndex, role: role === 'listener' ? 'speaker' : role },
+        data: { seatIndex },
+      });
+      // Only audience is promoted; host / co-host keep their role when they sit or switch.
+      await tx.roomMember.updateMany({
+        where: { roomId: room.id, userId, role: 'listener' },
+        data: { role: role === 'listener' ? 'speaker' : role },
       });
     });
   }
@@ -1850,6 +2068,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       },
     });
     for (const m of staleGuests) {
+      this.getNextSeatsVersion(m.roomId);
       await this.prisma.roomMember.update({
         where: { id: m.id },
         data: { role: 'listener', seatIndex: null, isActive: false },
@@ -1999,7 +2218,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       });
       await tx.roomMember.updateMany({
         where: { roomId: room.id, isActive: true },
-        data: { isActive: false, seatIndex: null, role: 'listener' },
+        data: { isActive: false, seatIndex: null, role: 'listener', hostMutedByUserId: null },
       });
       await tx.seat.updateMany({
         where: { roomId: room.id, userId: { not: null } },

@@ -587,6 +587,9 @@ model RoomMember {
   userId          BigInt         @map("user_id")
   role            RoomMemberRole @default(listener)
   seatIndex       Int?           @map("seat_index")
+  /// Host/co-host/admin mic mute that follows the member across seats, leave and rejoin
+  /// until an authorised unmute. Null = not host-muted.
+  hostMutedByUserId BigInt?      @map("host_muted_by_user_id")
   agoraUid        Int?           @map("agora_uid")
   isActive        Boolean        @default(true) @map("is_active")
   lastHeartbeatAt DateTime?      @map("last_heartbeat_at") @db.Timestamptz(6)
