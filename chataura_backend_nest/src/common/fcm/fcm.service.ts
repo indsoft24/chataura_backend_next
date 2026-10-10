@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { App, initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
 import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -103,6 +102,7 @@ export class FcmService implements OnModuleInit {
   async setConversationMembers(conversationId: bigint, memberIds: bigint[]): Promise<boolean> {
     if (!this.app || !this.isConfigured) return false;
     try {
+      const { getFirestore } = await import('firebase-admin/firestore');
       await getFirestore(this.app)
         .collection('conversations')
         .doc(String(conversationId))
