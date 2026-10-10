@@ -1,4 +1,5 @@
 import { User } from '@prisma/client';
+import { presenceFields } from '../../common/presence/online-status';
 import {
   presentFrameMedia,
   selectedFrameClientFields,
@@ -162,8 +163,7 @@ export function userForApi(
     private_account: user.privateAccount,
     is_private: user.isPrivate || user.privateAccount,
     show_online_status: user.showOnlineStatus,
-    is_online: user.isOnline,
-    last_seen_at: user.lastSeenAt?.toISOString() ?? null,
+    ...presenceFields(user, { self: true }),
     account_status: user.accountStatus,
     is_star_account: user.isStarAccount,
     star_rank: user.starRank,
@@ -196,6 +196,37 @@ export function userForApi(
       : null,
     created_at: user.createdAt.toISOString(),
   };
+}
+
+/** Account-private fields: only ever sent to the account owner (and admins). */
+const PRIVATE_USER_FIELDS = [
+  'email',
+  'phone',
+  'dob',
+  'invite_code',
+  'referral_code',
+  'email_verified_at',
+  'coins',
+  'coin_balance',
+  'wallet_balance',
+  'referral_balance',
+  'gems',
+  'inr_earnings_balance',
+  'usd_earnings_balance',
+] as const;
+
+/**
+ * Another user's profile / list row: [userForApi] without contact details or balances, and with
+ * online status that honours their "show online status" privacy setting.
+ */
+export function publicUserForApi(
+  user: UserWithRoleFrame,
+  frame?: FrameAsset | null,
+  roleFrame?: FrameAsset | null,
+): Record<string, unknown> {
+  const out = userForApi(user, frame, roleFrame);
+  for (const key of PRIVATE_USER_FIELDS) delete out[key];
+  return { ...out, ...presenceFields(user) };
 }
 
 export function profileForApi(

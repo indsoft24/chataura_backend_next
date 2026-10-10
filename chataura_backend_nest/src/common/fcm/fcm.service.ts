@@ -2,6 +2,8 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { App, initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
+import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -74,6 +76,41 @@ export class FcmService implements OnModuleInit {
       this.logger.warn(
         `Failed to initialize Firebase Admin: ${String(e)}. Running in mock/fallback mode.`,
       );
+    }
+  }
+
+  /** Initialised Firebase Admin app, or null when credentials are missing. */
+  getApp(): App | null {
+    return this.isConfigured ? this.app : null;
+  }
+
+  /**
+   * Firebase custom token whose uid is the ChatAura account id. Firestore rules compare message
+   * sender ids with `request.auth.uid`, so nobody can post or read as another user.
+   * Null when Firebase Admin has no signing credentials.
+   */
+  async createCustomToken(userId: bigint): Promise<string | null> {
+    if (!this.app || !this.isConfigured) return null;
+    try {
+      return await getAuth(this.app).createCustomToken(String(userId));
+    } catch (e) {
+      this.logger.warn(`createCustomToken failed: ${String(e)}`);
+      return null;
+    }
+  }
+
+  /** `conversations/{id}.members` — the Firestore rules' access list for that chat. */
+  async setConversationMembers(conversationId: bigint, memberIds: bigint[]): Promise<boolean> {
+    if (!this.app || !this.isConfigured) return false;
+    try {
+      await getFirestore(this.app)
+        .collection('conversations')
+        .doc(String(conversationId))
+        .set({ members: memberIds.map((id) => String(id)), updatedAt: new Date() }, { merge: true });
+      return true;
+    } catch (e) {
+      this.logger.warn(`setConversationMembers(${conversationId}) failed: ${String(e)}`);
+      return false;
     }
   }
 

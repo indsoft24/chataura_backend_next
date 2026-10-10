@@ -168,6 +168,7 @@ export class WalletController {
       gift_key?: string;
       gift_category?: string;
       expected_coin_cost?: number | string;
+      idempotency_key?: string;
     },
   ) {
     return this.wallet.sendGift(user.id, body);

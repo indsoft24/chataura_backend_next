@@ -16,6 +16,7 @@ import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { SkipEmailVerified } from '../../common/decorators/skip-email-verified.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { UserService } from './user.service';
+import { OnlinePresenceService } from '../../common/presence/online-presence.service';
 
 function targetId(body: Record<string, unknown>, ...keys: string[]): bigint {
   for (const k of keys) {
@@ -32,7 +33,10 @@ function targetId(body: Record<string, unknown>, ...keys: string[]): bigint {
 
 @Controller()
 export class UserController {
-  constructor(private readonly users: UserService) {}
+  constructor(
+    private readonly users: UserService,
+    private readonly presence: OnlinePresenceService,
+  ) {}
 
   // ---- me / profile (email verify optional for me) ----
 
@@ -40,6 +44,14 @@ export class UserController {
   @Get('users/me')
   me(@CurrentUser() user: AuthUser) {
     return this.users.me(user.id);
+  }
+
+  /** App foreground ping (~40 s): keeps the user online / last-seen current. */
+  @SkipEmailVerified()
+  @Post('users/me/heartbeat')
+  async heartbeat(@CurrentUser() user: AuthUser) {
+    await this.presence.touch(user.id);
+    return { ok: true };
   }
 
   @Get('users/me/invite')
@@ -213,6 +225,16 @@ export class UserController {
     );
   }
 
+  /** Public 7-digit ID lookup (profile search, share links). Never matches internal ids. */
+  @Public()
+  @Get('users/by-display-id/:displayId')
+  showByDisplayId(
+    @CurrentUser() user: AuthUser | undefined,
+    @Param('displayId') displayId: string,
+  ) {
+    return this.users.showByDisplayId(user?.id ?? null, displayId);
+  }
+
   @Public()
   @Get('users/:id')
   showUser(
@@ -234,6 +256,7 @@ export class UserController {
   @Public()
   @Get('users/:id/followers')
   followers(
+    @CurrentUser() viewer: AuthUser | undefined,
     @Param('id') id: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -242,12 +265,14 @@ export class UserController {
       BigInt(id),
       Number(page ?? 1),
       Number(limit ?? 20),
+      viewer?.id ?? null,
     );
   }
 
   @Public()
   @Get('users/:id/following')
   following(
+    @CurrentUser() viewer: AuthUser | undefined,
     @Param('id') id: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -256,12 +281,14 @@ export class UserController {
       BigInt(id),
       Number(page ?? 1),
       Number(limit ?? 20),
+      viewer?.id ?? null,
     );
   }
 
   @Public()
   @Get('users/:id/friends')
   friendsForUser(
+    @CurrentUser() viewer: AuthUser | undefined,
     @Param('id') id: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -270,6 +297,7 @@ export class UserController {
       BigInt(id),
       Number(page ?? 1),
       Number(limit ?? 20),
+      viewer?.id ?? null,
     );
   }
 

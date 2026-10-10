@@ -37,6 +37,12 @@ export class ChatController {
     return this.chat.withUser(user.id, BigInt(userId));
   }
 
+  /** Grants this member realtime (Firestore) access to the conversation. */
+  @Post('conversations/:id/firebase-access')
+  firebaseAccess(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.chat.syncFirebaseAccess(user.id, BigInt(id));
+  }
+
   @Post('conversations/:id/read')
   read(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.chat.markRead(user.id, BigInt(id));
@@ -61,13 +67,35 @@ export class ChatController {
     @Param('conversation_id') conversationId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('before_id') beforeId?: string,
   ) {
     return this.chat.messages(
       user.id,
       BigInt(conversationId),
       Number(page ?? 1),
       Number(limit ?? 50),
+      beforeId && /^\d{1,18}$/.test(beforeId) ? BigInt(beforeId) : null,
     );
+  }
+
+  /** Paid gift in a 1-1 chat: charges and creates the gift message in one call (idempotent). */
+  @Throttle({ default: { limit: 30, ttl: seconds(60) } })
+  @Post('conversations/:id/gifts')
+  sendGift(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      gift_id?: number | string;
+      gift_key?: string;
+      gift_name?: string;
+      gift_category?: string;
+      quantity?: number;
+      expected_coin_cost?: number | string;
+      client_uuid?: string;
+    },
+  ) {
+    return this.chat.sendGift(user.id, BigInt(id), body);
   }
 
   @Throttle({ default: { limit: 60, ttl: seconds(60) } })

@@ -1,3 +1,5 @@
+import { withUniqueDisplayId } from '../user/display-id';
+import { OnlinePresenceService } from '../../common/presence/online-presence.service';
 import {
   BadRequestException,
   ForbiddenException,
@@ -34,6 +36,7 @@ export class AuthService {
     private readonly tokens: TokenService,
     private readonly otp: OtpService,
     private readonly config: ConfigService,
+    private readonly online: OnlinePresenceService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -58,14 +61,14 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const inviteCode = await this.uniqueInviteCode();
 
-    const user = await this.prisma.user.create({
+    const user = await withUniqueDisplayId(this.prisma, (displayId) => this.prisma.user.create({
       data: {
         email,
         password: passwordHash,
         name: displayName,
         displayName,
         inviteCode,
-        displayId: await this.uniqueDisplayId(),
+        displayId,
         invitedBy,
         country: dto.country ?? null,
         lastClientCountry: dto.country ?? null,
@@ -73,7 +76,7 @@ export class AuthService {
         exp: 0,
         xp: 0,
       },
-    });
+    }));
 
     if (invitedBy) {
       await this.grantReferralCoins(user.id, invitedBy);
@@ -154,21 +157,22 @@ export class AuthService {
         dto.referral_code ?? dto.invite_code,
       );
 
-      user = await this.prisma.user.create({
+      const inviteCode = await this.uniqueInviteCode();
+      user = await withUniqueDisplayId(this.prisma, (displayId) => this.prisma.user.create({
         data: {
           email,
           name,
           displayName: name,
           avatarUrl: payload.picture ? String(payload.picture) : null,
           password: passwordHash,
-          inviteCode: await this.uniqueInviteCode(),
-          displayId: await this.uniqueDisplayId(),
+          inviteCode,
+          displayId,
           invitedBy,
           emailVerifiedAt: emailVerified ? new Date() : null,
           country: dto.country ?? null,
           lastClientCountry: dto.country ?? null,
         },
-      });
+      }));
 
       if (invitedBy) {
         await this.grantReferralCoins(user.id, invitedBy);
@@ -222,6 +226,7 @@ export class AuthService {
 
     const access_token = this.tokens.generateAccessToken(user);
     const refresh_token = await this.tokens.generateRefreshToken(user);
+    void this.online.touch(user.id);
     return {
       access_token,
       refresh_token,
@@ -230,7 +235,9 @@ export class AuthService {
   }
 
   async logout(dto: RefreshTokenDto) {
+    const userId = await this.tokens.userIdForRefreshToken(dto.refresh_token);
     await this.tokens.revokeRefreshToken(dto.refresh_token);
+    if (userId) await this.online.markOffline(userId);
     return { message: 'Logged out successfully' };
   }
 
@@ -486,17 +493,6 @@ export class AuthService {
       if (!exists) return code;
     }
     return randomBytes(6).toString('hex');
-  }
-
-  private async uniqueDisplayId(): Promise<string> {
-    for (let i = 0; i < 30; i++) {
-      const id = String(1000000 + Math.floor(Math.random() * 9000000));
-      const exists = await this.prisma.user.findFirst({
-        where: { displayId: id },
-      });
-      if (!exists) return id;
-    }
-    return String(1000000 + (Date.now() % 9000000));
   }
 
   private async grantSignupBonus(userId: bigint) {

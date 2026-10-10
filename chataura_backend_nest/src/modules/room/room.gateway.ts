@@ -11,6 +11,7 @@ import { TokenService } from '../auth/token.service';
 import { RoomEvents } from './room.events';
 import { RoomGiftingService } from './room-gifting.service';
 import { wsThrottler, wsEventThrottler } from '../../common/utils/ws-throttler';
+import { PrismaService } from '../../common/prisma/prisma.service';
 
 @WebSocketGateway({ namespace: '/ws/rooms', cors: { origin: true } })
 export class RoomGateway implements OnGatewayConnection {
@@ -21,6 +22,7 @@ export class RoomGateway implements OnGatewayConnection {
     private readonly tokens: TokenService,
     private readonly events: RoomEvents,
     private readonly gifting: RoomGiftingService,
+    private readonly prisma: PrismaService,
   ) {
     this.events.emitSeatUpdated = (roomId, payload) => {
       this.server?.to(`room:${roomId}`).emit('room:seat_updated', payload);
@@ -54,12 +56,23 @@ export class RoomGateway implements OnGatewayConnection {
     client.data.userId = payload.sub;
   }
 
+  /** Live room events only for active members of that room (joined through the REST API). */
   @SubscribeMessage('room:join')
-  joinRoom(
+  async joinRoom(
     @ConnectedSocket() client: Socket,
     @MessageBody() body: { room_id: string },
   ) {
-    if (body?.room_id) void client.join(`room:${body.room_id}`);
+    const roomId = typeof body?.room_id === 'string' ? body.room_id.trim() : '';
+    const userId = client.data?.userId;
+    if (!roomId || !userId) return { ok: false, error: 'room_id required' };
+    const member = await this.prisma.roomMember
+      .findFirst({
+        where: { roomId, userId: BigInt(userId), isActive: true },
+        select: { id: true },
+      })
+      .catch(() => null);
+    if (!member) return { ok: false, error: 'Not a member of this room' };
+    void client.join(`room:${roomId}`);
     return { ok: true };
   }
 

@@ -1,3 +1,4 @@
+import { OnlinePresenceService } from '../../common/presence/online-presence.service';
 import {
   BadRequestException,
   ForbiddenException,
@@ -91,6 +92,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     private readonly events: RoomEvents,
     private readonly presence: PresenceService,
     private readonly rockets: RocketLaunchService,
+    private readonly online: OnlinePresenceService,
   ) {}
 
   private readonly roomSeatsVersions = new Map<string, number>();
@@ -799,6 +801,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         type: 'join',
         uid: agoraUid,
         user_id: Number(userId),
+        display_id: user.displayId ?? null,
         displayName: user.displayName ?? user.name,
         display_name: user.displayName ?? user.name,
         avatar: user.avatarUrl,
@@ -931,6 +934,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       });
     }
     const presence = await this.presence.heartbeat(userId, room.id);
+    void this.online.touch(userId);
     const agency = await this.enrichRoomAgencyFields(room.id, room.ownerId);
     return {
       ok: true,
@@ -941,12 +945,16 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async token(userId: bigint, id: string, uid?: string) {
+  /**
+   * Agora token for the caller's OWN uid. A client-supplied `uid` is ignored: signing tokens for
+   * arbitrary uids let one user join the channel as another (wrong name / seat / gifts).
+   */
+  async token(userId: bigint, id: string, _uid?: string) {
     const room = await this.findRoom(id);
     const member = await this.prisma.roomMember.findUnique({
       where: { roomId_userId: { roomId: room.id, userId } },
     });
-    const agoraUid = uid ? Number(uid) : this.agoraUid(userId);
+    const agoraUid = this.agoraUid(userId);
     const publisher = ['host', 'co_host', 'speaker'].includes(
       member?.role ?? 'listener',
     );
@@ -2017,6 +2025,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       seats: liveSeats.map((s) => ({
         seat_index: s.seatIndex,
         user_id: s.userId ? Number(s.userId) : null,
+        display_id: s.userId ? (s.user?.displayId ?? null) : null,
         agora_uid: s.userId ? this.agoraUid(s.userId) : null,
         display_name: s.user?.displayName ?? s.user?.name ?? null,
         avatar: s.user?.avatarUrl ?? null,
@@ -2594,7 +2603,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       display_id: user.displayId ?? String(member.userId),
       role: member.role,
       seat_index: member.seatIndex,
-      agora_uid: member.agoraUid ?? this.agoraUid(member.userId),
+      agora_uid: this.agoraUid(member.userId),
       display_name: user.displayName ?? user.name,
       avatar_url: user.avatarUrl,
       selected_frame_id: user.selectedFrameId

@@ -5,6 +5,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { RedisModule } from './common/redis/redis.module';
 import { FcmModule } from './common/fcm/fcm.module';
+import { OnlinePresenceModule } from './common/presence/online-presence.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { EmailVerifiedGuard } from './common/guards/email-verified.guard';
@@ -41,6 +42,7 @@ import { WebModule } from './modules/web/web.module';
     PrismaModule,
     RedisModule,
     FcmModule,
+    OnlinePresenceModule,
     AuthModule,
     UserModule,
     WalletModule,

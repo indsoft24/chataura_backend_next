@@ -19,6 +19,8 @@ import { RocketLaunchService } from './rocket-launch.service';
 import { CpAffectionGiftsService } from './cp-affection-gifts.service';
 import { GiftBroadcastService, resolveGiftVisualTier } from './gift-broadcast.service';
 import { RedisService } from '../../common/redis/redis.service';
+import { RealtimeService } from '../../common/fcm/realtime.service';
+import { buildServerGiftCommand } from './server-gift-event';
 
 @Injectable()
 export class RoomGiftingService {
@@ -31,7 +33,50 @@ export class RoomGiftingService {
     private readonly cpAffectionGifts: CpAffectionGiftsService,
     private readonly giftBroadcast: GiftBroadcastService,
     private readonly redis: RedisService,
+    private readonly realtime: RealtimeService,
   ) {}
+
+  /**
+   * Authoritative room gift events: written to the room chat by the server after the payment
+   * committed (`origin: server`, which clients cannot write). Names come from the database and
+   * media / cost from the catalog, so nothing in the event is client-controlled. Returns false
+   * when realtime publishing is unavailable (the app then broadcasts as before).
+   */
+  private async publishGiftEvents(
+    roomId: string,
+    gift: { id: bigint; name: string; coinCost: number; imageUrl: string | null; animationUrl: string | null },
+    senderId: bigint,
+    receiverIds: bigint[],
+    quantity: number,
+  ): Promise<boolean> {
+    if (receiverIds.length === 0) return true;
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: [senderId, ...receiverIds] } },
+      select: { id: true, displayName: true, name: true },
+    });
+    const nameOf = (id: bigint) => {
+      const u = users.find((x) => x.id === id);
+      return u?.displayName ?? u?.name ?? 'User';
+    };
+    const media = catalogClientFields(gift.imageUrl, gift.animationUrl);
+    const animUrl = (media.animation_url as string | null) ?? (media.image_url as string | null) ?? '';
+    let ok = true;
+    for (const rid of receiverIds) {
+      const text = buildServerGiftCommand({
+        giftId: Number(gift.id),
+        senderName: nameOf(senderId),
+        receiverName: nameOf(rid),
+        giftName: gift.name,
+        quantity,
+        animUrl,
+        totalCost: gift.coinCost * quantity,
+        senderId,
+        receiverId: rid,
+      });
+      ok = (await this.realtime.publishRoomEvent(roomId, { text })) && ok;
+    }
+    return ok;
+  }
 
   async giftTypes() {
     await this.cpAffectionGifts.ensureCatalog();
@@ -346,6 +391,13 @@ export class RoomGiftingService {
         createdAt: Date.now(),
       } as import('./gift-broadcast.service').GiftDisplayEvent);
     }
+    const giftEventPublished = await this.publishGiftEvents(
+      room.id,
+      gift,
+      senderId,
+      [receiverId],
+      quantity,
+    );
     const rocket =
       gift.category === 'cp' || gift.category === 'bcp'
         ? null
@@ -359,6 +411,7 @@ export class RoomGiftingService {
       ...result,
       agency_cashback: agency.agency_cashback,
       rocket,
+      gift_event_published: giftEventPublished,
     };
   }
 
@@ -624,6 +677,13 @@ export class RoomGiftingService {
       }
     }
 
+    const giftEventPublished = await this.publishGiftEvents(
+      room.id,
+      gift,
+      senderId,
+      eligibleIds,
+      quantity,
+    );
     const agency = await resolveAgencyRoomMeta(
       this.prisma,
       room.ownerId,
@@ -645,6 +705,7 @@ export class RoomGiftingService {
       ...result,
       agency_cashback: agency.agency_cashback,
       rocket,
+      gift_event_published: giftEventPublished,
     };
   }
 

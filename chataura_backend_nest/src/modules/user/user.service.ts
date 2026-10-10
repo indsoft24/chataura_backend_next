@@ -1,3 +1,4 @@
+import { withUniqueDisplayId } from './display-id';
 import {
   BadRequestException,
   Injectable,
@@ -18,8 +19,9 @@ import {
   resolveReferralMilestone,
   resolveReferralRewards,
 } from '../gamification/bonus-config.resolver';
-import { profileForApi, userForApi } from './user.serializer';
+import { profileForApi, publicUserForApi, userForApi } from './user.serializer';
 import { selectedFrameClientFields } from '../../common/utils/catalog-media';
+import { presenceFields } from '../../common/presence/online-status';
 
 const PUBLIC_BASE =
   process.env.PUBLIC_BASE_URL?.replace(/\/$/, '') ?? 'http://localhost:3000';
@@ -241,16 +243,15 @@ export class UserService {
       },
     });
     if (!user.displayId) {
-      const genId = await this.uniqueDisplayId();
-      user = await this.prisma.user.update({
+      user = await withUniqueDisplayId(this.prisma, (displayId) => this.prisma.user.update({
         where: { id: userId },
-        data: { displayId: genId },
+        data: { displayId },
         include: {
           selectedFrame: true,
           selectedRoleFrame: true,
           selectedEntryBar: true,
         },
-      });
+      }));
     }
     const counts = await this.countsFor(userId);
     return {
@@ -491,50 +492,104 @@ export class UserService {
     }));
   }
 
+  /**
+   * User search. Exact public ID (`display_id`) matches come first, then an exact match on the
+   * pre-2026-10 account ID ("old ID", flagged `matched_by: 'legacy_id'`), then name matches.
+   * Emails only match exactly — never by substring — so accounts can't be enumerated.
+   */
   async search(q: string, page = 1, limit = 20) {
     const take = Math.min(Math.max(limit, 1), 50);
     const skip = (Math.max(page, 1) - 1) * take;
     const trimmed = (q ?? '').trim();
+    if (!trimmed) return [];
+    const isNumeric = /^\d{1,18}$/.test(trimmed);
+    const active = { accountStatus: 'active' as const, deletedAt: null };
+    const include = { selectedFrame: true, selectedRoleFrame: true };
+
+    type Found = NonNullable<Awaited<ReturnType<typeof this.findSearchUser>>>;
+    const exact: Array<{ user: Found; by: 'display_id' | 'legacy_id' }> = [];
+    if (page <= 1) {
+      const byDisplay = await this.findSearchUser({ ...active, displayId: trimmed });
+      if (byDisplay) exact.push({ user: byDisplay, by: 'display_id' });
+      if (isNumeric) {
+        const byLegacy = await this.findSearchUser({ ...active, id: BigInt(trimmed) });
+        if (byLegacy && byLegacy.id !== byDisplay?.id) {
+          exact.push({ user: byLegacy, by: 'legacy_id' });
+        }
+      }
+    }
+
     const orConditions: Prisma.UserWhereInput[] = [
       { name: { contains: trimmed, mode: 'insensitive' } },
       { displayName: { contains: trimmed, mode: 'insensitive' } },
-      { email: { contains: trimmed, mode: 'insensitive' } },
+      { email: { equals: trimmed, mode: 'insensitive' } },
       { inviteCode: { equals: trimmed, mode: 'insensitive' } },
-      { displayId: { contains: trimmed, mode: 'insensitive' } },
+      { displayId: { startsWith: trimmed } },
     ];
-    if (/^\d+$/.test(trimmed)) {
-      try {
-        orConditions.push({ id: BigInt(trimmed) });
-      } catch {}
-    }
     const users = await this.prisma.user.findMany({
-      where: {
-        accountStatus: 'active',
-        deletedAt: null,
-        OR: orConditions,
-      },
+      where: { ...active, OR: orConditions },
       skip,
       take,
       orderBy: { id: 'desc' },
+      include,
+    });
+    const seen = new Set(exact.map((e) => e.user.id.toString()));
+    const rows = [
+      ...exact.map((e) => ({
+        ...publicUserForApi(e.user, e.user.selectedFrame),
+        matched_by: e.by,
+      })),
+      ...users
+        .filter((u) => !seen.has(u.id.toString()))
+        .map((u) => ({
+          ...publicUserForApi(u, u.selectedFrame),
+          matched_by: u.displayId === trimmed ? 'display_id' : 'name',
+        })),
+    ];
+    return rows.slice(0, page <= 1 ? Math.max(take, exact.length) : take);
+  }
+
+  private findSearchUser(where: Prisma.UserWhereInput) {
+    return this.prisma.user.findFirst({
+      where,
       include: { selectedFrame: true, selectedRoleFrame: true },
     });
-    return users.map((user) => userForApi(user, user.selectedFrame));
+  }
+
+  async showByDisplayId(viewerId: bigint | null, displayId: string) {
+    const raw = String(displayId ?? '').trim();
+    const target = raw
+      ? await this.prisma.user.findFirst({
+          where: { displayId: raw, deletedAt: null },
+          select: { id: true },
+        })
+      : null;
+    if (!target) {
+      throw new NotFoundException({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'User not found' },
+      });
+    }
+    return this.show(viewerId, target.id);
   }
 
   async show(viewerId: bigint | null, targetId: bigint | string) {
     const raw = String(targetId).trim();
     let user = null;
-    if (/^\d+$/.test(raw)) {
-      user = await this.prisma.user.findFirst({
-        where: {
-          OR: [
-            { id: BigInt(raw) },
-            { displayId: raw },
-          ],
-          deletedAt: null,
-        },
-        include: { selectedFrame: true, selectedRoleFrame: true },
-      });
+    if (/^\d{1,18}$/.test(raw)) {
+      // Internal account id only. A number can be one user's id AND another user's public
+      // display_id — an OR lookup returned whichever row came first (wrong person). Public IDs
+      // go through `users/by-display-id/:displayId`; plain display ids still resolve here only
+      // when no account has that internal id.
+      user =
+        (await this.prisma.user.findFirst({
+          where: { id: BigInt(raw), deletedAt: null },
+          include: { selectedFrame: true, selectedRoleFrame: true },
+        })) ??
+        (await this.prisma.user.findFirst({
+          where: { displayId: raw, deletedAt: null },
+          include: { selectedFrame: true, selectedRoleFrame: true },
+        }));
     } else {
       user = await this.prisma.user.findFirst({
         where: { displayId: raw, deletedAt: null },
@@ -619,7 +674,9 @@ export class UserService {
       viewerId !== resolvedTargetId;
 
     return {
-      ...userForApi(user, user.selectedFrame),
+      ...(viewerId === resolvedTargetId
+        ? userForApi(user, user.selectedFrame, user.selectedRoleFrame)
+        : publicUserForApi(user, user.selectedFrame, user.selectedRoleFrame)),
       friends_count: privateLimited ? 0 : counts.friends,
       followers_count: privateLimited ? 0 : counts.followers,
       following_count: privateLimited ? 0 : counts.following,
@@ -831,7 +888,34 @@ export class UserService {
     return { count };
   }
 
-  async followers(userId: bigint, page = 1, limit = 20) {
+  /**
+   * Private accounts' follower / following / friend lists are visible only to the owner, their
+   * friends and accepted followers — the same rule [show] uses to zero the counts.
+   */
+  private async canSeeConnections(viewerId: bigint | null, targetId: bigint): Promise<boolean> {
+    if (viewerId != null && viewerId === targetId) return true;
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetId },
+      select: { isPrivate: true, privateAccount: true },
+    });
+    if (!target) return false;
+    if (!target.isPrivate && !target.privateAccount) return true;
+    if (viewerId == null) return false;
+    const [friend, follow] = await Promise.all([
+      this.prisma.friendship.findFirst({
+        where: { userId: targetId, friendId: viewerId },
+        select: { userId: true },
+      }),
+      this.prisma.userFollower.findUnique({
+        where: { followerId_followingId: { followerId: viewerId, followingId: targetId } },
+        select: { status: true },
+      }),
+    ]);
+    return !!friend || follow?.status === 'accepted';
+  }
+
+  async followers(userId: bigint, page = 1, limit = 20, viewerId: bigint | null = null) {
+    if (!(await this.canSeeConnections(viewerId, userId))) return [];
     const take = Math.min(Math.max(limit, 1), 50);
     const skip = (Math.max(page, 1) - 1) * take;
     const rows = await this.prisma.userFollower.findMany({
@@ -840,10 +924,11 @@ export class UserService {
       skip,
       take,
     });
-    return rows.map((r) => userForApi(r.follower, r.follower.selectedFrame));
+    return rows.map((r) => publicUserForApi(r.follower, r.follower.selectedFrame));
   }
 
-  async following(userId: bigint, page = 1, limit = 20) {
+  async following(userId: bigint, page = 1, limit = 20, viewerId: bigint | null = null) {
+    if (!(await this.canSeeConnections(viewerId, userId))) return [];
     const take = Math.min(Math.max(limit, 1), 50);
     const skip = (Math.max(page, 1) - 1) * take;
     const rows = await this.prisma.userFollower.findMany({
@@ -852,10 +937,11 @@ export class UserService {
       skip,
       take,
     });
-    return rows.map((r) => userForApi(r.following, r.following.selectedFrame));
+    return rows.map((r) => publicUserForApi(r.following, r.following.selectedFrame));
   }
 
-  async friends(userId: bigint, page = 1, limit = 20) {
+  async friends(userId: bigint, page = 1, limit = 20, viewerId: bigint | null = null) {
+    if (!(await this.canSeeConnections(viewerId, userId))) return [];
     const take = Math.min(Math.max(limit, 1), 50);
     const skip = (Math.max(page, 1) - 1) * take;
     const rows = await this.prisma.friendship.findMany({
@@ -868,8 +954,7 @@ export class UserService {
       id: Number(r.friend.id),
       name: r.friend.displayName ?? r.friend.name,
       avatar_url: r.friend.avatarUrl,
-      is_online: r.friend.isOnline,
-      last_seen_at: r.friend.lastSeenAt?.toISOString() ?? null,
+      ...presenceFields(r.friend),
       selected_frame_id: r.friend.selectedFrameId
         ? Number(r.friend.selectedFrameId)
         : null,
@@ -975,7 +1060,7 @@ export class UserService {
       name: u.displayName ?? u.name,
       avatar_url: u.avatarUrl,
       level: u.level,
-      is_online: u.isOnline,
+      is_online: presenceFields(u).is_online,
       country: u.country,
       selected_frame_id: u.selectedFrameId ? Number(u.selectedFrameId) : null,
       ...selectedFrameClientFields(u.selectedFrame),
@@ -1002,7 +1087,7 @@ export class UserService {
       name: u.displayName ?? u.name,
       avatar_url: u.avatarUrl,
       level: u.level,
-      is_online: u.isOnline,
+      is_online: presenceFields(u).is_online,
       country: u.country,
       selected_frame_id: u.selectedFrameId ? Number(u.selectedFrameId) : null,
       ...selectedFrameClientFields(u.selectedFrame),
@@ -1199,16 +1284,5 @@ export class UserService {
       following_count: c.following,
       friend_requests_count: c.friendRequests,
     };
-  }
-
-  async uniqueDisplayId(): Promise<string> {
-    for (let i = 0; i < 30; i++) {
-      const id = String(1000000 + Math.floor(Math.random() * 9000000));
-      const exists = await this.prisma.user.findFirst({
-        where: { displayId: id },
-      });
-      if (!exists) return id;
-    }
-    return String(1000000 + (Date.now() % 9000000));
   }
 }

@@ -1,3 +1,4 @@
+import { RedisService } from '../../common/redis/redis.service';
 import {
   BadRequestException,
   ForbiddenException,
@@ -32,6 +33,7 @@ export class WalletService {
     private readonly ledger: LedgerService,
     private readonly config: ConfigService,
     private readonly relationships: RelationshipEngineService,
+    private readonly redis: RedisService,
   ) {
     const keyId = this.config.get<string>('RAZORPAY_KEY_ID');
     const keySecret = this.config.get<string>('RAZORPAY_KEY_SECRET');
@@ -802,6 +804,7 @@ export class WalletService {
       gift_key?: string;
       gift_category?: string;
       expected_coin_cost?: number | string;
+      idempotency_key?: string;
     },
   ) {
     if ((!body?.gift_id && !body?.gift_key) || !body?.receiver_id) {
@@ -817,6 +820,50 @@ export class WalletService {
     const gift = await resolveGiftForSend(this.prisma, body);
     const receiverId = BigInt(body.receiver_id);
     const quantity = Math.min(Math.max(Number(body.quantity ?? 1), 1), 100);
+    if (receiverId === senderId) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'INVALID_RECEIVER', message: 'You cannot send a gift to yourself' },
+      });
+    }
+    const block = await this.prisma.blockedUser.findFirst({
+      where: {
+        OR: [
+          { blockerId: senderId, blockedId: receiverId },
+          { blockerId: receiverId, blockedId: senderId },
+        ],
+      },
+      select: { blockerId: true },
+    });
+    if (block) {
+      throw new ForbiddenException({
+        success: false,
+        error: { code: 'BLOCKED', message: 'You cannot send gifts to this user' },
+      });
+    }
+    // A retried request with the same idempotency key must not charge twice. (No key = no
+    // dedupe: sending the same gift repeatedly on purpose — combos — is legitimate.)
+    const fresh = body.idempotency_key
+      ? await this.redis
+          .getClient()
+          .set(
+            `dm_gift_idem:${senderId}:${String(body.idempotency_key).slice(0, 64)}`,
+            '1',
+            'EX',
+            300,
+            'NX',
+          )
+          .catch(() => 'OK')
+      : 'OK';
+    if (!fresh) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'DUPLICATE_REQUEST',
+          message: 'This gift was already sent',
+        },
+      });
+    }
     const settings = await this.getSettings();
     const commissionPct = Number(settings.giftCommissionPct) / 100;
     const cost = BigInt(gift.coinCost * quantity);

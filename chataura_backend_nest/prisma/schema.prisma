@@ -47,7 +47,7 @@ model User {
   country          String?        @db.VarChar(8)
   role             UserRole       @default(user)
   inviteCode       String?        @unique @map("invite_code") @db.VarChar(16)
-  displayId        String?        @unique @map("display_id") @db.VarChar(32)
+  displayId        String         @unique @map("display_id") @db.VarChar(32)
   invitedBy        BigInt?        @map("invited_by")
   emailVerifiedAt  DateTime?      @map("email_verified_at") @db.Timestamptz(6)
   fcmToken         String?        @map("fcm_token") @db.Text
@@ -881,6 +881,11 @@ model ConversationParticipant {
   conversationId BigInt @map("conversation_id")
   userId     BigInt    @map("user_id")
   lastReadAt DateTime? @map("last_read_at") @db.Timestamptz(6)
+  /// "Delete chat" for this member only: messages up to this time are hidden from them, and the
+  /// conversation leaves their list until a newer message arrives.
+  clearedAt  DateTime? @map("cleared_at") @db.Timestamptz(6)
+  /// Group role: owner | admin | member (private chats: member).
+  role       String    @default("member") @db.VarChar(16)
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -907,6 +912,7 @@ model Message {
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
 
+  @@unique([senderId, clientUuid])
   @@index([conversationId, createdAt])
   @@map("messages")
 }

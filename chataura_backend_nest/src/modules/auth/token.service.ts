@@ -71,6 +71,15 @@ export class TokenService {
     return row?.user ?? null;
   }
 
+  async userIdForRefreshToken(token: string): Promise<bigint | null> {
+    if (!token) return null;
+    const row = await this.prisma.refreshToken.findFirst({
+      where: { token: this.hashToken(token) },
+      select: { userId: true },
+    });
+    return row?.userId ?? null;
+  }
+
   async revokeRefreshToken(token: string): Promise<boolean> {
     const hashed = this.hashToken(token);
     const result = await this.prisma.refreshToken.deleteMany({

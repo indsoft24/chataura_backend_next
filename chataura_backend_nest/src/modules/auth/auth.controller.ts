@@ -6,6 +6,7 @@ import { SkipEmailVerified } from '../../common/decorators/skip-email-verified.d
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { AuthService } from './auth.service';
+import { FcmService } from '../../common/fcm/fcm.service';
 import {
   ChangePasswordRequestDto,
   ChangePasswordVerifyDto,
@@ -20,7 +21,22 @@ import {
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly fcm: FcmService,
+  ) {}
+
+  /**
+   * Firebase custom token (uid = account id) for Firestore room / direct chat. `token` is null
+   * when the server has no Firebase signing credentials; the app then keeps working unsigned.
+   */
+  @SkipEmailVerified()
+  @Throttle({ default: { limit: 20, ttl: seconds(60) } })
+  @Post('firebase-token')
+  async firebaseToken(@CurrentUser() user: AuthUser) {
+    const token = await this.fcm.createCustomToken(user.id);
+    return { token, uid: String(user.id) };
+  }
 
   @Public()
   @Throttle({ default: { limit: 5, ttl: seconds(60) } })
