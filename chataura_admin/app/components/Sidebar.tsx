@@ -18,6 +18,7 @@ const MENU_GROUPS = [
     items: [
       { name: 'Party Room Bonuses', href: '/party-bonuses' },
       { name: 'Rockit campaigns', href: '/rockit' },
+      { name: 'Room Reward Levels', href: '/room-rewards' },
     ]
   },
   {

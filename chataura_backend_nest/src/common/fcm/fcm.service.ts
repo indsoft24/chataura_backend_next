@@ -114,6 +114,45 @@ export class FcmService implements OnModuleInit {
     }
   }
 
+  /** Simple push to every device of one user (e.g. a reward payout). Never throws. */
+  async sendUserNotification(params: {
+    userId: bigint;
+    title: string;
+    body: string;
+    data?: Record<string, string>;
+  }): Promise<void> {
+    try {
+      const [user, devices] = await Promise.all([
+        this.prisma.user.findUnique({ where: { id: params.userId }, select: { fcmToken: true } }),
+        this.prisma.userDevice.findMany({ where: { userId: params.userId }, select: { fcmToken: true } }),
+      ]);
+      const tokens = new Set<string>();
+      for (const t of [user?.fcmToken, ...devices.map((d) => d.fcmToken)]) {
+        if (t && t.trim().length > 10) tokens.add(t.trim());
+      }
+      if (tokens.size === 0) return;
+      if (!this.isConfigured || !this.app) {
+        this.logger.debug(`[MOCK FCM] ${params.userId}: ${params.title} — ${params.body}`);
+        return;
+      }
+      const messaging = getMessaging(this.app);
+      for (const token of tokens) {
+        await messaging
+          .send({
+            token,
+            data: params.data ?? {},
+            notification: { title: params.title, body: params.body },
+            android: { priority: 'high', notification: { sound: 'default' } },
+          })
+          .catch((err: { message?: string }) =>
+            this.logger.debug(`sendUserNotification failed: ${String(err?.message ?? err)}`),
+          );
+      }
+    } catch (e) {
+      this.logger.warn(`sendUserNotification(${params.userId}) failed: ${String(e)}`);
+    }
+  }
+
   /**
    * Send background push notification for DIRECT CHAT MESSAGES ONLY.
    * Call-related push notifications are discarded and will never be dispatched.

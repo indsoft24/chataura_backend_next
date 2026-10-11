@@ -1,3 +1,4 @@
+import { RoomRewardService } from './room-reward/room-reward.service';
 import { OnlinePresenceService } from '../../common/presence/online-presence.service';
 import {
   BadRequestException,
@@ -93,6 +94,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     private readonly presence: PresenceService,
     private readonly rockets: RocketLaunchService,
     private readonly online: OnlinePresenceService,
+    private readonly rewards: RoomRewardService,
   ) {}
 
   private readonly roomSeatsVersions = new Map<string, number>();
@@ -741,6 +743,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       });
       const finalSeatIndex =
         role === 'listener' ? null : (actualSeat ? actualSeat.seatIndex : null);
+      // Room Reward Levels: continue the visitor's stay after a short drop, else start a new one.
+      const stayStartedAt = await this.rewards.stayStartForJoin(tx, room.id, userId, new Date());
 
       const m = await tx.roomMember.upsert({
         where: { roomId_userId: { roomId: room.id, userId } },
@@ -752,6 +756,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
           seatIndex: finalSeatIndex,
           isActive: true,
           lastHeartbeatAt: new Date(),
+          stayStartedAt,
         },
         update: {
           isActive: true,
@@ -759,6 +764,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
           agoraUid,
           seatIndex: finalSeatIndex,
           lastHeartbeatAt: new Date(),
+          stayStartedAt,
         },
       });
       await tx.room.update({
@@ -794,6 +800,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         hostReclaimedFrom != null ? Number(hostReclaimedFrom) : null,
       ...token,
       media_defaults: { mic_on: false, camera_on: false },
+      room_reward: await this.rewards.summary(fresh.id),
       session_id: sessionId,
       seats_version: seatsSnap.seats_version,
       seats: seatsSnap.seats,
@@ -919,10 +926,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
   async heartbeat(userId: bigint, id: string) {
     const room = await this.findRoom(id);
-    await this.prisma.roomMember.updateMany({
-      where: { roomId: room.id, userId, isActive: true },
-      data: { lastHeartbeatAt: new Date() },
-    });
+    // Liveness + continuous-stay tracking (Room Reward Levels) in one statement.
+    await this.rewards.heartbeatMember(room.id, userId);
     await this.prisma.seat.updateMany({
       where: { roomId: room.id, userId },
       data: { lastHeartbeatAt: new Date() },
@@ -942,6 +947,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       accumulated_seconds: presence.accumulated_seconds,
       agency_linked: agency.agency_linked,
       agency_cashback: agency.agency_cashback,
+      room_reward: await this.rewards.summary(room.id),
     };
   }
 

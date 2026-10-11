@@ -1,3 +1,7 @@
+import {
+  readRoomRewardSettings,
+  roomRewardSettingsForApi,
+} from '../room/room-reward/room-reward.config';
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Gift, Prisma } from '@prisma/client';
@@ -1007,6 +1011,7 @@ export class AdminCatalogService {
         room_gift_banner_duration_small_ms: extra.room_gift_banner_duration_small_ms ?? 3000,
         room_gift_banner_duration_big_ms: extra.room_gift_banner_duration_big_ms ?? 6000,
         room_video_enabled: extra.room_video_enabled !== false,
+        ...roomRewardSettingsForApi(readRoomRewardSettings(extra)),
         lucky_rebate_min_pct: extra.lucky_rebate_min_pct ?? LUCKY_REBATE_DEFAULT_MIN_PCT,
         lucky_rebate_max_pct: extra.lucky_rebate_max_pct ?? LUCKY_REBATE_DEFAULT_MAX_PCT,
       },

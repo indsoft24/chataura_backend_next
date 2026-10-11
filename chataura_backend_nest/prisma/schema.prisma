@@ -133,6 +133,7 @@ model User {
   feedback            Feedback[]
   bonusClaims         BonusClaim[]
   presenceSessions    UserRoomPresenceSession[]
+  roomRewardGifting   RoomRewardGifting[]
 
   @@index([accountStatus])
   @@index([isStarAccount, starRank])
@@ -574,6 +575,8 @@ model Room {
   blocks      RoomBlock[]
   affiliations AgencyAffiliation[]
   presenceSessions UserRoomPresenceSession[]
+  rewardProgress   RoomRewardProgress?
+  rewardGifting    RoomRewardGifting[]
 
   @@index([isLive, lastActivityAt])
   @@index([ownerId])
@@ -594,6 +597,9 @@ model RoomMember {
   isActive        Boolean        @default(true) @map("is_active")
   lastHeartbeatAt DateTime?      @map("last_heartbeat_at") @db.Timestamptz(6)
   joinedAt        DateTime       @default(now()) @map("joined_at") @db.Timestamptz(6)
+  /// Room Reward Levels: start of this member's current continuous stay. Kept across short drops
+  /// (rejoin within the allowed gap); reset on a longer absence. Null = not in the room.
+  stayStartedAt   DateTime?      @map("stay_started_at") @db.Timestamptz(6)
 
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1394,4 +1400,115 @@ model AppFxAsset {
 
   @@index([isActive, category])
   @@map("app_fx_assets")
+}
+
+// ---------------------------------------------------------------------------------------------
+// Room Reward Levels — lifetime room gifting milestones (no reset). Each level pays the room
+// owner and N partners once per room. Levels are admin-editable and unlimited (1 … 100+).
+// ---------------------------------------------------------------------------------------------
+
+/// One reward level. Paid levels are final: later edits only affect rooms that haven't completed it.
+model RoomRewardLevel {
+  id            BigInt   @id @default(autoincrement())
+  level         Int      @unique
+  minVisitors   Int      @map("min_visitors")
+  minRoomCoins  BigInt   @map("min_room_coins")
+  ownerReward   BigInt   @map("owner_reward")
+  /// Paid to EACH partner.
+  partnerReward BigInt   @map("partner_reward")
+  partnerCount  Int      @map("partner_count")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("room_reward_levels")
+}
+
+/// Lifetime progress of one room (never reset).
+model RoomRewardProgress {
+  roomId        String    @id @map("room_id") @db.Uuid
+  /// Qualifying gift coins sent in the room since the feature started (CP/BCP and owner's own excluded).
+  lifetimeCoins BigInt    @default(0) @map("lifetime_coins")
+  /// Highest level paid (display cache; payouts are the record).
+  lastLevel     Int       @default(0) @map("last_level")
+  lastLevelAt   DateTime? @map("last_level_at") @db.Timestamptz(6)
+  /// Coin target reached but not enough qualified visitors yet.
+  pendingLevel  Int?      @map("pending_level")
+  pendingSince  DateTime? @map("pending_since") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([pendingLevel])
+  @@map("room_reward_progress")
+}
+
+/// Each user's gifting in a room — ranks partners for the next level.
+model RoomRewardGifting {
+  roomId        String    @map("room_id") @db.Uuid
+  userId        BigInt    @map("user_id")
+  lifetimeCoins BigInt    @default(0) @map("lifetime_coins")
+  /// Coins gifted since the room's previous level completed (reset to 0 at each completion).
+  levelCoins    BigInt    @default(0) @map("level_coins")
+  lastGiftAt    DateTime? @map("last_gift_at") @db.Timestamptz(6)
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([roomId, userId])
+  @@index([roomId, levelCoins])
+  @@map("room_reward_gifting")
+}
+
+/// One completed level of one room. Audit record: no foreign key to rooms, so history survives
+/// room deletion. (room_id, level) is unique — a level can never be paid twice.
+model RoomRewardPayout {
+  id                BigInt   @id @default(autoincrement())
+  roomId            String   @map("room_id") @db.Uuid
+  roomDisplayId     String?  @map("room_display_id") @db.VarChar(8)
+  roomTitle         String?  @map("room_title") @db.VarChar(255)
+  level             Int
+  ownerId           BigInt   @map("owner_id")
+  ownerReward       BigInt   @map("owner_reward")
+  partnerReward     BigInt   @map("partner_reward")
+  partnerSlots      Int      @map("partner_slots")
+  partnersPaid      Int      @map("partners_paid")
+  totalPaid         BigInt   @map("total_paid")
+  roomCoinsAt       BigInt   @map("room_coins_at")
+  qualifiedVisitors Int      @map("qualified_visitors")
+  /// The level row exactly as it was when paid.
+  levelSnapshot     Json     @map("level_snapshot")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  recipients RoomRewardRecipient[]
+
+  @@unique([roomId, level])
+  @@index([createdAt])
+  @@index([ownerId, createdAt])
+  @@map("room_reward_payouts")
+}
+
+/// Who was paid for a level and why (rank, gifting, stay time).
+model RoomRewardRecipient {
+  id            BigInt    @id @default(autoincrement())
+  payoutId      BigInt    @map("payout_id")
+  userId        BigInt    @map("user_id")
+  /// owner | partner
+  role          String    @db.VarChar(16)
+  /// Partner rank (1 = top); null for the owner.
+  rank          Int?
+  amount        BigInt
+  /// Gifting toward this level and continuous stay at payout time.
+  giftedCoins   BigInt    @default(0) @map("gifted_coins")
+  staySeconds   Int       @default(0) @map("stay_seconds")
+  stayStartedAt DateTime? @map("stay_started_at") @db.Timestamptz(6)
+  ledgerRef     String?   @map("ledger_ref") @db.VarChar(128)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  payout RoomRewardPayout @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+
+  @@unique([payoutId, userId])
+  @@index([userId, createdAt])
+  @@map("room_reward_recipients")
 }

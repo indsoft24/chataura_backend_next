@@ -21,6 +21,7 @@ import { GiftBroadcastService, resolveGiftVisualTier } from './gift-broadcast.se
 import { RedisService } from '../../common/redis/redis.service';
 import { RealtimeService } from '../../common/fcm/realtime.service';
 import { buildServerGiftCommand } from './server-gift-event';
+import { RoomRewardService } from './room-reward/room-reward.service';
 
 @Injectable()
 export class RoomGiftingService {
@@ -34,6 +35,7 @@ export class RoomGiftingService {
     private readonly giftBroadcast: GiftBroadcastService,
     private readonly redis: RedisService,
     private readonly realtime: RealtimeService,
+    private readonly rewards: RoomRewardService,
   ) {}
 
   /**
@@ -239,6 +241,7 @@ export class RoomGiftingService {
     }
 
     let result;
+    let rewardRecorded = false;
     try {
       result = await this.prisma.$transaction(async (tx) => {
       try {
@@ -313,6 +316,14 @@ export class RoomGiftingService {
           source: 'room',
           roomId: room.id,
         });
+        // Room Reward Levels: counted in the same commit as the payment.
+        rewardRecorded = await this.rewards.recordGiftTx(tx, {
+          roomId: room.id,
+          ownerId: room.ownerId,
+          senderId,
+          coins: cost,
+          category: gift.category,
+        });
         return {
           transaction_id: ref,
           gift_id: Number(gift.id),
@@ -372,6 +383,7 @@ export class RoomGiftingService {
     const idempotencyKey = `gift_idem:${result.transaction_id}`;
     const isNew = await redisClient.set(idempotencyKey, '1', 'EX', 30, 'NX');
     if (!isNew) {
+      if (rewardRecorded) this.rewards.evaluateSoon(room.id);
       return { ...result, agency_cashback: agency.agency_cashback, rocket: null };
     }
 
@@ -398,6 +410,7 @@ export class RoomGiftingService {
       [receiverId],
       quantity,
     );
+    if (rewardRecorded) this.rewards.evaluateSoon(room.id);
     const rocket =
       gift.category === 'cp' || gift.category === 'bcp'
         ? null
@@ -412,6 +425,7 @@ export class RoomGiftingService {
       agency_cashback: agency.agency_cashback,
       rocket,
       gift_event_published: giftEventPublished,
+      room_reward: await this.rewards.summary(room.id),
     };
   }
 
@@ -498,6 +512,7 @@ export class RoomGiftingService {
     }
 
     let result;
+    let rewardRecorded = false;
     try {
       result = await this.prisma.$transaction(async (tx) => {
       try {
@@ -608,6 +623,14 @@ export class RoomGiftingService {
           txIds.push(giftRef);
           relationships.push(relationship);
         }
+        // Room Reward Levels: counted in the same commit as the payments.
+        rewardRecorded = await this.rewards.recordGiftTx(tx, {
+          roomId: room.id,
+          ownerId: room.ownerId,
+          senderId,
+          coins: perCost * BigInt(txIds.length),
+          category: gift.category,
+        });
 
         return {
           transaction_ids: txIds,
@@ -684,6 +707,7 @@ export class RoomGiftingService {
       eligibleIds,
       quantity,
     );
+    if (rewardRecorded) this.rewards.evaluateSoon(room.id);
     const agency = await resolveAgencyRoomMeta(
       this.prisma,
       room.ownerId,
@@ -706,6 +730,7 @@ export class RoomGiftingService {
       agency_cashback: agency.agency_cashback,
       rocket,
       gift_event_published: giftEventPublished,
+      room_reward: await this.rewards.summary(room.id),
     };
   }
 

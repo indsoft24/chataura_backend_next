@@ -16,6 +16,7 @@ import { RoomGiftingService } from './room-gifting.service';
 import { RocketLaunchService } from './rocket-launch.service';
 import { RoomService } from './room.service';
 import { YouTubeSearchService } from './youtube-search.service';
+import { RoomRewardService } from './room-reward/room-reward.service';
 
 @Controller()
 export class RoomController {
@@ -24,7 +25,28 @@ export class RoomController {
     private readonly gifting: RoomGiftingService,
     private readonly rockets: RocketLaunchService,
     private readonly youtubeSearch: YouTubeSearchService,
+    private readonly rewards: RoomRewardService,
   ) {}
+
+  // ---- Room Reward Levels ----
+
+  /** Level progress for the room meter / detail sheet, with the viewer's partner standing. */
+  @Get('rooms/:id/reward-progress')
+  rewardProgress(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.rewards.progressForRoom(id, user.id);
+  }
+
+  /** Levels this room completed and who was paid. */
+  @Get('rooms/:id/reward-payouts')
+  rewardPayouts(@Param('id') id: string, @Query('limit') limit?: string) {
+    return this.rewards.payoutsForRoom(id, Number(limit ?? 50));
+  }
+
+  /** Room rewards the signed-in user received (as owner or partner). */
+  @Get('users/me/room-rewards')
+  myRoomRewards(@CurrentUser() user: AuthUser, @Query('limit') limit?: string) {
+    return this.rewards.rewardsForUser(user.id, Number(limit ?? 50));
+  }
 
   @Public()
   @Get('rooms')

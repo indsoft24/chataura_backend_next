@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
 } from '@nestjs/common';
@@ -18,6 +19,7 @@ import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { MediaService } from '../media/media.service';
 import { RocketLaunchService } from '../room/rocket-launch.service';
 import { FxAssetsService } from '../fx-assets/fx-assets.service';
+import { RoomRewardAdminService } from '../room/room-reward/room-reward-admin.service';
 import { AdminCatalogService } from './admin-catalog.service';
 import { AdminRechargeService } from './admin-recharge.service';
 import { AdminService } from './admin.service';
@@ -53,7 +55,55 @@ export class AdminController {
     private readonly media: MediaService,
     private readonly rockets: RocketLaunchService,
     private readonly fxAssets: FxAssetsService,
+    private readonly roomRewards: RoomRewardAdminService,
   ) {}
+
+  // ---- Room Reward Levels ----
+
+  @Get('room-rewards/overview')
+  roomRewardOverview() {
+    return this.roomRewards.overview();
+  }
+
+  @Get('room-rewards/levels')
+  roomRewardLevels() {
+    return this.roomRewards.levels();
+  }
+
+  /** Validate + show how many rooms would complete each level right away. Writes nothing. */
+  @Post('room-rewards/levels/preview')
+  roomRewardPreview(@Body() body: { levels?: [] }) {
+    return this.roomRewards.preview(body);
+  }
+
+  @Put('room-rewards/levels')
+  saveRoomRewardLevels(@CurrentUser() user: AuthUser, @Body() body: { levels?: [] }) {
+    return this.roomRewards.saveLevels(body, user.id);
+  }
+
+  @Get('room-rewards/settings')
+  roomRewardSettings() {
+    return this.roomRewards.settings();
+  }
+
+  @Patch('room-rewards/settings')
+  updateRoomRewardSettings(@CurrentUser() user: AuthUser, @Body() body: Record<string, unknown>) {
+    return this.roomRewards.updateSettings(body, user.id);
+  }
+
+  @Get('room-rewards/rooms')
+  roomRewardRooms(
+    @Query() q: { search?: string; pending?: string; page?: string; limit?: string },
+  ) {
+    return this.roomRewards.rooms(q);
+  }
+
+  @Get('room-rewards/payouts')
+  roomRewardPayouts(
+    @Query() q: { room?: string; user?: string; page?: string; limit?: string },
+  ) {
+    return this.roomRewards.payouts(q);
+  }
 
   @Throttle({ default: { limit: 60, ttl: seconds(60) } })
   @Post('upload')

@@ -35,34 +35,6 @@ export async function resolveAgencyRoomMeta(
     return { agency_linked: false, agency_cashback: null };
   }
 
-  let enabled = true;
-  let threshold = 2000;
-  try {
-    const setting = await prisma.adminSetting.findUnique({
-      where: { id: 1 },
-      select: { extraSettings: true },
-    });
-    const extra = (setting?.extraSettings as Record<string, unknown>) ?? {};
-    if (extra.agency_cashback_enabled === false) enabled = false;
-    const rawThreshold = extra.agency_cashback_threshold_coins;
-    if (typeof rawThreshold === 'number' && Number.isFinite(rawThreshold)) {
-      threshold = Math.max(0, Math.floor(rawThreshold));
-    } else if (typeof rawThreshold === 'string' && rawThreshold.trim()) {
-      const n = Number(rawThreshold);
-      if (Number.isFinite(n)) threshold = Math.max(0, Math.floor(n));
-    }
-  } catch {
-    /* keep defaults */
-  }
-
-  return {
-    agency_linked: true,
-    agency_cashback: {
-      enabled,
-      current: 0,
-      threshold,
-      cycle: 0,
-      progress_percent: 0,
-    },
-  };
+  // The old "gift cashback" bar is retired (it never paid out); Room Reward Levels replace it.
+  return { agency_linked: true, agency_cashback: null };
 }
