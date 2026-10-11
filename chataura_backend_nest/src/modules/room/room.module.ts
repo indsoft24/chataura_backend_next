@@ -15,6 +15,7 @@ import { CpAffectionGiftsService } from './cp-affection-gifts.service';
 import { YouTubeSearchService } from './youtube-search.service';
 import { RoomRewardService } from './room-reward/room-reward.service';
 import { RoomRewardAdminService } from './room-reward/room-reward-admin.service';
+import { RoomStateService } from './room-state/room-state.service';
 
 @Module({
   imports: [WalletModule, AuthModule, RelationshipModule],
@@ -29,10 +30,11 @@ import { RoomRewardAdminService } from './room-reward/room-reward-admin.service'
     YouTubeSearchService,
     RoomRewardService,
     RoomRewardAdminService,
+    RoomStateService,
     AgoraService,
     RoomEvents,
     RoomGateway,
   ],
-  exports: [RoomService, RoomGiftingService, GiftBroadcastService, RocketLaunchService, YouTubeSearchService, RoomRewardService, RoomRewardAdminService],
+  exports: [RoomService, RoomGiftingService, GiftBroadcastService, RocketLaunchService, YouTubeSearchService, RoomRewardService, RoomRewardAdminService, RoomStateService],
 })
 export class RoomModule {}

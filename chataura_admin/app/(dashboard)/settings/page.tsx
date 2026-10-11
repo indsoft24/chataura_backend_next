@@ -49,8 +49,6 @@ export default function SettingsPage() {
     game_1_enabled: true,
     game_2_enabled: true,
     game_3_enabled: true,
-    agency_cashback_enabled: true,
-    agency_cashback_threshold_coins: 2000,
     staff_commission_ceo_percent: 5,
     staff_commission_manager_percent: 3,
     staff_commission_admin_percent: 2,
@@ -58,6 +56,7 @@ export default function SettingsPage() {
     room_gift_banner_duration_small_ms: 3000,
     room_gift_banner_duration_big_ms: 6000,
     room_video_enabled: true,
+    room_member_timeout_seconds: 90,
     lucky_rebate_min_pct: 1,
     lucky_rebate_max_pct: 40,
   });
@@ -679,6 +678,32 @@ export default function SettingsPage() {
                 <div style={{ fontSize: '0.85rem', color: '#1e40af', lineHeight: 1.5 }}>
                   <strong>Instant platform enforcement:</strong> Toggling this switch instantly enables or disables camera capability for all active and new rooms across the Android client without requiring an app update or database migration.
                 </div>
+              </div>
+
+              <div
+                style={{
+                  padding: '20px 24px',
+                  backgroundColor: '#f9fafb',
+                  borderRadius: 12,
+                  border: '1px solid #e5e7eb',
+                }}
+              >
+                <label style={{ display: 'block', fontSize: '1rem', fontWeight: 600, color: '#111827', marginBottom: 4 }}>
+                  Room member timeout (seconds)
+                </label>
+                <div style={{ fontSize: '0.875rem', color: '#6b7280', lineHeight: 1.4, marginBottom: 12 }}>
+                  A member who sends no heartbeat for this long leaves the room and their seat is freed — for
+                  everyone at once. Applies to members, hosts and the room list. Allowed 45–600 s (default 90).
+                  Lower = faster cleanup of dead connections; higher = more tolerant of weak networks.
+                </div>
+                <input
+                  type="number"
+                  min="45"
+                  max="600"
+                  value={form.room_member_timeout_seconds ?? 90}
+                  onChange={(e) => handleChange('room_member_timeout_seconds', Number(e.target.value))}
+                  style={{ ...inputStyle, maxWidth: 160 }}
+                />
               </div>
             </div>
           )}

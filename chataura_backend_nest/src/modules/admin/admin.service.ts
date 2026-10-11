@@ -1,3 +1,4 @@
+import { RoomStateService } from '../room/room-state/room-state.service';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -14,6 +15,7 @@ export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
+    private readonly roomState: RoomStateService,
   ) {}
 
   async dashboard(period = 'weekly', fromStr?: string, toStr?: string) {
@@ -739,6 +741,17 @@ export class AdminService {
         error: { code: 'NOT_FOUND', message: 'User not found' },
       });
     }
+    // Rooms whose live state this changes (ended rooms + rooms the user was in).
+    const [ownedOrHosted, memberOf] = await Promise.all([
+      this.prisma.room.findMany({
+        where: { OR: [{ ownerId: id }, { hostId: id }], isLive: true },
+        select: { id: true },
+      }),
+      this.prisma.roomMember.findMany({
+        where: { userId: id, isActive: true },
+        select: { roomId: true },
+      }),
+    ]);
     await this.prisma.$transaction(async (tx) => {
       await tx.room.updateMany({
         where: { OR: [{ ownerId: id }, { hostId: id }], isLive: true },
@@ -767,6 +780,9 @@ export class AdminService {
         },
       });
     });
+    for (const roomId of new Set([...ownedOrHosted.map((r) => r.id), ...memberOf.map((m) => m.roomId)])) {
+      this.roomState.changed(roomId);
+    }
     return { message: 'User deactivated', user_id: Number(id) };
   }
 

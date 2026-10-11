@@ -539,6 +539,8 @@ model Room {
   coHostId         BigInt?   @map("co_host_id")
   agoraChannelName String    @map("agora_channel_name") @db.VarChar(128)
   maxSeats         Int       @default(8) @map("max_seats")
+  /// Live state version (RoomStateService): strictly increasing, wall-clock floored (ms).
+  stateVersion     BigInt    @default(0) @map("state_version")
   isLive           Boolean   @default(true) @map("is_live")
   isPermanent      Boolean   @default(false) @map("is_permanent")
   /** Private rooms require password; excluded from discovery + rankings. */

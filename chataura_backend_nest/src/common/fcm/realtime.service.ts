@@ -61,6 +61,54 @@ export class RealtimeService {
     }
   }
 
+  /** Several server room events in one atomic batch (e.g. per-seat legacy updates). */
+  async publishRoomEvents(roomId: string, texts: string[]): Promise<boolean> {
+    if (texts.length === 0) return true;
+    const db = this.db();
+    if (!db) return false;
+    try {
+      const batch = db.batch();
+      const col = db.collection('rooms').doc(roomId).collection('messages');
+      for (const text of texts) {
+        batch.set(col.doc(), {
+          origin: 'server',
+          senderId: 'server',
+          apiUserId: 0,
+          agoraUid: 0,
+          senderName: '',
+          text,
+          timestamp: FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+      return true;
+    } catch (e) {
+      this.logger.warn(`publishRoomEvents(${roomId}) failed: ${String(e)}`);
+      return false;
+    }
+  }
+
+  /**
+   * The room's live state document (`rooms/{roomId}/live/state`) — the single source every
+   * client renders seats, roles and counts from. Server-only (rules deny client writes).
+   */
+  async setRoomLiveState(roomId: string, doc: Record<string, unknown>): Promise<boolean> {
+    const db = this.db();
+    if (!db) return false;
+    try {
+      await db
+        .collection('rooms')
+        .doc(roomId)
+        .collection('live')
+        .doc('state')
+        .set({ ...doc, updated_at: FieldValue.serverTimestamp() });
+      return true;
+    } catch (e) {
+      this.logger.warn(`setRoomLiveState(${roomId}) failed: ${String(e)}`);
+      return false;
+    }
+  }
+
   async publishConversationMessage(
     conversationId: bigint,
     msg: ConversationRealtimeMessage,

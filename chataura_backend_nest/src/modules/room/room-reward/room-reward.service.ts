@@ -120,19 +120,21 @@ export class RoomRewardService {
    * Heartbeat: refresh liveness and keep / restart the continuous stay in one statement (a
    * silence longer than the allowed gap — app killed, long background — starts a new stay).
    */
-  async heartbeatMember(roomId: string, userId: bigint): Promise<void> {
+  /** Returns false when the member is no longer active (timed out) — the app should rejoin. */
+  async heartbeatMember(roomId: string, userId: bigint): Promise<boolean> {
     const { settings } = await this.config();
     const now = new Date();
     const cutoff = new Date(
       now.getTime() - Math.max(settings.presenceGapMinutes * 60_000, MIN_LIVENESS_MS),
     );
-    await this.prisma.$executeRaw`
+    const updated = await this.prisma.$executeRaw`
       UPDATE room_members
       SET stay_started_at = CASE
             WHEN stay_started_at IS NULL OR last_heartbeat_at IS NULL OR last_heartbeat_at < ${cutoff}
             THEN ${now} ELSE stay_started_at END,
           last_heartbeat_at = ${now}
       WHERE room_id = ${roomId}::uuid AND user_id = ${userId} AND is_active = true`;
+    return updated > 0;
   }
 
   // ---------------------------------------------------------------- gifting

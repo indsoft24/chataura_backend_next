@@ -1,4 +1,8 @@
 import {
+  ROOM_MEMBER_TIMEOUT_KEY,
+  readMemberTimeoutSeconds,
+} from '../room/room-state/room-runtime.config';
+import {
   readRoomRewardSettings,
   roomRewardSettingsForApi,
 } from '../room/room-reward/room-reward.config';
@@ -1002,8 +1006,6 @@ export class AdminCatalogService {
         game_1_enabled: extra.game_1_enabled ?? true,
         game_2_enabled: extra.game_2_enabled ?? true,
         game_3_enabled: extra.game_3_enabled ?? true,
-        agency_cashback_enabled: extra.agency_cashback_enabled ?? true,
-        agency_cashback_threshold_coins: extra.agency_cashback_threshold_coins ?? 2000,
         staff_commission_ceo_percent: extra.staff_commission_ceo_percent ?? 5,
         staff_commission_manager_percent: extra.staff_commission_manager_percent ?? 3,
         staff_commission_admin_percent: extra.staff_commission_admin_percent ?? 2,
@@ -1011,6 +1013,7 @@ export class AdminCatalogService {
         room_gift_banner_duration_small_ms: extra.room_gift_banner_duration_small_ms ?? 3000,
         room_gift_banner_duration_big_ms: extra.room_gift_banner_duration_big_ms ?? 6000,
         room_video_enabled: extra.room_video_enabled !== false,
+        [ROOM_MEMBER_TIMEOUT_KEY]: readMemberTimeoutSeconds(extra),
         ...roomRewardSettingsForApi(readRoomRewardSettings(extra)),
         lucky_rebate_min_pct: extra.lucky_rebate_min_pct ?? LUCKY_REBATE_DEFAULT_MIN_PCT,
         lucky_rebate_max_pct: extra.lucky_rebate_max_pct ?? LUCKY_REBATE_DEFAULT_MAX_PCT,
@@ -1045,10 +1048,12 @@ export class AdminCatalogService {
     // Merge extra settings
     const current = await this.prisma.adminSetting.findUnique({ where: { id: 1 } });
     const existingExtra = (current?.extraSettings as Record<string, unknown>) ?? {};
-    data.extraSettings = {
-      ...existingExtra,
-      ...body,
-    } as Prisma.InputJsonValue;
+    const mergedExtra: Record<string, unknown> = { ...existingExtra, ...body };
+    if (body[ROOM_MEMBER_TIMEOUT_KEY] !== undefined) {
+      // Store exactly what the room service will use (45–600 s).
+      mergedExtra[ROOM_MEMBER_TIMEOUT_KEY] = readMemberTimeoutSeconds(mergedExtra);
+    }
+    data.extraSettings = mergedExtra as Prisma.InputJsonValue;
 
     const setting = await this.prisma.adminSetting.upsert({
       where: { id: 1 },
