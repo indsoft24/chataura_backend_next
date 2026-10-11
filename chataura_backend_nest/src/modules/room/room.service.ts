@@ -37,6 +37,7 @@ import {
   type RocketListSummary,
 } from './rocket-launch.service';
 import { pickCpSeat } from './cp-seat-placement';
+import { resolveActingHost } from './room-authority';
 
 const KICK_SECONDS = 600;
 /** Max party-room staff admins (host + up to 5 admins + 1 co-host). */
@@ -521,7 +522,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   async update(userId: bigint, id: string, body: Record<string, unknown>) {
     const room = await this.findRoom(id);
     const isHost = room.hostId === userId;
-    const isCoHost = room.coHostId === userId;
+    const isCoHost = room.coHostId === userId || room.actingHostId === userId;
     if (!isHost && !isCoHost) {
       throw new ForbiddenException({
         success: false,
@@ -630,6 +631,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         isPermanent: false,
         endedAt: new Date(),
         hostId: null,
+        actingHostId: null,
         passwordHash: null,
       },
     });
@@ -723,12 +725,6 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
           }
         }
       }
-      const liveHost =
-        role !== 'host' && room.hostId
-          ? await tx.roomMember.findFirst({
-              where: { roomId: room.id, userId: room.hostId, isActive: true },
-            })
-          : null;
       // Room host is strictly and permanently the room owner (room.ownerId).
       // Under NO circumstances should any other user ever become 'host'!
       if (room.ownerId === userId) {
@@ -739,7 +735,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
             data: { hostId: userId, hostLastHeartbeatAt: new Date() },
           });
         }
-      } else if (room.coHostId === userId && liveHost) {
+      } else if (room.coHostId === userId || room.actingHostId === userId) {
+        // Co-host keeps the role while the host is away (and may be acting host).
         role = 'co_host';
       } else {
         role = 'listener';
@@ -794,6 +791,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       this.events.emitSeatUpdated(room.id, snap);
       this.stateChanged(room.id);
     }
+    // Host back → full control returns; co-host / admin arriving → may act for an away host.
+    await this.syncRoomAuthority(room.id);
     // New member (count, possibly host reclaim / seat): publish the room state.
     this.stateChanged(room.id);
 
@@ -891,7 +890,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
             lockedRoom[0].is_permanent || room.isPermanent,
             tx,
           );
-          // Room owner is permanently the host. Host is NEVER transferred to a successor under any circumstances!
+          // The owner stays host; their powers pass to an acting host (syncRoomAuthority below).
           await tx.room.update({
             where: { id: room.id },
             data: { hostId: room.ownerId },
@@ -935,6 +934,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    // Host or acting host left → the next person in line acts for the host.
+    if (!roomDeleted) await this.syncRoomAuthority(room.id);
     this.stateChanged(room.id);
     return {
       message: roomDeleted ? 'Private room deleted' : 'Left room',
@@ -1023,7 +1024,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
   async blockedUsers(actorId: bigint, id: string) {
     const room = await this.findRoom(id);
-    this.assertHost(room, actorId);
+    this.assertHostAuthority(room, actorId);
     const rows = await this.prisma.roomBlock.findMany({
       where: {
         roomId: room.id,
@@ -1049,7 +1050,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     kind = 'block',
   ) {
     const room = await this.findRoom(id);
-    this.assertHost(room, actorId);
+    this.assertHostAuthority(room, actorId);
     if (targetId === room.ownerId) {
       throw new ForbiddenException({
         success: false,
@@ -1080,6 +1081,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       room.id,
       kind === 'kick' ? 'kick' : 'leave',
     );
+    await this.syncRoomAuthority(room.id);
     return { message: kind === 'kick' ? 'User kicked' : 'User blocked' };
   }
 
@@ -1089,7 +1091,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
   async unblock(actorId: bigint, id: string, targetId: bigint) {
     const room = await this.findRoom(id);
-    this.assertHost(room, actorId);
+    this.assertHostAuthority(room, actorId);
     await this.prisma.roomBlock.deleteMany({
       where: { roomId: room.id, userId: targetId },
     });
@@ -1131,6 +1133,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       where: { roomId: room.id, userId: targetId },
       data: { role: 'co_host' },
     });
+    await this.syncRoomAuthority(room.id);
     this.stateChanged(room.id);
     return {
       message: 'Co-host assigned',
@@ -1154,6 +1157,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       where: { id: room.id },
       data: { coHostId: null },
     });
+    await this.syncRoomAuthority(room.id);
     this.stateChanged(room.id);
     return {
       message: 'Co-host removed',
@@ -1165,11 +1169,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   /** Host-only: appoint up to STAFF_ADMIN_LIMIT room staff admins (separate from 1 co-host). */
   async addStaffAdmin(actorId: bigint, id: string, targetId: bigint) {
     const room = await this.findRoom(id);
-    this.assertHost(room, actorId);
+    this.assertHostAuthority(room, actorId);
     if (
       targetId === room.hostId ||
       targetId === room.ownerId ||
-      targetId === room.coHostId
+      targetId === room.coHostId ||
+      targetId === room.actingHostId
     ) {
       throw new BadRequestException({
         success: false,
@@ -1198,6 +1203,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         data: { roomId: room.id, userId: targetId },
       });
     }
+    await this.syncRoomAuthority(room.id);
     this.stateChanged(room.id);
     return {
       message: 'Admin assigned',
@@ -1209,10 +1215,11 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
   async removeStaffAdmin(actorId: bigint, id: string, targetId: bigint) {
     const room = await this.findRoom(id);
-    this.assertHost(room, actorId);
+    this.assertHostAuthority(room, actorId);
     await this.prisma.roomStaffAdmin.deleteMany({
       where: { roomId: room.id, userId: targetId },
     });
+    await this.syncRoomAuthority(room.id);
     this.stateChanged(room.id);
     return {
       message: 'Admin removed',
@@ -1231,68 +1238,40 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     return rows.map((r) => Number(r.userId));
   }
 
+  /**
+   * The host role never moves: the owner is always the host and an acting host covers while
+   * they are away. Only the owner's own reclaim is accepted (released apps call it on join).
+   */
   async transferHost(actorId: bigint, id: string, targetId: bigint) {
     const room = await this.findRoom(id);
-    if (room.ownerId === actorId && targetId === actorId) {
-      if (room.hostId === actorId) return { message: 'Host transferred' };
-      await this.requireActiveMember(room.id, actorId);
-      const reclaim = await this.prisma.$transaction((tx) =>
-        this.reclaimHostForOwner(tx, room.id, actorId),
-      );
-      if (!reclaim.reclaimed) {
-        throw new ForbiddenException({
-          success: false,
-          error: { code: 'FORBIDDEN', message: 'Room is not live' },
-        });
-      }
-      if (reclaim.previousHostId != null) {
-        const snap = await this.seatsSnapshot(room.id, actorId, room.maxSeats);
-        this.events.emitSeatUpdated(room.id, snap);
-        this.stateChanged(room.id);
-      }
-      return {
-        message: 'Host transferred',
-        host_reclaimed_from:
-          reclaim.previousHostId != null ? Number(reclaim.previousHostId) : null,
-      };
-    }
-    if (targetId !== room.ownerId) {
+    if (room.ownerId !== actorId || targetId !== actorId) {
       throw new ForbiddenException({
         success: false,
         error: { code: 'FORBIDDEN', message: 'Host cannot be transferred. The room owner is always the host.' },
       });
     }
-    this.assertHost(room, actorId);
-    const result = await this.prisma.$transaction(async (tx) => {
-      const locked = await tx.$queryRaw<
-        Array<{ id: string; host_id: bigint | null }>
-      >`SELECT id, host_id FROM rooms WHERE id = ${room.id}::uuid FOR UPDATE`;
-      if (!locked[0] || locked[0].host_id !== actorId) {
-        throw new ForbiddenException({
-          success: false,
-          error: { code: 'FORBIDDEN', message: 'Host only' },
-        });
-      }
-      await tx.room.update({
-        where: { id: room.id },
-        data: {
-          hostId: targetId,
-          coHostId: room.coHostId === targetId ? null : room.coHostId,
-          hostLastHeartbeatAt: new Date(),
-        },
+    if (room.hostId === actorId) return { message: 'Host transferred' };
+    await this.requireActiveMember(room.id, actorId);
+    const reclaim = await this.prisma.$transaction((tx) =>
+      this.reclaimHostForOwner(tx, room.id, actorId),
+    );
+    if (!reclaim.reclaimed) {
+      throw new ForbiddenException({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Room is not live' },
       });
-      await tx.roomMember.updateMany({
-        where: { roomId: room.id, userId: targetId },
-        data: { role: 'host' },
-      });
-      await tx.roomMember.updateMany({
-        where: { roomId: room.id, userId: actorId },
-        data: { role: 'speaker' },
-      });
-      return { message: 'Host transferred' };
-    });
-    this.stateChanged(room.id);
-    return result;
+    }
+    await this.syncRoomAuthority(room.id);
+    if (reclaim.previousHostId != null) {
+      const snap = await this.seatsSnapshot(room.id, actorId, room.maxSeats);
+      this.events.emitSeatUpdated(room.id, snap);
+      this.stateChanged(room.id);
+    }
+    return {
+      message: 'Host transferred',
+      host_reclaimed_from:
+        reclaim.previousHostId != null ? Number(reclaim.previousHostId) : null,
+    };
   }
 
   async seats(userId: bigint | null | undefined, id: string) {
@@ -1339,6 +1318,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       seatIndex,
       placement,
     );
+    await this.syncRoomAuthority(room.id);
     const snap = await this.seatsSnapshot(room.id, userId, room.maxSeats);
     this.events.emitSeatUpdated(room.id, snap);
     this.stateChanged(room.id);
@@ -1382,6 +1362,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       seatIndex,
       placement,
     );
+    await this.syncRoomAuthority(room.id);
     const snap = await this.seatsSnapshot(room.id, actorId, room.maxSeats);
     this.events.emitSeatUpdated(room.id, snap);
     this.stateChanged(room.id);
@@ -1580,7 +1561,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         error: { code: 'NOT_FOUND', message: 'Seat not found' },
       });
     const isHost = room.hostId === actorId;
-    const isCoHost = room.coHostId === actorId;
+    const isCoHost = room.coHostId === actorId || room.actingHostId === actorId;
     const isStaffAdmin =
       !isHost &&
       !isCoHost &&
@@ -1637,7 +1618,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
   async reduceSeats(actorId: bigint, id: string) {
     const room = await this.findRoom(id);
-    this.assertHost(room, actorId);
+    this.assertHostAuthority(room, actorId);
     if (room.maxSeats <= 1) {
       throw new BadRequestException({
         success: false,
@@ -1662,7 +1643,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
    */
   async setSeatCapacity(actorId: bigint, id: string, requested: number) {
     const room = await this.findRoom(id);
-    this.assertHost(room, actorId);
+    this.assertHostAuthority(room, actorId);
     if (!Number.isFinite(requested)) {
       throw new BadRequestException({
         success: false,
@@ -2110,25 +2091,35 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         hostId: true,
         ownerId: true,
         coHostId: true,
+        actingHostId: true,
         maxSeats: true,
         seatMode: true,
         themeId: true,
       },
     });
     if (!room) return null;
-    const [seats, adminIds, onlineCount] = await Promise.all([
+    const hostId = room.hostId ?? room.ownerId;
+    const [seats, adminIds, onlineCount, hostMember] = await Promise.all([
       room.isLive ? this.liveSeats(room.id, room.maxSeats) : Promise.resolve([] as LiveSeat[]),
       this.staffAdminIds(room.id),
       this.prisma.roomMember.count({ where: { roomId: room.id, isActive: true } }),
+      this.prisma.roomMember.findFirst({
+        where: { roomId: room.id, userId: hostId, isActive: true },
+        select: { id: true },
+      }),
     ]);
+    const acting = room.isLive ? room.actingHostId : null;
+    const coHostId = acting ?? room.coHostId;
     return {
       room_id: room.id,
       display_id: room.displayId,
       ended: !room.isLive,
       host_id: room.hostId != null ? Number(room.hostId) : null,
       owner_id: Number(room.ownerId),
-      co_host_id: room.coHostId != null ? Number(room.coHostId) : null,
-      admin_ids: adminIds,
+      co_host_id: coHostId != null ? Number(coHostId) : null,
+      acting_host_id: acting != null ? Number(acting) : null,
+      host_present: room.isLive && !!hostMember,
+      admin_ids: acting != null ? adminIds.filter((a) => a !== Number(acting)) : adminIds,
       max_seats: room.maxSeats,
       seat_mode: room.seatMode === SEAT_MODE_DIRECT ? SEAT_MODE_DIRECT : SEAT_MODE_REQUEST,
       theme_id: room.themeId != null ? Number(room.themeId) : null,
@@ -2229,7 +2220,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       for (const o of orphans) touched.add(o.room_id);
     }
 
-    for (const roomId of touched) this.stateChanged(roomId);
+    for (const roomId of touched) {
+      await this.syncRoomAuthority(roomId).catch((e) =>
+        this.logger.warn(`authority sync failed for room ${roomId}: ${String(e)}`),
+      );
+      this.stateChanged(roomId);
+    }
   }
 
   /**
@@ -2255,9 +2251,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * When the host stops heartbeating: deactivate the stale host member,
-   * promote a fresh successor if one exists, otherwise soft-end the room
-   * (permanent / agency-linked keeps the owner as host — only Delete ends it).
+   * When the host stops heartbeating: deactivate the stale host member and free their seat.
+   * The owner stays host; the caller re-resolves who acts for them (syncRoomAuthority).
    */
   private async expireStaleHostRoom(
     room: { id: string; hostId: bigint | null; isPermanent: boolean },
@@ -2319,7 +2314,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
-      // The room owner is permanently the host — never transferred to a successor.
+      // The room owner is permanently the host; an acting host covers while they are away.
       await tx.room.update({
         where: { id: room.id },
         data: { hostId: row.owner_id },
@@ -2335,47 +2330,82 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     return changed;
   }
 
-  private async pickFreshHostSuccessor(
-    roomId: string,
-    exceptUserId: bigint,
-    cutoff: Date,
-    client: Prisma.TransactionClient | PrismaService = this.prisma,
-  ) {
-    const room = await client.room.findUniqueOrThrow({
-      where: { id: roomId },
+  /**
+   * Re-resolves who acts for the host (room-authority.ts) under the room row lock and keeps
+   * member roles in step: the acting host is a co_host member (publisher); someone who stops
+   * acting goes back to speaker/listener unless they are the host's own co-host. Publishes
+   * the room state when the acting host changed. Safe to call after any membership change.
+   */
+  private async syncRoomAuthority(roomId: string): Promise<void> {
+    const changed = await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<
+        Array<{
+          host_id: bigint | null;
+          owner_id: bigint;
+          co_host_id: bigint | null;
+          acting_host_id: bigint | null;
+          is_live: boolean;
+          max_seats: number;
+        }>
+      >`SELECT host_id, owner_id, co_host_id, acting_host_id, is_live, max_seats
+        FROM rooms WHERE id = ${roomId}::uuid FOR UPDATE`;
+      const row = locked[0];
+      if (!row) return false;
+
+      let next: bigint | null = null;
+      if (row.is_live) {
+        const [members, admins, seats] = await Promise.all([
+          tx.roomMember.findMany({
+            where: { roomId, isActive: true },
+            select: { userId: true },
+          }),
+          tx.roomStaffAdmin.findMany({
+            where: { roomId },
+            orderBy: { id: 'asc' },
+            select: { userId: true },
+          }),
+          tx.seat.findMany({
+            where: { roomId, userId: { not: null } },
+            select: { seatIndex: true, userId: true },
+          }),
+        ]);
+        next = resolveActingHost({
+          hostId: row.host_id ?? row.owner_id,
+          coHostId: row.co_host_id,
+          currentActingId: row.acting_host_id,
+          activeIds: new Set(members.map((m) => m.userId.toString())),
+          adminIds: admins.map((a) => a.userId),
+          seats: seats.map((x) => ({ seatIndex: x.seatIndex, userId: x.userId! })),
+          maxSeats: row.max_seats,
+        });
+      }
+
+      const prev = row.acting_host_id;
+      if (next != null) {
+        await tx.roomMember.updateMany({
+          where: { roomId, userId: next, isActive: true, role: { not: 'co_host' } },
+          data: { role: 'co_host' },
+        });
+      }
+      if (prev === next) return false;
+
+      await tx.room.update({ where: { id: roomId }, data: { actingHostId: next } });
+      if (prev != null && prev !== row.co_host_id) {
+        const seated = await tx.seat.findFirst({
+          where: { roomId, userId: prev, seatIndex: { lt: row.max_seats } },
+          select: { seatIndex: true },
+        });
+        await tx.roomMember.updateMany({
+          where: { roomId, userId: prev, role: 'co_host' },
+          data: { role: seated ? 'speaker' : 'listener' },
+        });
+      }
+      this.logger.log(
+        `room ${roomId} acting host ${prev ?? 'none'} -> ${next ?? 'none'}`,
+      );
+      return true;
     });
-    if (room.coHostId && room.coHostId !== exceptUserId) {
-      const co = await client.roomMember.findFirst({
-        where: {
-          roomId,
-          userId: room.coHostId,
-          isActive: true,
-          lastHeartbeatAt: { gte: cutoff },
-        },
-      });
-      if (co) return room.coHostId;
-    }
-    const next = await client.roomMember.findFirst({
-      where: {
-        roomId,
-        isActive: true,
-        userId: { not: exceptUserId },
-        lastHeartbeatAt: { gte: cutoff },
-        role: { in: ['speaker', 'co_host'] },
-      },
-      orderBy: { joinedAt: 'asc' },
-    });
-    if (next) return next.userId;
-    const any = await client.roomMember.findFirst({
-      where: {
-        roomId,
-        isActive: true,
-        userId: { not: exceptUserId },
-        lastHeartbeatAt: { gte: cutoff },
-      },
-      orderBy: { joinedAt: 'asc' },
-    });
-    return any?.userId ?? null;
+    if (changed) this.stateChanged(roomId);
   }
 
   private async findRoom(id: string, withUsers = false) {
@@ -2456,37 +2486,6 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         message: 'You are blocked from this room',
       },
     });
-  }
-
-  private async pickHostSuccessor(
-    roomId: string,
-    exceptUserId: bigint,
-    client: Prisma.TransactionClient | PrismaService = this.prisma,
-  ) {
-    const room = await client.room.findUniqueOrThrow({
-      where: { id: roomId },
-    });
-    if (room.coHostId && room.coHostId !== exceptUserId) {
-      const co = await client.roomMember.findFirst({
-        where: { roomId, userId: room.coHostId, isActive: true },
-      });
-      if (co) return room.coHostId;
-    }
-    const next = await client.roomMember.findFirst({
-      where: {
-        roomId,
-        isActive: true,
-        userId: { not: exceptUserId },
-        role: { in: ['speaker', 'co_host'] },
-      },
-      orderBy: { joinedAt: 'asc' },
-    });
-    if (next) return next.userId;
-    const any = await client.roomMember.findFirst({
-      where: { roomId, isActive: true, userId: { not: exceptUserId } },
-      orderBy: { joinedAt: 'asc' },
-    });
-    return any?.userId ?? null;
   }
 
   /**
@@ -2571,11 +2570,33 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private assertHostOrCoHost(
-    room: { ownerId: bigint; hostId: bigint | null; coHostId: bigint | null },
+  /** Host, or the acting host while the host is away (see room-authority.ts). */
+  private assertHostAuthority(
+    room: { ownerId: bigint; hostId: bigint | null; actingHostId: bigint | null },
     userId: bigint,
   ) {
-    if (room.hostId !== userId && room.coHostId !== userId) {
+    if (room.hostId !== userId && room.actingHostId !== userId) {
+      throw new ForbiddenException({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Host only' },
+      });
+    }
+  }
+
+  private assertHostOrCoHost(
+    room: {
+      ownerId: bigint;
+      hostId: bigint | null;
+      coHostId: bigint | null;
+      actingHostId: bigint | null;
+    },
+    userId: bigint,
+  ) {
+    if (
+      room.hostId !== userId &&
+      room.coHostId !== userId &&
+      room.actingHostId !== userId
+    ) {
       throw new ForbiddenException({
         success: false,
         error: { code: 'FORBIDDEN', message: 'Host or co-host only' },
@@ -2585,10 +2606,22 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
   /** Host, co-host, or appointed staff admin (mute / free seat). */
   private async assertHostCoHostOrStaffAdmin(
-    room: { id: string; ownerId: bigint; hostId: bigint | null; coHostId: bigint | null },
+    room: {
+      id: string;
+      ownerId: bigint;
+      hostId: bigint | null;
+      coHostId: bigint | null;
+      actingHostId: bigint | null;
+    },
     userId: bigint,
   ) {
-    if (room.hostId === userId || room.coHostId === userId) return;
+    if (
+      room.hostId === userId ||
+      room.coHostId === userId ||
+      room.actingHostId === userId
+    ) {
+      return;
+    }
     const admin = await this.prisma.roomStaffAdmin.findUnique({
       where: { roomId_userId: { roomId: room.id, userId } },
     });
@@ -2854,6 +2887,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       ownerId: bigint;
       hostId: bigint | null;
       coHostId: bigint | null;
+      actingHostId?: bigint | null;
       agoraChannelName: string;
       maxSeats: number;
       isLive: boolean;
@@ -2900,6 +2934,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       owner_id: Number(room.ownerId),
       host_id: room.hostId ? Number(room.hostId) : null,
       co_host_id: room.coHostId ? Number(room.coHostId) : null,
+      acting_host_id: room.actingHostId ? Number(room.actingHostId) : null,
       admin_ids: adminIds,
       admin_limit: STAFF_ADMIN_LIMIT,
       agora_channel_name: room.agoraChannelName,

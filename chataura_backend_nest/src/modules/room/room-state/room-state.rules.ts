@@ -25,7 +25,12 @@ export type LiveRoomState = {
   ended: boolean;
   host_id: number | null;
   owner_id: number;
+  /** The room's co-host as clients show it: the acting host while the host is away. */
   co_host_id: number | null;
+  /** Holds the host's powers while the host is away (room-authority.ts); null otherwise. */
+  acting_host_id: number | null;
+  /** Host is an active member of the room. */
+  host_present: boolean;
   admin_ids: number[];
   max_seats: number;
   seat_mode: string;

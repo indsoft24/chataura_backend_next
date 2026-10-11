@@ -158,38 +158,32 @@ describe('Rooms (e2e)', () => {
     expect(parse(leave.payload).success).toBe(true);
   });
 
-  it('owner regains host from interim host on rejoin after leave', async () => {
-    const owner = await registerVerified(app, { name: 'Owner' });
-    const successor = await registerVerified(app, { name: 'Successor' });
-
+  it('host away: their co-host acts; host return restores full control', async () => {
+    const owner = await registerVerified(app, { name: 'ActOwner' });
+    const co = await registerVerified(app, { name: 'ActCo' });
+    const viewer = await registerVerified(app, { name: 'ActViewer' });
     const created = await app.inject({
       method: 'POST',
       url: '/api/v1/rooms',
       headers: authHeader(owner.token),
-      payload: { title: `Host persist ${Date.now()}`, max_seats: 8 },
+      payload: { title: `Acting co ${Date.now()}`, max_seats: 8 },
     });
     const roomId = parse<{ id: string }>(created.payload).data!.id;
-
-    await app.inject({
+    for (const u of [owner, co, viewer]) {
+      await app.inject({
+        method: 'POST',
+        url: `/api/v1/rooms/${roomId}/join`,
+        headers: authHeader(u.token),
+        payload: {},
+      });
+    }
+    const appoint = await app.inject({
       method: 'POST',
-      url: `/api/v1/rooms/${roomId}/join`,
+      url: `/api/v1/rooms/${roomId}/co-host`,
       headers: authHeader(owner.token),
-      payload: {},
+      payload: { user_id: co.id },
     });
-    await app.inject({
-      method: 'POST',
-      url: `/api/v1/rooms/${roomId}/join`,
-      headers: authHeader(successor.token),
-      payload: {},
-    });
-
-    const transfer = await app.inject({
-      method: 'POST',
-      url: `/api/v1/rooms/${roomId}/transfer-host`,
-      headers: authHeader(owner.token),
-      payload: { user_id: successor.id },
-    });
-    expect(parse(transfer.payload).success).toBe(true);
+    expect(parse(appoint.payload).success).toBe(true);
 
     await app.inject({
       method: 'POST',
@@ -197,77 +191,135 @@ describe('Rooms (e2e)', () => {
       headers: authHeader(owner.token),
       payload: {},
     });
+    let room = await prisma.room.findUnique({ where: { id: roomId } });
+    expect(room?.hostId).toBe(BigInt(owner.id));
+    expect(room?.actingHostId).toBe(BigInt(co.id));
 
-    const rejoin = await app.inject({
+    // Acting host has the host's moderation powers.
+    const kick = await app.inject({
+      method: 'POST',
+      url: `/api/v1/rooms/${roomId}/kick`,
+      headers: authHeader(co.token),
+      payload: { user_id: viewer.id },
+    });
+    expect(parse(kick.payload).success).toBe(true);
+
+    await app.inject({
       method: 'POST',
       url: `/api/v1/rooms/${roomId}/join`,
       headers: authHeader(owner.token),
       payload: {},
     });
-    const joined = parse<{
-      room?: { host_id?: number };
-      member?: { role?: string };
-      host_reclaimed_from?: number | null;
-    }>(rejoin.payload);
-    expect(joined.success).toBe(true);
-    expect(joined.data?.room?.host_id).toBe(owner.id);
-    expect(joined.data?.member?.role).toBe('host');
-    expect(joined.data?.host_reclaimed_from).toBe(successor.id);
-
-    const successorMember = await prisma.roomMember.findFirst({
-      where: { roomId, userId: BigInt(successor.id) },
+    room = await prisma.room.findUnique({ where: { id: roomId } });
+    expect(room?.actingHostId).toBeNull();
+    expect(room?.coHostId).toBe(BigInt(co.id));
+    const coMember = await prisma.roomMember.findFirst({
+      where: { roomId, userId: BigInt(co.id) },
     });
-    expect(successorMember?.role).toBe('speaker');
+    expect(coMember?.role).toBe('co_host');
   });
 
-  it('private room: owner who stays active keeps a deliberate host transfer on re-join', async () => {
-    const owner = await registerVerified(app, { name: 'Owner2' });
-    const other = await registerVerified(app, { name: 'Other2' });
+  it('host away, no co-host: admin acts, then a seated member; roles revert on host return', async () => {
+    const owner = await registerVerified(app, { name: 'ChainOwner' });
+    const admin = await registerVerified(app, { name: 'ChainAdmin' });
+    const member = await registerVerified(app, { name: 'ChainMember' });
     const created = await app.inject({
       method: 'POST',
       url: '/api/v1/rooms',
       headers: authHeader(owner.token),
-      payload: {
-        title: `Host keep ${Date.now()}`,
-        max_seats: 8,
-        is_private: true,
-        password: '1234',
-      },
+      payload: { title: `Acting chain ${Date.now()}`, max_seats: 8 },
     });
     const roomId = parse<{ id: string }>(created.payload).data!.id;
-    for (const u of [owner, other]) {
-      const j = await app.inject({
+    for (const u of [owner, admin, member]) {
+      await app.inject({
         method: 'POST',
         url: `/api/v1/rooms/${roomId}/join`,
         headers: authHeader(u.token),
-        payload: { password: '1234' },
+        payload: {},
       });
-      expect(parse(j.payload).success).toBe(true);
     }
+    const addAdmin = await app.inject({
+      method: 'POST',
+      url: `/api/v1/rooms/${roomId}/admins`,
+      headers: authHeader(owner.token),
+      payload: { user_id: admin.id },
+    });
+    expect(parse(addAdmin.payload).success).toBe(true);
+    const seat = await app.inject({
+      method: 'POST',
+      url: `/api/v1/rooms/${roomId}/seats/3/assign`,
+      headers: authHeader(owner.token),
+      payload: { user_id: member.id },
+    });
+    expect(parse(seat.payload).success).toBe(true);
+
     await app.inject({
+      method: 'POST',
+      url: `/api/v1/rooms/${roomId}/leave`,
+      headers: authHeader(owner.token),
+      payload: {},
+    });
+    let room = await prisma.room.findUnique({ where: { id: roomId } });
+    expect(room?.actingHostId).toBe(BigInt(admin.id));
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/v1/rooms/${roomId}/leave`,
+      headers: authHeader(admin.token),
+      payload: {},
+    });
+    room = await prisma.room.findUnique({ where: { id: roomId } });
+    expect(room?.actingHostId).toBe(BigInt(member.id));
+    let m = await prisma.roomMember.findFirst({ where: { roomId, userId: BigInt(member.id) } });
+    expect(m?.role).toBe('co_host');
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/v1/rooms/${roomId}/join`,
+      headers: authHeader(owner.token),
+      payload: {},
+    });
+    room = await prisma.room.findUnique({ where: { id: roomId } });
+    expect(room?.actingHostId).toBeNull();
+    m = await prisma.roomMember.findFirst({ where: { roomId, userId: BigInt(member.id) } });
+    expect(m?.role).toBe('speaker');
+    // The admin appointment itself was never touched.
+    const admins = await prisma.roomStaffAdmin.findMany({ where: { roomId } });
+    expect(admins.map((a) => a.userId)).toEqual([BigInt(admin.id)]);
+  });
+
+  it('host cannot be transferred to another user', async () => {
+    const owner = await registerVerified(app, { name: 'NoXferOwner' });
+    const other = await registerVerified(app, { name: 'NoXferOther' });
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/rooms',
+      headers: authHeader(owner.token),
+      payload: { title: `No transfer ${Date.now()}`, max_seats: 8 },
+    });
+    const roomId = parse<{ id: string }>(created.payload).data!.id;
+    for (const u of [owner, other]) {
+      await app.inject({
+        method: 'POST',
+        url: `/api/v1/rooms/${roomId}/join`,
+        headers: authHeader(u.token),
+        payload: {},
+      });
+    }
+    const transfer = await app.inject({
       method: 'POST',
       url: `/api/v1/rooms/${roomId}/transfer-host`,
       headers: authHeader(owner.token),
       payload: { user_id: other.id },
     });
-    const again = await app.inject({
-      method: 'POST',
-      url: `/api/v1/rooms/${roomId}/join`,
-      headers: authHeader(owner.token),
-      payload: {},
-    });
-    const data = parse<{ room?: { host_id?: number } }>(again.payload);
-    expect(data.data?.room?.host_id).toBe(other.id);
-
-    const reclaim = await app.inject({
+    expect(parse(transfer.payload).success).toBe(false);
+    const self = await app.inject({
       method: 'POST',
       url: `/api/v1/rooms/${roomId}/transfer-host`,
       headers: authHeader(owner.token),
       payload: { user_id: owner.id },
     });
-    expect(parse(reclaim.payload).success).toBe(true);
-    const room = await prisma.room.findUnique({ where: { id: roomId } });
-    expect(room?.hostId).toBe(BigInt(owner.id));
+    expect(parse(self.payload).success).toBe(true);
   });
 
   it('sendBatchGift delivers to all occupants atomically', async () => {

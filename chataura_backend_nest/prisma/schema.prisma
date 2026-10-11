@@ -537,6 +537,9 @@ model Room {
   ownerId          BigInt    @map("owner_id")
   hostId           BigInt?   @map("host_id")
   coHostId         BigInt?   @map("co_host_id")
+  /// Holds the host's powers while the host is away (resolveActingHost): the host's co-host,
+  /// else an admin, else a seated member. Null while the host is in the room.
+  actingHostId     BigInt?   @map("acting_host_id")
   agoraChannelName String    @map("agora_channel_name") @db.VarChar(128)
   maxSeats         Int       @default(8) @map("max_seats")
   /// Live state version (RoomStateService): strictly increasing, wall-clock floored (ms).

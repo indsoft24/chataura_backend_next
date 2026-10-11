@@ -243,6 +243,34 @@ export class RoomController {
     );
   }
 
+  @Delete('rooms/:id/co-host')
+  clearCoHost(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.rooms.clearCoHost(user.id, id);
+  }
+
+  @Post('rooms/:id/admins')
+  addAdmin(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body()
+    body: { target_uid?: number | string; user_id?: number | string },
+  ) {
+    return this.rooms.addStaffAdmin(
+      user.id,
+      id,
+      BigInt(String(body.target_uid ?? body.user_id)),
+    );
+  }
+
+  @Delete('rooms/:id/admins/:userId')
+  removeAdmin(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.rooms.removeStaffAdmin(user.id, id, BigInt(userId));
+  }
+
   @Post('rooms/:id/transfer-host')
   transferHost(
     @CurrentUser() user: AuthUser,

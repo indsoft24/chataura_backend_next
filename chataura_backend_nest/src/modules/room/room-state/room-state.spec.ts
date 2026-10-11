@@ -25,6 +25,8 @@ const state = (seats: LiveSeat[], online = 3): LiveRoomState => ({
   host_id: 1,
   owner_id: 1,
   co_host_id: null,
+  acting_host_id: null,
+  host_present: true,
   admin_ids: [],
   max_seats: 3,
   seat_mode: 'request',
