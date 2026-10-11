@@ -101,9 +101,9 @@ export default function StaffPage() {
         <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 16px 0', color: '#111827' }}>Promote User to Staff / Seller</h2>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: '220px', maxWidth: '360px' }}>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 600 }}>User ID</div>
+            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 600 }}>User ID / Display ID</div>
             <input
-              placeholder="e.g. 102"
+              placeholder="e.g. 102 or 5575178"
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
               style={{ margin: 0 }}

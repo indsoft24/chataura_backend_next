@@ -65,9 +65,9 @@ export class GameController {
   @Post('lucky77/bet')
   luckyBet(
     @CurrentUser() user: AuthUser,
-    @Body() body: { option: string; amount: number },
+    @Body() body: { option: string; amount: number; client_uuid?: string },
   ) {
-    return this.games.luckyBet(user.id, body.option, Number(body.amount));
+    return this.games.luckyBet(user.id, body.option, Number(body.amount), body.client_uuid);
   }
 
   @Throttle({ default: { limit: 120, ttl: seconds(60) } })

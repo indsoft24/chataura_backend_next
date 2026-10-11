@@ -795,7 +795,14 @@ export class AdminService {
       badge_type?: string;
     },
   ) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { id: userId },
+          { displayId: String(userId) },
+        ],
+      },
+    });
     if (!user) {
       throw new NotFoundException({
         success: false,
@@ -806,16 +813,31 @@ export class AdminService {
     const staffBadge =
       body.staff_badge_type ?? body.badge_type ?? undefined;
     const demoting = nextRole === 'user';
+    let roleFrameId: bigint | null | undefined = undefined;
+    if (demoting) {
+      roleFrameId = null;
+    } else if (staffBadge === 'ceo' && !user.selectedRoleFrameId) {
+      roleFrameId = 223n;
+    } else if (staffBadge === 'manager' && !user.selectedRoleFrameId) {
+      roleFrameId = 224n;
+    } else if (staffBadge === 'admin' && !user.selectedRoleFrameId) {
+      roleFrameId = 225n;
+    }
     const updated = await this.prisma.user.update({
-      where: { id: userId },
+      where: { id: user.id },
       data: {
         role: nextRole,
         ...(body.email ? { email: body.email } : {}),
         ...(demoting
           ? { staffBadgeType: null, selectedRoleFrameId: null }
           : staffBadge !== undefined
-            ? { staffBadgeType: staffBadge || null }
-            : {}),
+            ? {
+                staffBadgeType: staffBadge || null,
+                ...(roleFrameId !== undefined ? { selectedRoleFrameId: roleFrameId } : {}),
+              }
+            : roleFrameId !== undefined
+              ? { selectedRoleFrameId: roleFrameId }
+              : {}),
         accountStatus: 'active',
         isSuspended: false,
         deletedAt: null,

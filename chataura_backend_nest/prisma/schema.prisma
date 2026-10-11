@@ -860,11 +860,14 @@ model Lucky77Bet {
   potentialPayout BigInt        @map("potential_payout")
   actualPayout    BigInt        @default(0) @map("actual_payout")
   status          GameBetStatus @default(placed)
+  /// Client request id: a retried bet (timeout, double tap) is applied exactly once.
+  clientUuid      String?       @map("client_uuid") @db.VarChar(64)
   createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
 
   round Lucky77Round @relation(fields: [roundId], references: [id], onDelete: Cascade)
   user  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, clientUuid])
   @@index([roundId, userId])
   @@map("lucky77_bets")
 }

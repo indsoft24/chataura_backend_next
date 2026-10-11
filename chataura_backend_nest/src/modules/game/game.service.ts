@@ -350,7 +350,39 @@ export class GameService {
     };
   }
 
-  async luckyBet(userId: bigint, option: string, amount: number) {
+  /** The response for a stored bet (also returned for an idempotent retry). */
+  private async luckyBetResponse(userId: bigint, roundId: bigint, option: string, placed: number) {
+    const [all, user] = await Promise.all([
+      this.prisma.lucky77Bet.findMany({ where: { roundId, userId, option } }),
+      this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { walletBalance: true } }),
+    ]);
+    return {
+      option,
+      placed_amount: placed,
+      total_on_option: all.reduce((s, b) => s + Number(b.chipAmount), 0),
+      remaining_balance: Number(user.walletBalance),
+      round_id: Number(roundId),
+    };
+  }
+
+  private async luckyPriorBet(userId: bigint, requestId: string | null) {
+    if (!requestId) return null;
+    const prior = await this.prisma.lucky77Bet.findUnique({
+      where: { userId_clientUuid: { userId, clientUuid: requestId } },
+    });
+    if (!prior) return null;
+    return {
+      ...(await this.luckyBetResponse(userId, prior.roundId, prior.option, Number(prior.chipAmount))),
+      duplicate: true,
+    };
+  }
+
+  async luckyBet(userId: bigint, option: string, amount: number, clientUuid?: string) {
+    const requestId =
+      typeof clientUuid === 'string' && /^[\w-]{8,64}$/.test(clientUuid) ? clientUuid : null;
+    // Retry of a bet the server already took (the phone timed out): never charge twice.
+    const prior = await this.luckyPriorBet(userId, requestId);
+    if (prior) return prior;
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
     });
@@ -386,99 +418,104 @@ export class GameService {
     }
     const spec = LUCKY77_OPTIONS[option];
     const lockKey = `lucky77_bet_${round.id}_${userId}`;
-    const after = await this.prisma.$transaction(async (tx) => {
-      // Serialize this user's bets for the round: parallel requests can no longer
-      // each read "no conflicting option yet" and both get through.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
-      // Shared lock on the round row. Settlement takes FOR UPDATE SKIP LOCKED on it,
-      // so a bet can never be written into a round that is being / has been settled.
-      const locked = await tx.$queryRaw<
-        Array<{ phase: string; betting_ends_at: Date }>
-      >`SELECT phase, betting_ends_at FROM lucky77_rounds WHERE id = ${round.id} FOR SHARE`;
-      const current = locked[0];
-      if (
-        !current ||
-        current.phase !== 'betting' ||
-        secondsRemaining(new Date(current.betting_ends_at)) <= 1
-      ) {
-        throw bettingClosed();
-      }
+    let after: bigint;
+    try {
+      after = await this.prisma.$transaction(async (tx) => {
+        // Serialize this user's bets for the round: parallel requests can no longer
+        // each read "no conflicting option yet" and both get through.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+        // Shared lock on the round row. Settlement takes FOR UPDATE SKIP LOCKED on it,
+        // so a bet can never be written into a round that is being / has been settled.
+        const locked = await tx.$queryRaw<
+          Array<{ phase: string; betting_ends_at: Date }>
+        >`SELECT phase, betting_ends_at FROM lucky77_rounds WHERE id = ${round.id} FOR SHARE`;
+        const current = locked[0];
+        if (
+          !current ||
+          current.phase !== 'betting' ||
+          secondsRemaining(new Date(current.betting_ends_at)) <= 1
+        ) {
+          throw bettingClosed();
+        }
 
-      const existing = await tx.lucky77Bet.findMany({
-        where: { roundId: round.id, userId },
-        select: { option: true },
-      });
-      const options = new Set(existing.map((e) => e.option));
-      if (lucky77ComboError(options, option)) {
-        throw new BadRequestException({
-          success: false,
-          error: {
-            code: 'FRUIT_CONFLICT',
-            message:
-              'You can choose only one fruit per round (Watermelon or Plum). You may also add 77.',
-          },
+        const existing = await tx.lucky77Bet.findMany({
+          where: { roundId: round.id, userId },
+          select: { option: true },
         });
-      }
-      if (!options.has(option) && options.size >= 2) {
-        throw new BadRequestException({
-          success: false,
-          error: {
-            code: 'MAX_OPTIONS',
-            message: 'Maximum 2 options per round',
-          },
-        });
-      }
-
-      try {
-        const { after } = await this.ledger.debitCoins(
-          tx,
-          userId,
-          amount,
-          'GAME_LUCKY77',
-          `Lucky77 ${option}`,
-          `lucky77_${round.id}_${option}_${Date.now()}`,
-          undefined,
-          {
-            source: 'game',
-            currency: 'coins',
-            round_id: round.id.toString(),
-            option,
-          },
-        );
-        await tx.lucky77Bet.create({
-          data: {
-            roundId: round.id,
-            userId,
-            option,
-            chipAmount: BigInt(amount),
-            multiplier: spec.multiplier,
-            potentialPayout: BigInt(amount * spec.multiplier),
-          },
-        });
-        return after;
-      } catch (e) {
-        if ((e as { code?: string }).code === 'INSUFFICIENT_BALANCE') {
+        const options = new Set(existing.map((e) => e.option));
+        if (lucky77ComboError(options, option)) {
           throw new BadRequestException({
             success: false,
             error: {
-              code: 'INSUFFICIENT_BALANCE',
-              message: 'Insufficient coin balance',
+              code: 'FRUIT_CONFLICT',
+              message:
+                'You can choose only one fruit per round (Watermelon or Plum). You may also add 77.',
             },
           });
         }
-        throw e;
+        if (!options.has(option) && options.size >= 2) {
+          throw new BadRequestException({
+            success: false,
+            error: {
+              code: 'MAX_OPTIONS',
+              message: 'Maximum 2 options per round',
+            },
+          });
+        }
+
+        try {
+          const { after } = await this.ledger.debitCoins(
+            tx,
+            userId,
+            amount,
+            'GAME_LUCKY77',
+            `Lucky77 ${option}`,
+            requestId
+              ? `lucky77_${round.id}_${option}_${requestId}`
+              : `lucky77_${round.id}_${option}_${Date.now()}`,
+            undefined,
+            {
+              source: 'game',
+              currency: 'coins',
+              round_id: round.id.toString(),
+              option,
+            },
+          );
+          await tx.lucky77Bet.create({
+            data: {
+              roundId: round.id,
+              userId,
+              option,
+              chipAmount: BigInt(amount),
+              multiplier: spec.multiplier,
+              potentialPayout: BigInt(amount * spec.multiplier),
+              clientUuid: requestId,
+            },
+          });
+          return after;
+        } catch (e) {
+          if ((e as { code?: string }).code === 'INSUFFICIENT_BALANCE') {
+            throw new BadRequestException({
+              success: false,
+              error: {
+                code: 'INSUFFICIENT_BALANCE',
+                message: 'Insufficient coin balance',
+              },
+            });
+          }
+          throw e;
+        }
+      });
+    } catch (e) {
+      // Two copies of the same request raced: the second hits the unique key → the first's bet.
+      if (requestId && (e as { code?: string }).code === 'P2002') {
+        const dup = await this.luckyPriorBet(userId, requestId);
+        if (dup) return dup;
       }
-    });
-    const all = await this.prisma.lucky77Bet.findMany({
-      where: { roundId: round.id, userId, option },
-    });
-    return {
-      option,
-      placed_amount: amount,
-      total_on_option: all.reduce((s, b) => s + Number(b.chipAmount), 0),
-      remaining_balance: Number(after),
-      round_id: Number(round.id),
-    };
+      throw e;
+    }
+    void after;
+    return this.luckyBetResponse(userId, round.id, option, amount);
   }
 
   async luckyResult(userId: bigint, roundId: bigint) {
@@ -504,8 +541,18 @@ export class GameService {
     for (const b of bets) {
       userBets[b.option] = (userBets[b.option] ?? 0) + Number(b.chipAmount);
     }
+    const poolsRaw = await this.prisma.lucky77Bet.groupBy({
+      by: ['option'],
+      where: { roundId },
+      _sum: { chipAmount: true },
+    });
+    const pools = { watermelon: 0, lucky_77: 0, plum: 0 };
+    for (const p of poolsRaw) {
+      pools[p.option as keyof typeof pools] = Number(p._sum.chipAmount ?? 0n);
+    }
     return {
       round_id: Number(round.id),
+      pools,
       winning_item: round.winningItem,
       winning_multiplier: round.winningMultiplier,
       user_payout: bets.reduce((s, b) => s + Number(b.actualPayout), 0),
