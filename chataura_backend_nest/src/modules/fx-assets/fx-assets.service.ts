@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 import { basename, resolve } from 'path';
 import {
   BadRequestException,
@@ -91,6 +92,61 @@ export class FxAssetsService {
       });
     }
     return serializeItem(row);
+  }
+
+  /**
+   * Upload one validated file to GCS under an immutable content-hashed path and point
+   * [assetKey] at it (version bumps so clients refresh their cached copy).
+   */
+  async uploadBuffer(opts: {
+    assetKey: string;
+    category: string;
+    mediaType: string;
+    objectDir: string;
+    filePrefix: string;
+    ext: string;
+    buffer: Buffer;
+    androidUsage?: string;
+  }) {
+    const checksum = createHash('sha256').update(opts.buffer).digest('hex');
+    const objectPath = `${opts.objectDir}/${opts.filePrefix}_${checksum.slice(0, 12)}.${opts.ext}`;
+    const localPath = resolve(tmpdir(), `fx_${checksum}.${opts.ext}`);
+    writeFileSync(localPath, opts.buffer);
+    try {
+      const uploaded = await uploadPublicFile({
+        localPath,
+        objectPath,
+        contentType: contentTypeForPath(localPath),
+      });
+      const existing = await this.prisma.appFxAsset.findUnique({
+        where: { assetKey: opts.assetKey },
+      });
+      const changed = !existing || existing.checksum !== checksum || existing.url !== uploaded.url;
+      const version = existing ? (changed ? existing.version + 1 : existing.version) : 1;
+      const data = {
+        category: opts.category,
+        mediaType: opts.mediaType,
+        objectPath: uploaded.objectPath,
+        url: uploaded.url,
+        version,
+        bytes: opts.buffer.length,
+        checksum,
+        androidUsage: opts.androidUsage ?? existing?.androidUsage ?? null,
+        isActive: true,
+      };
+      const row = await this.prisma.appFxAsset.upsert({
+        where: { assetKey: opts.assetKey },
+        create: { assetKey: opts.assetKey, ...data },
+        update: data,
+      });
+      return serializeItem(row);
+    } finally {
+      try {
+        unlinkSync(localPath);
+      } catch {
+        // temp file already gone
+      }
+    }
   }
 
   async importFromDir(

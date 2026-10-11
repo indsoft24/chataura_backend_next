@@ -349,6 +349,8 @@ model CoinTransaction {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+  /// Reward history: a user's rows of the reward types, newest first.
+  @@index([userId, type, createdAt])
   @@index([referenceId])
   @@unique([userId, referenceId], map: "coin_transactions_user_reference_unique")
   @@map("coin_transactions")
@@ -653,6 +655,11 @@ model RocketLaunch {
   /// Jet skin LV 1–5 chosen from top contributor user.level (identical for all clients)
   jetLevel    Int      @default(3) @map("jet_level")
   topContributorId BigInt? @map("top_contributor_id")
+  /// Rocket ladder level (1..N) that launched; null for pre-ladder launches.
+  rocketLevel    Int?     @map("rocket_level")
+  levelName      String?  @map("level_name") @db.VarChar(64)
+  launchVideoUrl String?  @map("launch_video_url") @db.Text
+  themeColor     String?  @map("theme_color") @db.VarChar(16)
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   room     Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
@@ -677,6 +684,7 @@ model RocketReward {
   user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([launchId])
+  @@index([userId])
   @@map("rocket_rewards")
 }
 
@@ -694,12 +702,71 @@ model RocketCampaignConfig {
   eligibleRoomTypes         Json     @default("[\"all\"]") @map("eligible_room_types")
   rockitDurationSeconds     Int      @default(3600) @map("rockit_duration_seconds")
   status                    Boolean  @default(true)
+  /// Ladder resets to the first level daily at reset_hour in reset_timezone.
+  dailyResetEnabled         Boolean  @default(true) @map("daily_reset_enabled")
+  resetTimezone             String   @default("Asia/Kolkata") @map("reset_timezone") @db.VarChar(64)
+  resetHour                 Int      @default(4) @map("reset_hour")
+  /// RESET_PROGRESS (stay on level, progress to 0) | RESET_CYCLE (back to first level)
+  expiryMode                String   @default("RESET_PROGRESS") @map("expiry_mode") @db.VarChar(16)
+  /// Coins beyond a level's threshold seed the next level (capped below its threshold).
+  carryOverflow             Boolean  @default(true) @map("carry_overflow")
   createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                 DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   events RocketEvent[]
+  levels RocketLevelConfig[]
 
   @@map("rocket_campaign_configs")
+}
+
+/// One rung of the Rocket ladder. Events snapshot this row at creation, so edits never
+/// change a running rocket. Levels 1..N; after the top level the room restarts at the first.
+model RocketLevelConfig {
+  id                      BigInt   @id @default(autoincrement())
+  campaignId              BigInt   @map("campaign_id")
+  level                   Int
+  name                    String   @db.VarChar(64)
+  thresholdCoins          Int      @map("threshold_coins")
+  rewardPoolPercentage    Float    @map("reward_pool_percentage")
+  maxWinnersCount         Int      @map("max_winners_count")
+  /// e.g. [40,25,15,12,8] — percentages for top N; must sum to 100
+  rewardDistributionRules Json     @map("reward_distribution_rules")
+  /// Specific frame for winners; null = first N active frames (legacy behaviour)
+  frameId                 BigInt?  @map("frame_id")
+  frameWinners            Int      @default(3) @map("frame_winners")
+  frameDays               Int      @default(3) @map("frame_days")
+  xpRate                  Float    @default(0.02) @map("xp_rate")
+  minXp                   Int      @default(20) @map("min_xp")
+  /// 0 = runs until the daily reset
+  durationSeconds         Int      @default(0) @map("duration_seconds")
+  themeColor              String   @default("#22C55E") @map("theme_color") @db.VarChar(16)
+  /// Built-in jet skin 1–5 used by older clients and as video fallback
+  visualTier              Int      @default(1) @map("visual_tier")
+  launchAssetKey          String?  @map("launch_asset_key") @db.VarChar(128)
+  stationAssetKey         String?  @map("station_asset_key") @db.VarChar(128)
+  badgeAssetKey           String?  @map("badge_asset_key") @db.VarChar(128)
+  isActive                Boolean  @default(true) @map("is_active")
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  campaign RocketCampaignConfig @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, level])
+  @@map("rocket_level_configs")
+}
+
+/// Who changed Rocket campaign / level config, with full before/after snapshots.
+model RocketConfigAudit {
+  id         BigInt   @id @default(autoincrement())
+  actorId    BigInt?  @map("actor_id")
+  action     String   @db.VarChar(32)
+  campaignId BigInt?  @map("campaign_id")
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([campaignId, createdAt])
+  @@map("rocket_config_audits")
 }
 
 model RocketEvent {
@@ -712,6 +779,11 @@ model RocketEvent {
   expiresAt        DateTime @map("expires_at") @db.Timestamptz(6)
   launchId         String?  @map("launch_id") @db.Uuid
   version          Int      @default(0)
+  /// Ladder level of this event and the reset-cycle it belongs to (YYYY-MM-DD, or ALL).
+  level            Int      @default(1)
+  cycleKey         String?  @map("cycle_key") @db.VarChar(16)
+  /// Frozen RocketLevelConfig + campaign rules at creation.
+  configSnapshot   Json?    @map("config_snapshot")
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -720,6 +792,7 @@ model RocketEvent {
   contributions RocketContribution[]
 
   @@index([roomId, status])
+  @@index([roomId, cycleKey, createdAt])
   @@index([expiresAt])
   @@map("rocket_events")
 }

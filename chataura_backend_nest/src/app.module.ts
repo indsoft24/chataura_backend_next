@@ -27,6 +27,7 @@ import { RelationshipModule } from './modules/relationship/relationship.module';
 import { RankingsModule } from './modules/rankings/rankings.module';
 import { FxAssetsModule } from './modules/fx-assets/fx-assets.module';
 import { WebModule } from './modules/web/web.module';
+import { RewardsModule } from './modules/rewards/rewards.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { WebModule } from './modules/web/web.module';
     FxAssetsModule,
     AdminModule,
     WebModule,
+    RewardsModule,
   ],
   controllers: [HealthController],
   providers: [

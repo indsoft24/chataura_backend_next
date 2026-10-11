@@ -5,17 +5,44 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { Prisma } from '@prisma/client';
+import { Prisma, RocketEvent } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { RoomEvents } from './room.events';
+import {
+  activeLadder,
+  assetKeyFor,
+  AssetSlot,
+  CampaignRow,
+  clampInt,
+  cycleKeyAt,
+  DEFAULT_LADDER,
+  eventExpiry,
+  LevelInput,
+  LevelRow,
+  nextLevelAfter,
+  nextResetAt,
+  parseRules,
+  resolveLevel,
+  RocketLevelSnapshot,
+  safeTimeZone,
+  snapshotOf,
+  splitByPercent,
+  splitContribution,
+  validateLevels,
+} from './rocket-levels';
 
 const ADMIN_LIMIT = 5;
-const FRAME_DAYS = 3;
-const FRAME_WINNERS = 3;
+
+type ActiveConfig = Prisma.RocketCampaignConfigGetPayload<{ include: { levels: true } }>;
+
+/** JSON-safe copy for audit snapshots (BigInt → number, Date → ISO). */
+function toJson(value: unknown): unknown {
+  return JSON.parse(JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? Number(v) : v)));
+}
 
 /**
- * Map ChatAura user.level → jet LV 1–5 (server-authoritative for identical room FX).
+ * Legacy campaigns (no ladder levels): map ChatAura user.level → jet LV 1–5.
  * Bands assume typical progression ~0–10+; adjust here if product wants different cutoffs.
  */
 function jetLevelFromUserLevel(level: number | null | undefined): number {
@@ -44,6 +71,10 @@ export type RocketListSummary = {
   rocket_near_launch: boolean;
   /** True while an event is LAUNCHING or a launch just completed (Home badge / strip). */
   rocket_launching: boolean;
+  /** Current ladder level (0 = legacy single-threshold campaign). */
+  rocket_level: number;
+  rocket_level_name: string | null;
+  rocket_theme_color: string | null;
 };
 
 const NEAR_LAUNCH_RATIO = 0.7;
@@ -64,8 +95,12 @@ export class RocketLaunchService {
     const member = await this.prisma.roomMember.findFirst({
       where: { roomId: room.id, userId: actorId, isActive: true },
     });
-    const event = await this.getOrCreatePendingEvent(room, actorId);
-    return this.serializeState(room, admins, actorId, Boolean(member), event);
+    const config = await this.activeConfig();
+    const event =
+      config && this.roomEligible(room, config.eligibleRoomTypes)
+        ? await this.prisma.$transaction((tx) => this.ensurePendingEvent(tx, room, config))
+        : null;
+    return this.serializeState(room, admins, actorId, Boolean(member), config, event);
   }
 
   /**
@@ -86,6 +121,9 @@ export class RocketLaunchService {
       rocket_progress_percent: 0,
       rocket_near_launch: false,
       rocket_launching: false,
+      rocket_level: 0,
+      rocket_level_name: null,
+      rocket_theme_color: null,
     };
     const out = new Map<string, RocketListSummary>();
     if (rooms.length === 0) return out;
@@ -96,7 +134,6 @@ export class RocketLaunchService {
       return out;
     }
 
-    const threshold = config.launchThresholdCoins;
     const eligibleIds: string[] = [];
     for (const r of rooms) {
       if (r.isPrivate === true) {
@@ -125,12 +162,13 @@ export class RocketLaunchService {
 
     if (eligibleIds.length === 0) return out;
 
-    const launchedAfter = new Date(Date.now() - LAUNCHED_BADGE_MS);
+    const now = new Date();
+    const launchedAfter = new Date(now.getTime() - LAUNCHED_BADGE_MS);
     const events = await this.prisma.rocketEvent.findMany({
       where: {
         roomId: { in: eligibleIds },
         OR: [
-          { status: 'PENDING', expiresAt: { gt: new Date() } },
+          { status: 'PENDING', expiresAt: { gt: now } },
           { status: 'LAUNCHING' },
           { status: 'LAUNCHED', updatedAt: { gte: launchedAfter } },
         ],
@@ -139,25 +177,34 @@ export class RocketLaunchService {
         roomId: true,
         accumulatedCoins: true,
         status: true,
+        level: true,
+        configSnapshot: true,
         updatedAt: true,
       },
       orderBy: { updatedAt: 'desc' },
     });
-    // Prefer the most recent active event per room.
-    const byRoom = new Map<string, (typeof events)[number]>();
+    // A launch leaves a recent LAUNCHED row plus the next level's PENDING row: badge shows
+    // "launching" for the former, progress comes from the latter.
+    const pendingByRoom = new Map<string, (typeof events)[number]>();
+    const launchingByRoom = new Map<string, (typeof events)[number]>();
     for (const e of events) {
-      if (!byRoom.has(e.roomId)) byRoom.set(e.roomId, e);
+      if (e.status === 'PENDING') {
+        if (!pendingByRoom.has(e.roomId)) pendingByRoom.set(e.roomId, e);
+      } else if (!launchingByRoom.has(e.roomId)) {
+        launchingByRoom.set(e.roomId, e);
+      }
     }
 
     for (const id of eligibleIds) {
-      const ev = byRoom.get(id);
+      const launchEv = launchingByRoom.get(id);
+      const ev = launchEv ?? pendingByRoom.get(id);
       if (!ev) {
         out.set(id, empty);
         continue;
       }
-      const launching =
-        ev.status === 'LAUNCHING' ||
-        (ev.status === 'LAUNCHED' && ev.updatedAt.getTime() >= launchedAfter.getTime());
+      const snap = this.snapshotFromEvent(ev, config);
+      const threshold = snap.threshold;
+      const launching = Boolean(launchEv);
       const coins = ev.accumulatedCoins ?? 0;
       const percent = launching
         ? 100
@@ -169,11 +216,11 @@ export class RocketLaunchService {
         rocket_threshold_coins: threshold,
         rocket_progress_percent: percent,
         rocket_near_launch:
-          launching ||
-          (ev.status === 'PENDING' &&
-            threshold > 0 &&
-            coins / threshold >= NEAR_LAUNCH_RATIO),
+          launching || (threshold > 0 && coins / threshold >= NEAR_LAUNCH_RATIO),
         rocket_launching: launching,
+        rocket_level: snap.legacy_jet ? 0 : snap.level,
+        rocket_level_name: snap.legacy_jet ? null : snap.name,
+        rocket_theme_color: snap.legacy_jet ? null : snap.theme_color,
       });
     }
     return out;
@@ -350,70 +397,350 @@ export class RocketLaunchService {
   async listCampaigns() {
     const rows = await this.prisma.rocketCampaignConfig.findMany({
       orderBy: [{ status: 'desc' }, { id: 'desc' }],
+      include: { levels: { orderBy: { level: 'asc' } } },
     });
-    return { campaigns: rows.map((r) => this.serializeCampaign(r)) };
+    // Current GCS URL per asset key so the admin can preview each level's media.
+    const keys = rows.flatMap((r) =>
+      r.levels.flatMap((l) => [
+        l.launchAssetKey,
+        l.stationAssetKey,
+        l.badgeAssetKey,
+        assetKeyFor('launch', l.level),
+        assetKeyFor('station', l.level),
+        assetKeyFor('badge', l.level),
+        assetKeyFor('launch', l.visualTier),
+      ]),
+    );
+    const urls = await this.assetUrls([...keys, 'rocket.station_idle']);
+    return {
+      campaigns: rows.map((r) => this.serializeCampaign(r)),
+      asset_urls: Object.fromEntries(urls),
+    };
   }
 
-  async upsertCampaign(body: {
-    id?: number | string;
-    name?: string;
-    launch_threshold_coins: number;
-    reward_pool_percentage?: number;
-    max_winners_count?: number;
-    reward_distribution_rules?: number[];
-    minimum_contribution_required?: number;
-    eligible_room_types?: string[];
-    rockit_duration_seconds?: number;
-    status?: boolean;
-  }) {
-    const threshold = Math.floor(Number(body.launch_threshold_coins));
-    if (!Number.isFinite(threshold) || threshold < 1) {
-      throw new BadRequestException({
+  async upsertCampaign(
+    body: {
+      id?: number | string;
+      name?: string;
+      launch_threshold_coins?: number;
+      reward_pool_percentage?: number;
+      max_winners_count?: number;
+      reward_distribution_rules?: number[];
+      minimum_contribution_required?: number;
+      eligible_room_types?: string[];
+      rockit_duration_seconds?: number;
+      status?: boolean;
+      daily_reset_enabled?: boolean;
+      reset_timezone?: string;
+      reset_hour?: number;
+      expiry_mode?: string;
+      carry_overflow?: boolean;
+    },
+    actorId?: bigint,
+  ) {
+    const id = body.id != null ? BigInt(body.id) : null;
+    const before = id
+      ? await this.prisma.rocketCampaignConfig.findUnique({
+          where: { id },
+          include: { levels: { orderBy: { level: 'asc' } } },
+        })
+      : null;
+    if (id && !before) {
+      throw new NotFoundException({
         success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'launch_threshold_coins required' },
+        error: { code: 'NOT_FOUND', message: 'Campaign not found' },
       });
+    }
+
+    // Legacy single-threshold field: only used when a campaign has no levels.
+    const threshold = Math.floor(
+      Number(body.launch_threshold_coins ?? before?.launchThresholdCoins ?? DEFAULT_LADDER[0].threshold_coins),
+    );
+    if (!Number.isFinite(threshold) || threshold < 1) {
+      throw this.validation('launch_threshold_coins must be a positive integer');
+    }
+    const tz = (body.reset_timezone ?? before?.resetTimezone ?? 'Asia/Kolkata').trim();
+    if (safeTimeZone(tz) !== tz) throw this.validation(`Unknown timezone: ${tz}`);
+    const expiryMode = body.expiry_mode ?? before?.expiryMode ?? 'RESET_PROGRESS';
+    if (expiryMode !== 'RESET_PROGRESS' && expiryMode !== 'RESET_CYCLE') {
+      throw this.validation('expiry_mode must be RESET_PROGRESS or RESET_CYCLE');
     }
     const rules = Array.isArray(body.reward_distribution_rules)
       ? body.reward_distribution_rules.map((n) => Number(n)).filter((n) => n > 0)
-      : [40, 25, 15, 10, 5, 3, 2];
+      : ((before?.rewardDistributionRules as number[] | undefined) ?? [40, 25, 15, 10, 5, 3, 2]);
     const data = {
-      name: (body.name || 'Rockit').slice(0, 128),
+      name: (body.name ?? before?.name ?? 'Rockit').slice(0, 128),
       launchThresholdCoins: threshold,
-      rewardPoolPercentage: Number(body.reward_pool_percentage ?? 50),
-      maxWinnersCount: Math.max(1, Math.floor(Number(body.max_winners_count ?? 7))),
+      rewardPoolPercentage: Number(body.reward_pool_percentage ?? before?.rewardPoolPercentage ?? 15),
+      maxWinnersCount: Math.max(1, Math.floor(Number(body.max_winners_count ?? before?.maxWinnersCount ?? 7))),
       rewardDistributionRules: rules,
       minimumContributionRequired: Math.max(
         1,
-        Math.floor(Number(body.minimum_contribution_required ?? 1)),
+        Math.floor(Number(body.minimum_contribution_required ?? before?.minimumContributionRequired ?? 1)),
       ),
       eligibleRoomTypes: Array.isArray(body.eligible_room_types)
         ? body.eligible_room_types
-        : ['all'],
+        : ((before?.eligibleRoomTypes as string[] | undefined) ?? ['all']),
       rockitDurationSeconds: Math.max(
         60,
-        Math.floor(Number(body.rockit_duration_seconds ?? 3600)),
+        Math.floor(Number(body.rockit_duration_seconds ?? before?.rockitDurationSeconds ?? 3600)),
       ),
-      status: body.status !== false,
+      status: body.status ?? before?.status ?? true,
+      dailyResetEnabled: body.daily_reset_enabled ?? before?.dailyResetEnabled ?? true,
+      resetTimezone: tz,
+      resetHour: clampInt(body.reset_hour ?? before?.resetHour ?? 4, 0, 23),
+      expiryMode,
+      carryOverflow: body.carry_overflow ?? before?.carryOverflow ?? true,
     };
 
-    const id = body.id != null ? BigInt(body.id) : null;
-    const row = id
-      ? await this.prisma.rocketCampaignConfig.update({ where: { id }, data })
-      : await this.prisma.rocketCampaignConfig.create({ data });
-
-    // Only one active campaign at a time when activating
-    if (row.status) {
-      await this.prisma.rocketCampaignConfig.updateMany({
-        where: { id: { not: row.id }, status: true },
-        data: { status: false },
+    const row = await this.prisma.$transaction(async (tx) => {
+      const saved = id
+        ? await tx.rocketCampaignConfig.update({ where: { id }, data })
+        : await tx.rocketCampaignConfig.create({ data });
+      if (!id) {
+        // New campaigns start with the standard LV1–LV5 ladder.
+        await tx.rocketLevelConfig.createMany({
+          data: DEFAULT_LADDER.map((l) => this.levelData(saved.id, l)),
+        });
+      }
+      // Only one active campaign at a time when activating
+      if (saved.status) {
+        await tx.rocketCampaignConfig.updateMany({
+          where: { id: { not: saved.id }, status: true },
+          data: { status: false },
+        });
+      }
+      const full = await tx.rocketCampaignConfig.findUniqueOrThrow({
+        where: { id: saved.id },
+        include: { levels: { orderBy: { level: 'asc' } } },
       });
-    }
+      await this.audit(tx, actorId, id ? 'CAMPAIGN_UPDATE' : 'CAMPAIGN_CREATE', saved.id, before, full);
+      return full;
+    });
     return { campaign: this.serializeCampaign(row) };
   }
 
-  async deleteCampaign(id: bigint) {
-    await this.prisma.rocketCampaignConfig.delete({ where: { id } });
+  async deleteCampaign(id: bigint, actorId?: bigint) {
+    const before = await this.prisma.rocketCampaignConfig.findUnique({
+      where: { id },
+      include: { levels: true },
+    });
+    const events = await this.prisma.rocketEvent.count({ where: { configId: id } });
+    if (events > 0) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'CAMPAIGN_IN_USE',
+          message: 'This campaign has rocket history. Deactivate it instead of deleting.',
+        },
+      });
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.rocketCampaignConfig.delete({ where: { id } });
+      await this.audit(tx, actorId, 'CAMPAIGN_DELETE', id, before, null);
+    });
     return { deleted: true };
+  }
+
+  /** Replace a campaign's ladder (levels 1..N). Running events keep their snapshot. */
+  async saveLevels(campaignId: bigint, levels: LevelInput[], actorId?: bigint) {
+    const errors = validateLevels(levels);
+    if (errors.length) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: errors[0], details: errors },
+      });
+    }
+    const frameIds = levels.map((l) => l.frame_id).filter((f): f is number => f != null);
+    if (frameIds.length) {
+      const found = await this.prisma.frame.count({ where: { id: { in: frameIds.map(BigInt) } } });
+      if (found !== new Set(frameIds).size) throw this.validation('One of the selected frames does not exist');
+    }
+    const campaign = await this.prisma.rocketCampaignConfig.findUnique({
+      where: { id: campaignId },
+      include: { levels: { orderBy: { level: 'asc' } } },
+    });
+    if (!campaign) {
+      throw new NotFoundException({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Campaign not found' },
+      });
+    }
+    const full = await this.prisma.$transaction(async (tx) => {
+      const keep = levels.map((l) => l.level);
+      await tx.rocketLevelConfig.deleteMany({ where: { campaignId, level: { notIn: keep } } });
+      for (const l of levels) {
+        const data = this.levelData(campaignId, l);
+        await tx.rocketLevelConfig.upsert({
+          where: { campaignId_level: { campaignId, level: l.level } },
+          create: data,
+          update: data,
+        });
+      }
+      const after = await tx.rocketCampaignConfig.findUniqueOrThrow({
+        where: { id: campaignId },
+        include: { levels: { orderBy: { level: 'asc' } } },
+      });
+      await this.audit(tx, actorId, 'LEVELS_SAVE', campaignId, campaign, after);
+      return after;
+    });
+    return { campaign: this.serializeCampaign(full) };
+  }
+
+  /** Point a level's launch/station/badge slot at an uploaded FX asset key. */
+  async attachLevelAsset(
+    campaignId: bigint,
+    level: number,
+    slot: AssetSlot,
+    assetKey: string,
+    actorId?: bigint,
+  ) {
+    const row = await this.prisma.rocketLevelConfig.findUnique({
+      where: { campaignId_level: { campaignId, level } },
+    });
+    if (!row) {
+      throw new NotFoundException({
+        success: false,
+        error: { code: 'NOT_FOUND', message: `LV${level} does not exist on this campaign` },
+      });
+    }
+    const field =
+      slot === 'launch' ? 'launchAssetKey' : slot === 'station' ? 'stationAssetKey' : 'badgeAssetKey';
+    await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.rocketLevelConfig.update({
+        where: { id: row.id },
+        data: { [field]: assetKey },
+      });
+      await this.audit(tx, actorId, `ASSET_${slot.toUpperCase()}`, campaignId, row, updated);
+    });
+    return this.listCampaigns();
+  }
+
+  async auditLog(campaignId?: bigint, limit = 50) {
+    const rows = await this.prisma.rocketConfigAudit.findMany({
+      where: campaignId ? { campaignId } : {},
+      orderBy: { id: 'desc' },
+      take: Math.min(200, Math.max(1, limit)),
+    });
+    return {
+      entries: rows.map((r) => ({
+        id: Number(r.id),
+        actor_id: r.actorId == null ? null : Number(r.actorId),
+        action: r.action,
+        campaign_id: r.campaignId == null ? null : Number(r.campaignId),
+        before: r.before,
+        after: r.after,
+        created_at: r.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  /** Restore a campaign's settings + ladder to the "before" state of an audit entry. */
+  async restoreFromAudit(auditId: bigint, actorId?: bigint) {
+    const entry = await this.prisma.rocketConfigAudit.findUnique({ where: { id: auditId } });
+    const before = entry?.before as
+      | (Record<string, unknown> & { id: string | number; levels?: Array<Record<string, unknown>> })
+      | null
+      | undefined;
+    if (!entry || !before || entry.campaignId == null) {
+      throw this.validation('This change has no earlier version to restore');
+    }
+    await this.upsertCampaign(
+      {
+        id: Number(entry.campaignId),
+        name: before.name as string,
+        launch_threshold_coins: Number(before.launchThresholdCoins),
+        reward_pool_percentage: Number(before.rewardPoolPercentage),
+        max_winners_count: Number(before.maxWinnersCount),
+        reward_distribution_rules: before.rewardDistributionRules as number[],
+        minimum_contribution_required: Number(before.minimumContributionRequired),
+        eligible_room_types: before.eligibleRoomTypes as string[],
+        rockit_duration_seconds: Number(before.rockitDurationSeconds),
+        status: before.status as boolean,
+        daily_reset_enabled: before.dailyResetEnabled as boolean | undefined,
+        reset_timezone: before.resetTimezone as string | undefined,
+        reset_hour: before.resetHour as number | undefined,
+        expiry_mode: before.expiryMode as string | undefined,
+        carry_overflow: before.carryOverflow as boolean | undefined,
+      },
+      actorId,
+    );
+    const levels = (before.levels ?? []).map((l) => this.levelInputFromRow(l));
+    if (levels.length) return this.saveLevels(entry.campaignId, levels, actorId);
+    return this.listCampaigns();
+  }
+
+  private levelInputFromRow(l: Record<string, unknown>): LevelInput {
+    return {
+      level: Number(l.level),
+      name: l.name as string,
+      threshold_coins: Number(l.thresholdCoins),
+      reward_pool_percentage: Number(l.rewardPoolPercentage),
+      reward_distribution_rules: l.rewardDistributionRules as number[],
+      frame_id: l.frameId == null ? null : Number(l.frameId),
+      frame_winners: Number(l.frameWinners),
+      frame_days: Number(l.frameDays),
+      xp_rate: Number(l.xpRate),
+      min_xp: Number(l.minXp),
+      duration_seconds: Number(l.durationSeconds),
+      theme_color: l.themeColor as string,
+      visual_tier: Number(l.visualTier),
+      launch_asset_key: (l.launchAssetKey as string | null) ?? null,
+      station_asset_key: (l.stationAssetKey as string | null) ?? null,
+      badge_asset_key: (l.badgeAssetKey as string | null) ?? null,
+      is_active: l.isActive !== false,
+    };
+  }
+
+  private levelData(campaignId: bigint, l: LevelInput) {
+    const rules = parseRules(l.reward_distribution_rules);
+    return {
+      campaignId,
+      level: l.level,
+      name: (l.name || `Level ${l.level}`).slice(0, 64),
+      thresholdCoins: Math.floor(Number(l.threshold_coins)),
+      rewardPoolPercentage: Number(l.reward_pool_percentage),
+      maxWinnersCount: Math.max(1, rules.length),
+      rewardDistributionRules: rules,
+      frameId: l.frame_id == null ? null : BigInt(l.frame_id),
+      frameWinners: clampInt(l.frame_winners ?? 3, 0, 50),
+      frameDays: clampInt(l.frame_days ?? 3, 1, 365),
+      xpRate: Math.max(0, Number(l.xp_rate ?? 0.02)),
+      minXp: clampInt(l.min_xp ?? 20, 0, 1_000_000),
+      durationSeconds: clampInt(l.duration_seconds ?? 0, 0, 7 * 86400),
+      themeColor: l.theme_color || '#22C55E',
+      visualTier: clampInt(l.visual_tier ?? Math.min(l.level, 5), 1, 5),
+      launchAssetKey: l.launch_asset_key?.trim() || null,
+      stationAssetKey: l.station_asset_key?.trim() || null,
+      badgeAssetKey: l.badge_asset_key?.trim() || null,
+      isActive: l.is_active !== false,
+    };
+  }
+
+  private async audit(
+    tx: Prisma.TransactionClient,
+    actorId: bigint | undefined,
+    action: string,
+    campaignId: bigint | null,
+    before: unknown,
+    after: unknown,
+  ) {
+    await tx.rocketConfigAudit.create({
+      data: {
+        actorId: actorId ?? null,
+        action,
+        campaignId,
+        before: before == null ? Prisma.DbNull : (toJson(before) as Prisma.InputJsonValue),
+        after: after == null ? Prisma.DbNull : (toJson(after) as Prisma.InputJsonValue),
+      },
+    });
+  }
+
+  private validation(message: string) {
+    return new BadRequestException({
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message },
+    });
   }
 
   // ─── Core crowdfund logic ──────────────────────────────────────────
@@ -445,7 +772,9 @@ export class RocketLaunchService {
           source: existing.source,
           tx_id: existing.txId,
         },
-        eventSnapshot: event ? this.eventSnapshot(event, event.config, args.userId) : null,
+        eventSnapshot: event
+          ? this.eventSnapshot(event, this.snapshotFromEvent(event, event.config))
+          : null,
         launched: event?.status === 'LAUNCHED',
         launchPayload: event?.launchId
           ? await this.launchPayload(event.launchId, null)
@@ -506,69 +835,30 @@ export class RocketLaunchService {
           );
         }
 
-        let event = await tx.rocketEvent.findFirst({
-          where: { roomId: args.room.id, status: 'PENDING' },
-          orderBy: { createdAt: 'desc' },
-        });
-
-        if (event && event.expiresAt.getTime() <= Date.now()) {
-          await tx.rocketEvent.update({
-            where: { id: event.id },
-            data: { status: 'EXPIRED' },
-          });
-          event = null;
-        }
-
-        if (!event) {
-          event = await tx.rocketEvent.create({
-            data: {
-              id: randomUUID(),
-              roomId: args.room.id,
-              configId: config.id,
-              accumulatedCoins: 0,
-              status: 'PENDING',
-              expiresAt: new Date(Date.now() + config.rockitDurationSeconds * 1000),
-            },
-          });
-        }
-
-        // Row lock via version bump
-        const locked = await tx.$queryRaw<
-          Array<{
-            id: string;
-            accumulated_coins: number;
-            status: string;
-            version: number;
-            config_id: bigint;
-          }>
-        >`
-          SELECT id, accumulated_coins, status, version, config_id
-          FROM rocket_events
-          WHERE id = ${event.id}::uuid
-          FOR UPDATE
-        `;
-        const row = locked[0];
-        if (!row || row.status !== 'PENDING') {
-          throw new BadRequestException({
-            success: false,
-            error: {
-              code: 'ROCKET_CLOSED',
-              message: 'Rockit event is no longer accepting contributions',
-            },
-          });
-        }
+        // Holds the per-room rocket lock until commit, so the read below is authoritative.
+        const event = await this.ensurePendingEvent(tx, args.room, config);
+        const snap = this.snapshotFromEvent(event, config);
+        const ladder = activeLadder(config, config.levels);
+        const next = nextLevelAfter(ladder, snap.level);
+        const split = splitContribution(
+          event.accumulatedCoins,
+          snap.threshold,
+          args.coins,
+          next.thresholdCoins,
+          config.carryOverflow,
+        );
 
         await tx.rocketContribution.create({
           data: {
             eventId: event.id,
             userId: args.userId,
-            coins: args.coins,
+            coins: split.applied,
             source: args.source,
             txId: args.txId,
           },
         });
 
-        const nextAccum = row.accumulated_coins + args.coins;
+        const nextAccum = event.accumulatedCoins + split.applied;
         await tx.rocketEvent.update({
           where: { id: event.id },
           data: {
@@ -577,14 +867,12 @@ export class RocketLaunchService {
           },
         });
 
-        eventSnapshot = {
-          status: 'PENDING',
-          current_coins: nextAccum,
-          threshold: config.launchThresholdCoins,
-          expires_at: event.expiresAt.toISOString(),
-        };
+        eventSnapshot = this.eventSnapshot(
+          { ...event, accumulatedCoins: nextAccum },
+          snap,
+        );
 
-        if (nextAccum >= config.launchThresholdCoins) {
+        if (split.launches) {
           // Claim launch exactly once
           const claim = await tx.rocketEvent.updateMany({
             where: { id: event.id, status: 'PENDING' },
@@ -595,15 +883,37 @@ export class RocketLaunchService {
               tx,
               args.room,
               event.id,
-              config,
+              snap,
               nextAccum,
             );
             launched = true;
+
+            // Next rung starts immediately (wraps to the first level after the top).
+            const legacy = this.isLegacy(config);
+            const nextEvent = await this.createEvent(
+              tx,
+              args.room.id,
+              config,
+              next,
+              legacy,
+              cycleKeyAt(new Date(), config),
+              split.carry,
+            );
+            if (split.carry > 0) {
+              await tx.rocketContribution.create({
+                data: {
+                  eventId: nextEvent.id,
+                  userId: args.userId,
+                  coins: split.carry,
+                  source: args.source,
+                  txId: `${args.txId}#carry`,
+                },
+              });
+            }
             eventSnapshot = {
-              status: 'LAUNCHED',
-              current_coins: nextAccum,
-              threshold: config.launchThresholdCoins,
+              ...this.eventSnapshot({ ...event, accumulatedCoins: nextAccum, status: 'LAUNCHED' }, snap),
               launch_id: launchPayload?.launch_id ?? null,
+              next_event: this.eventSnapshot(nextEvent, this.snapshotFromEvent(nextEvent, config)),
             };
           }
         }
@@ -639,63 +949,67 @@ export class RocketLaunchService {
     tx: Prisma.TransactionClient,
     room: RoomRow,
     eventId: string,
-    config: {
-      id: bigint;
-      launchThresholdCoins: number;
-      rewardPoolPercentage: number;
-      maxWinnersCount: number;
-      rewardDistributionRules: Prisma.JsonValue;
-    },
+    snap: RocketLevelSnapshot,
     accumulated: number,
     launcherId?: bigint,
   ): Promise<Record<string, unknown>> {
     const launchId = randomUUID();
-    const pool = Math.floor(
-      (accumulated * Number(config.rewardPoolPercentage)) / 100,
-    );
+    const pool = Math.floor((accumulated * Number(snap.reward_pool_percentage)) / 100);
 
     const aggregatesRaw = await tx.rocketContribution.groupBy({
       by: ['userId'],
       where: { eventId },
       _sum: { coins: true },
     });
-    const aggregates = [...aggregatesRaw].sort(
-      (a, b) => (b._sum.coins ?? 0) - (a._sum.coins ?? 0),
-    );
+    const aggregates = [...aggregatesRaw]
+      .filter((a) => (a._sum.coins ?? 0) > 0)
+      .sort((a, b) => (b._sum.coins ?? 0) - (a._sum.coins ?? 0));
 
-    const rules = this.parseRules(config.rewardDistributionRules, config.maxWinnersCount);
-    const winners = aggregates.slice(0, Math.min(rules.length, config.maxWinnersCount));
-    const coinShares = this.splitByPercent(pool, rules.slice(0, winners.length));
+    const rules = snap.rules.slice(0, snap.max_winners);
+    const winners = aggregates.slice(0, rules.length);
+    const coinShares = splitByPercent(pool, rules.slice(0, winners.length));
 
-    const frames = await tx.frame.findMany({
-      where: { isActive: true },
-      orderBy: { id: 'asc' },
-      take: FRAME_WINNERS,
-    });
+    // Frame reward: the level's chosen frame for the top N, else the first N active frames.
+    const frameWinners = Math.min(snap.frame_winners, winners.length);
+    let frameFor: (rank: number) => { id: bigint; name: string } | null = () => null;
+    if (frameWinners > 0) {
+      if (snap.frame_id != null) {
+        const frame = await tx.frame.findFirst({
+          where: { id: BigInt(snap.frame_id), isActive: true },
+          select: { id: true, name: true },
+        });
+        frameFor = (rank) => (frame && rank < frameWinners ? frame : null);
+      } else {
+        const frames = await tx.frame.findMany({
+          where: { isActive: true },
+          orderBy: { id: 'asc' },
+          take: frameWinners,
+          select: { id: true, name: true },
+        });
+        frameFor = (rank) => frames[rank] ?? null;
+      }
+    }
 
-    const launcher =
-      launcherId ??
-      room.hostId ??
-      room.ownerId;
-
+    const launcher = launcherId ?? room.hostId ?? room.ownerId;
     const topContributorId = winners[0]?.userId ?? launcher;
     const topUser = await tx.user.findUnique({
       where: { id: topContributorId },
-      select: {
-        id: true,
-        displayName: true,
-        name: true,
-        avatarUrl: true,
-        level: true,
-      },
+      select: { level: true },
     });
-    const jetLevel = jetLevelFromUserLevel(topUser?.level);
+    const jetLevel = snap.legacy_jet ? jetLevelFromUserLevel(topUser?.level) : snap.visual_tier;
+    const launchVideoUrl = snap.legacy_jet
+      ? null
+      : await this.firstAssetUrl(
+          [snap.launch_asset_key, `rocket.launch_lv${snap.level}`, `rocket.launch_lv${jetLevel}`],
+          tx,
+        );
 
-    const expires = new Date(Date.now() + FRAME_DAYS * 24 * 60 * 60 * 1000);
+    const xpFor = (coins: number) => Math.max(snap.min_xp, Math.round(coins * snap.xp_rate));
+    const expires = new Date(Date.now() + snap.frame_days * 24 * 60 * 60 * 1000);
     for (let i = 0; i < winners.length; i++) {
       const userId = winners[i].userId;
       const coins = coinShares[i] ?? 0;
-      const xp = Math.max(20, Math.round(coins * 0.02));
+      const xp = xpFor(coins);
       if (coins > 0) {
         await this.ledger.creditCoins(
           tx,
@@ -711,6 +1025,7 @@ export class RocketLaunchService {
             room_id: room.id,
             launch_id: launchId,
             rank: i + 1,
+            rocket_level: snap.level,
           },
         );
       }
@@ -720,24 +1035,30 @@ export class RocketLaunchService {
           data: { xp: { increment: xp }, exp: { increment: xp } },
         });
       }
-      const frame = i < frames.length ? frames[i] : null;
+      const frame = frameFor(i);
       if (frame) {
-        await tx.userUnlockedFrame.upsert({
+        const owned = await tx.userUnlockedFrame.findUnique({
           where: { userId_frameId: { userId, frameId: frame.id } },
-          create: {
-            userId,
-            frameId: frame.id,
-            coinsPaid: 0,
-            unlockType: 'rocket',
-            durationDays: FRAME_DAYS,
-            expiresAt: expires,
-          },
-          update: {
-            unlockType: 'rocket',
-            durationDays: FRAME_DAYS,
-            expiresAt: expires,
-          },
+          select: { expiresAt: true },
         });
+        if (!owned) {
+          await tx.userUnlockedFrame.create({
+            data: {
+              userId,
+              frameId: frame.id,
+              coinsPaid: 0,
+              unlockType: 'rocket',
+              durationDays: snap.frame_days,
+              expiresAt: expires,
+            },
+          });
+        } else if (owned.expiresAt != null && owned.expiresAt < expires) {
+          // Extend a timed frame; never downgrade a permanently owned one.
+          await tx.userUnlockedFrame.update({
+            where: { userId_frameId: { userId, frameId: frame.id } },
+            data: { durationDays: snap.frame_days, expiresAt: expires },
+          });
+        }
       }
     }
 
@@ -752,15 +1073,22 @@ export class RocketLaunchService {
         winnerCount: winners.length,
         jetLevel,
         topContributorId,
+        rocketLevel: snap.legacy_jet ? null : snap.level,
+        levelName: snap.legacy_jet ? null : snap.name,
+        launchVideoUrl,
+        themeColor: snap.legacy_jet ? null : snap.theme_color,
         rewards: {
-          create: winners.map((w, i) => ({
-            userId: w.userId,
-            coins: coinShares[i] ?? 0,
-            xp: Math.max(20, Math.round((coinShares[i] ?? 0) * 0.02)),
-            frameId: i < frames.length ? frames[i].id : null,
-            frameName: i < frames.length ? frames[i].name : null,
-            frameDays: i < frames.length ? FRAME_DAYS : null,
-          })),
+          create: winners.map((w, i) => {
+            const frame = frameFor(i);
+            return {
+              userId: w.userId,
+              coins: coinShares[i] ?? 0,
+              xp: xpFor(coinShares[i] ?? 0),
+              frameId: frame?.id ?? null,
+              frameName: frame?.name ?? null,
+              frameDays: frame ? snap.frame_days : null,
+            };
+          }),
         },
       },
     });
@@ -770,55 +1098,15 @@ export class RocketLaunchService {
       data: { status: 'LAUNCHED', launchId },
     });
 
-    // Build payload without leaving transaction (users for names)
-    const userIds = winners.map((w) => w.userId);
-    const users = await tx.user.findMany({
-      where: { id: { in: userIds } },
-      select: { id: true, displayName: true, name: true, avatarUrl: true, level: true },
-    });
-    const byId = new Map(users.map((u) => [u.id.toString(), u]));
-    const launcherUser = await tx.user.findUnique({
-      where: { id: launcher },
-      select: { id: true, displayName: true, name: true, avatarUrl: true },
-    });
-
-    return {
-      launch_id: launchId,
-      price: accumulated,
-      coin_pool: pool,
-      joined_count: aggregates.length,
-      winner_count: winners.length,
-      jet_level: jetLevel,
-      sender_balance_after: null,
-      launcher: {
-        id: Number(launcher),
-        name: launcherUser?.displayName || launcherUser?.name || 'Host',
-        avatar_url: launcherUser?.avatarUrl ?? null,
-      },
-      top_contributor: {
-        id: Number(topContributorId),
-        name: topUser?.displayName || topUser?.name || 'User',
-        avatar_url: topUser?.avatarUrl ?? null,
-        level: topUser?.level ?? 1,
-      },
-      rewards: winners.map((w, i) => {
-        const u = byId.get(w.userId.toString());
-        return {
-          user_id: Number(w.userId),
-          name: u?.displayName || u?.name || 'User',
-          avatar_url: u?.avatarUrl ?? null,
-          coins: coinShares[i] ?? 0,
-          xp: Math.max(20, Math.round((coinShares[i] ?? 0) * 0.02)),
-          frame_id: i < frames.length ? Number(frames[i].id) : null,
-          frame_name: i < frames.length ? frames[i].name : null,
-          frame_days: i < frames.length ? FRAME_DAYS : null,
-        };
-      }),
-    };
+    return this.launchPayload(launchId, null, tx);
   }
 
-  private async launchPayload(launchId: string, senderBalance: bigint | null) {
-    const launch = await this.prisma.rocketLaunch.findUniqueOrThrow({
+  private async launchPayload(
+    launchId: string,
+    senderBalance: bigint | null,
+    client: Prisma.TransactionClient = this.prisma,
+  ) {
+    const launch = await client.rocketLaunch.findUniqueOrThrow({
       where: { id: launchId },
       include: {
         launcher: { select: { id: true, displayName: true, name: true, avatarUrl: true } },
@@ -842,6 +1130,10 @@ export class RocketLaunchService {
       joined_count: launch.joinedCount,
       winner_count: launch.winnerCount,
       jet_level: launch.jetLevel,
+      rocket_level: launch.rocketLevel,
+      level_name: launch.levelName,
+      launch_video_url: launch.launchVideoUrl,
+      theme_color: launch.themeColor,
       sender_balance_after: senderBalance == null ? null : Number(senderBalance),
       launcher: {
         id: Number(launch.launcher.id),
@@ -869,90 +1161,126 @@ export class RocketLaunchService {
     };
   }
 
-  private async getOrCreatePendingEvent(room: RoomRow, actorId: bigint) {
-    const config = await this.activeConfig();
-    if (!config || !this.roomEligible(room, config.eligibleRoomTypes)) {
-      return null;
-    }
+  /**
+   * Returns the room's PENDING event for the current cycle, creating it at the right ladder
+   * level when needed. Takes a per-room advisory lock held until the transaction commits.
+   */
+  private async ensurePendingEvent(
+    tx: Prisma.TransactionClient,
+    room: RoomRow,
+    config: ActiveConfig,
+  ) {
+    await tx.$queryRaw`SELECT 1 AS ok FROM (SELECT pg_advisory_xact_lock(hashtext(${`rocket:${room.id}`}))) AS l`;
+    const now = new Date();
+    const cycleKey = cycleKeyAt(now, config);
+    const ladder = activeLadder(config, config.levels);
+    const legacy = this.isLegacy(config);
 
-    await this.prisma.rocketEvent.updateMany({
-      where: {
-        roomId: room.id,
-        status: 'PENDING',
-        expiresAt: { lte: new Date() },
-      },
-      data: { status: 'EXPIRED' },
-    });
-
-    let event = await this.prisma.rocketEvent.findFirst({
+    let pending = await tx.rocketEvent.findFirst({
       where: { roomId: room.id, status: 'PENDING' },
-      include: { config: true },
       orderBy: { createdAt: 'desc' },
     });
 
-    if (!event) {
-      event = await this.prisma.rocketEvent.create({
+    // Pre-ladder event still running: adopt it into today's cycle at the first level.
+    if (pending && pending.cycleKey == null && pending.expiresAt > now) {
+      const snap = snapshotOf(ladder[0], config, legacy);
+      const expiry = eventExpiry(now, snap.duration_seconds, config);
+      pending = await tx.rocketEvent.update({
+        where: { id: pending.id },
         data: {
-          id: randomUUID(),
-          roomId: room.id,
-          configId: config.id,
-          accumulatedCoins: 0,
-          status: 'PENDING',
-          expiresAt: new Date(Date.now() + config.rockitDurationSeconds * 1000),
+          cycleKey,
+          level: ladder[0].level,
+          configSnapshot: snap as unknown as Prisma.InputJsonValue,
+          expiresAt: expiry < pending.expiresAt ? expiry : pending.expiresAt,
         },
-        include: { config: true },
       });
     }
 
-    const my = await this.prisma.rocketContribution.aggregate({
-      where: { eventId: event.id, userId: actorId },
-      _sum: { coins: true },
-    });
-    const topRaw = await this.prisma.rocketContribution.groupBy({
-      by: ['userId'],
-      where: { eventId: event.id },
-      _sum: { coins: true },
-    });
-    const top = [...topRaw]
-      .sort((a, b) => (b._sum.coins ?? 0) - (a._sum.coins ?? 0))
-      .slice(0, 5);
-    const userIds = top.map((t) => t.userId);
-    const users = await this.prisma.user.findMany({
-      where: { id: { in: userIds } },
-      select: { id: true, displayName: true, name: true, avatarUrl: true },
-    });
-    const byId = new Map(users.map((u) => [u.id.toString(), u]));
+    if (pending && (pending.expiresAt <= now || pending.cycleKey !== cycleKey)) {
+      await tx.rocketEvent.update({ where: { id: pending.id }, data: { status: 'EXPIRED' } });
+      pending = null;
+    }
 
-    return {
-      status: event.status,
-      current_coins: event.accumulatedCoins,
-      threshold: event.config.launchThresholdCoins,
-      expires_at: event.expiresAt.toISOString(),
-      my_contribution: my._sum.coins ?? 0,
-      minimum_contribution: event.config.minimumContributionRequired,
-      top_contributors: top.map((t) => {
-        const u = byId.get(t.userId.toString());
-        return {
-          id: Number(t.userId),
-          name: u?.displayName || u?.name || 'User',
-          avatar_url: u?.avatarUrl ?? null,
-          coins: t._sum.coins ?? 0,
-        };
-      }),
-    };
+    // Any duplicate PENDING rows (older races) are retired.
+    await tx.rocketEvent.updateMany({
+      where: {
+        roomId: room.id,
+        status: 'PENDING',
+        ...(pending ? { id: { not: pending.id } } : {}),
+      },
+      data: { status: 'EXPIRED' },
+    });
+    if (pending) return pending;
+
+    const last = await tx.rocketEvent.findFirst({
+      where: { roomId: room.id, cycleKey, status: { in: ['LAUNCHED', 'EXPIRED'] } },
+      orderBy: { createdAt: 'desc' },
+      select: { status: true, level: true },
+    });
+    const level = resolveLevel(ladder, last, config.expiryMode);
+    return this.createEvent(tx, room.id, config, level, legacy, cycleKey, 0);
+  }
+
+  private createEvent(
+    tx: Prisma.TransactionClient,
+    roomId: string,
+    config: ActiveConfig,
+    level: LevelRow,
+    legacy: boolean,
+    cycleKey: string,
+    initialCoins: number,
+  ) {
+    const now = new Date();
+    const snap = snapshotOf(level, config, legacy);
+    return tx.rocketEvent.create({
+      data: {
+        id: randomUUID(),
+        roomId,
+        configId: config.id,
+        accumulatedCoins: initialCoins,
+        status: 'PENDING',
+        expiresAt: eventExpiry(now, snap.duration_seconds, config),
+        level: level.level,
+        cycleKey,
+        configSnapshot: snap as unknown as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  /** Frozen level rules of an event; pre-ladder rows fall back to the campaign's legacy fields. */
+  private snapshotFromEvent(
+    event: { configSnapshot: Prisma.JsonValue | null },
+    campaign: CampaignRow,
+  ): RocketLevelSnapshot {
+    const raw = event.configSnapshot as Partial<RocketLevelSnapshot> | null;
+    if (raw && typeof raw === 'object' && Number(raw.threshold) > 0) {
+      return raw as RocketLevelSnapshot;
+    }
+    return snapshotOf(activeLadder(campaign, [])[0], campaign, true);
+  }
+
+  private isLegacy(config: ActiveConfig) {
+    return !config.levels.some((l) => l.isActive && l.thresholdCoins > 0);
   }
 
   private eventSnapshot(
-    event: { status: string; accumulatedCoins: number; expiresAt: Date; launchId: string | null },
-    config: { launchThresholdCoins: number },
-    _userId: bigint,
-  ) {
+    event: {
+      status: string;
+      accumulatedCoins: number;
+      expiresAt: Date;
+      launchId: string | null;
+    },
+    snap: RocketLevelSnapshot,
+  ): Record<string, unknown> {
     return {
       status: event.status,
       current_coins: event.accumulatedCoins,
-      threshold: config.launchThresholdCoins,
+      threshold: snap.threshold,
       expires_at: event.expiresAt.toISOString(),
       launch_id: event.launchId,
+      level: snap.legacy_jet ? 0 : snap.level,
+      level_name: snap.legacy_jet ? null : snap.name,
+      theme_color: snap.legacy_jet ? null : snap.theme_color,
     };
   }
 
@@ -964,20 +1292,25 @@ export class RocketLaunchService {
     }>,
     actorId: bigint,
     joined: boolean,
-    event: Record<string, unknown> | null,
+    config: ActiveConfig | null,
+    event: RocketEvent | null,
   ) {
     const manager = this.isManager(room, actorId);
-    const isAdmin = admins.some((a) => a.userId === actorId);
-    const config = await this.activeConfig();
+    const snap = event && config ? this.snapshotFromEvent(event, config) : null;
+    const detail = event && snap && config ? await this.eventDetail(event, snap, config, actorId) : null;
+    const ladder = config && snap && !snap.legacy_jet ? await this.serializeLadder(config, snap.level) : [];
+    const resetAt = config ? nextResetAt(new Date(), config) : null;
     return {
-      price: config?.launchThresholdCoins ?? 100_000,
-      coin_pool_ratio: (config?.rewardPoolPercentage ?? 50) / 100,
+      price: snap?.threshold ?? config?.launchThresholdCoins ?? 100_000,
+      coin_pool_ratio: (snap?.reward_pool_percentage ?? config?.rewardPoolPercentage ?? 50) / 100,
       admin_limit: ADMIN_LIMIT,
       can_manage: manager,
       can_launch: false,
-      can_contribute: joined && Boolean(event),
+      can_contribute: joined && Boolean(detail),
       mode: 'crowdfund',
-      event,
+      event: detail,
+      ladder,
+      cycle_resets_at: resetAt?.toISOString() ?? null,
       admins: admins.map((a) => ({
         id: Number(a.userId),
         name: a.user.displayName || a.user.name || 'User',
@@ -986,18 +1319,115 @@ export class RocketLaunchService {
     };
   }
 
-  private serializeCampaign(row: {
-    id: bigint;
-    name: string;
-    launchThresholdCoins: number;
-    rewardPoolPercentage: number;
-    maxWinnersCount: number;
-    rewardDistributionRules: Prisma.JsonValue;
-    minimumContributionRequired: number;
-    eligibleRoomTypes: Prisma.JsonValue;
-    rockitDurationSeconds: number;
-    status: boolean;
-  }) {
+  private async eventDetail(
+    event: { id: string; status: string; accumulatedCoins: number; expiresAt: Date; launchId: string | null },
+    snap: RocketLevelSnapshot,
+    config: ActiveConfig,
+    actorId: bigint,
+  ) {
+    const my = await this.prisma.rocketContribution.aggregate({
+      where: { eventId: event.id, userId: actorId },
+      _sum: { coins: true },
+    });
+    const topRaw = await this.prisma.rocketContribution.groupBy({
+      by: ['userId'],
+      where: { eventId: event.id },
+      _sum: { coins: true },
+      orderBy: { _sum: { coins: 'desc' } },
+      take: 5,
+    });
+    const userIds = topRaw.map((t) => t.userId);
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, displayName: true, name: true, avatarUrl: true },
+    });
+    const byId = new Map(users.map((u) => [u.id.toString(), u]));
+    const urls = snap.legacy_jet
+      ? new Map<string, string>()
+      : await this.assetUrls([
+          snap.station_asset_key,
+          `rocket.station_lv${snap.level}`,
+          snap.launch_asset_key,
+          `rocket.launch_lv${snap.level}`,
+          `rocket.launch_lv${snap.visual_tier}`,
+        ]);
+    const pick = (...keys: Array<string | null>) =>
+      keys.map((k) => (k ? urls.get(k) : undefined)).find(Boolean) ?? null;
+
+    return {
+      ...this.eventSnapshot(event, snap),
+      visual_tier: snap.visual_tier,
+      reward_pool_percentage: snap.reward_pool_percentage,
+      max_winners: snap.rules.length,
+      frame_days: snap.frame_days,
+      station_video_url: pick(snap.station_asset_key, `rocket.station_lv${snap.level}`),
+      launch_video_url: pick(
+        snap.launch_asset_key,
+        `rocket.launch_lv${snap.level}`,
+        `rocket.launch_lv${snap.visual_tier}`,
+      ),
+      my_contribution: my._sum.coins ?? 0,
+      minimum_contribution: config.minimumContributionRequired,
+      top_contributors: topRaw.map((t) => {
+        const u = byId.get(t.userId.toString());
+        return {
+          id: Number(t.userId),
+          name: u?.displayName || u?.name || 'User',
+          avatar_url: u?.avatarUrl ?? null,
+          coins: t._sum.coins ?? 0,
+        };
+      }),
+    };
+  }
+
+  private async serializeLadder(config: ActiveConfig, currentLevel: number) {
+    const ladder = activeLadder(config, config.levels);
+    const urls = await this.assetUrls(
+      ladder.flatMap((l) => [l.badgeAssetKey, `rocket.badge_lv${l.level}`]),
+    );
+    return ladder.map((l) => ({
+      level: l.level,
+      name: l.name,
+      threshold: l.thresholdCoins,
+      reward_pool_percentage: l.rewardPoolPercentage,
+      max_winners: Math.max(1, parseRules(l.rewardDistributionRules).length),
+      frame_days: l.frameDays,
+      theme_color: l.themeColor,
+      visual_tier: l.visualTier,
+      badge_url:
+        (l.badgeAssetKey ? urls.get(l.badgeAssetKey) : undefined) ??
+        urls.get(`rocket.badge_lv${l.level}`) ??
+        null,
+      status: l.level < currentLevel ? 'done' : l.level === currentLevel ? 'current' : 'locked',
+    }));
+  }
+
+  private async assetUrls(
+    keys: Array<string | null | undefined>,
+    client: Prisma.TransactionClient = this.prisma,
+  ): Promise<Map<string, string>> {
+    const wanted = [...new Set(keys.filter((k): k is string => Boolean(k)))];
+    if (wanted.length === 0) return new Map();
+    const rows = await client.appFxAsset.findMany({
+      where: { assetKey: { in: wanted }, isActive: true },
+      select: { assetKey: true, url: true },
+    });
+    return new Map(rows.map((r) => [r.assetKey, r.url]));
+  }
+
+  private async firstAssetUrl(
+    keys: Array<string | null | undefined>,
+    client: Prisma.TransactionClient,
+  ): Promise<string | null> {
+    const urls = await this.assetUrls(keys, client);
+    for (const k of keys) {
+      const url = k ? urls.get(k) : undefined;
+      if (url) return url;
+    }
+    return null;
+  }
+
+  private serializeCampaign(row: ActiveConfig) {
     return {
       id: Number(row.id),
       name: row.name,
@@ -1009,13 +1439,40 @@ export class RocketLaunchService {
       eligible_room_types: row.eligibleRoomTypes,
       rockit_duration_seconds: row.rockitDurationSeconds,
       status: row.status,
+      daily_reset_enabled: row.dailyResetEnabled,
+      reset_timezone: row.resetTimezone,
+      reset_hour: row.resetHour,
+      expiry_mode: row.expiryMode,
+      carry_overflow: row.carryOverflow,
+      levels: row.levels.map((l) => ({
+        id: Number(l.id),
+        level: l.level,
+        name: l.name,
+        threshold_coins: l.thresholdCoins,
+        reward_pool_percentage: l.rewardPoolPercentage,
+        max_winners_count: l.maxWinnersCount,
+        reward_distribution_rules: l.rewardDistributionRules,
+        frame_id: l.frameId == null ? null : Number(l.frameId),
+        frame_winners: l.frameWinners,
+        frame_days: l.frameDays,
+        xp_rate: l.xpRate,
+        min_xp: l.minXp,
+        duration_seconds: l.durationSeconds,
+        theme_color: l.themeColor,
+        visual_tier: l.visualTier,
+        launch_asset_key: l.launchAssetKey,
+        station_asset_key: l.stationAssetKey,
+        badge_asset_key: l.badgeAssetKey,
+        is_active: l.isActive,
+      })),
     };
   }
 
-  private async activeConfig() {
+  private async activeConfig(): Promise<ActiveConfig | null> {
     return this.prisma.rocketCampaignConfig.findFirst({
       where: { status: true },
       orderBy: { id: 'desc' },
+      include: { levels: { orderBy: { level: 'asc' } } },
     });
   }
 
@@ -1035,21 +1492,6 @@ export class RocketLaunchService {
     if (room.isPermanent) tags.push('vip', 'permanent');
     else tags.push('public');
     return types.some((t) => tags.includes(t));
-  }
-
-  private parseRules(json: Prisma.JsonValue, max: number): number[] {
-    const arr = Array.isArray(json) ? (json as unknown[]).map(Number).filter((n) => n > 0) : [];
-    if (arr.length === 0) return Array.from({ length: Math.min(7, max) }, (_, i) => (i === 0 ? 40 : 10));
-    return arr.slice(0, max);
-  }
-
-  private splitByPercent(pool: number, percents: number[]): number[] {
-    if (percents.length === 0 || pool <= 0) return [];
-    const sum = percents.reduce((a, b) => a + b, 0) || 1;
-    const shares = percents.map((p) => Math.floor((pool * p) / sum));
-    const used = shares.reduce((a, b) => a + b, 0);
-    if (shares.length > 0 && used < pool) shares[0] += pool - used;
-    return shares;
   }
 
   private adminRows(roomId: string) {

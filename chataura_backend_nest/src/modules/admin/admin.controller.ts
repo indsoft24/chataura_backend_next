@@ -18,6 +18,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { MediaService } from '../media/media.service';
 import { RocketLaunchService } from '../room/rocket-launch.service';
+import { assetKeyFor, AssetSlot, LevelInput, sniffAsset } from '../room/rocket-levels';
 import { FxAssetsService } from '../fx-assets/fx-assets.service';
 import { RoomRewardAdminService } from '../room/room-reward/room-reward-admin.service';
 import { AdminCatalogService } from './admin-catalog.service';
@@ -44,6 +45,11 @@ import {
   UpdateRoomThemeDto,
   UpdateStickerDto,
 } from './dto/admin.dto';
+
+function parseId(id: string): bigint {
+  if (!/^\d{1,18}$/.test(id)) throw new BadRequestException('Invalid id');
+  return BigInt(id);
+}
 
 @Roles('admin')
 @Controller('admin')
@@ -702,7 +708,7 @@ export class AdminController {
     return this.recharges.setPlaceOfSupply(BigInt(id), body);
   }
 
-  // Rockit crowdfund campaigns
+  // Rockit crowdfund campaigns + Rocket ladder levels
   @Get('rockit/campaigns')
   listRockitCampaigns() {
     return this.rockets.listCampaigns();
@@ -710,11 +716,12 @@ export class AdminController {
 
   @Post('rockit/campaigns')
   upsertRockitCampaign(
+    @CurrentUser() user: AuthUser,
     @Body()
     body: {
       id?: number | string;
       name?: string;
-      launch_threshold_coins: number;
+      launch_threshold_coins?: number;
       reward_pool_percentage?: number;
       max_winners_count?: number;
       reward_distribution_rules?: number[];
@@ -722,13 +729,87 @@ export class AdminController {
       eligible_room_types?: string[];
       rockit_duration_seconds?: number;
       status?: boolean;
+      daily_reset_enabled?: boolean;
+      reset_timezone?: string;
+      reset_hour?: number;
+      expiry_mode?: string;
+      carry_overflow?: boolean;
     },
   ) {
-    return this.rockets.upsertCampaign(body);
+    return this.rockets.upsertCampaign(body, user.id);
   }
 
   @Delete('rockit/campaigns/:id')
-  deleteRockitCampaign(@Param('id') id: string) {
-    return this.rockets.deleteCampaign(BigInt(id));
+  deleteRockitCampaign(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.rockets.deleteCampaign(parseId(id), user.id);
+  }
+
+  @Put('rockit/campaigns/:id/levels')
+  saveRockitLevels(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { levels?: LevelInput[] },
+  ) {
+    return this.rockets.saveLevels(parseId(id), body?.levels ?? [], user.id);
+  }
+
+  /** Multipart upload of a level's launch/station video or badge image → GCS + FX catalog. */
+  @Throttle({ default: { limit: 20, ttl: seconds(60) } })
+  @Post('rockit/campaigns/:id/levels/:level/assets/:slot')
+  async uploadRockitLevelAsset(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('level') levelRaw: string,
+    @Param('slot') slotRaw: string,
+    @Req() req: FastifyRequest,
+  ) {
+    const level = Number(levelRaw);
+    const slot = slotRaw as AssetSlot;
+    if (!Number.isInteger(level) || level < 1 || level > 50 || !['launch', 'station', 'badge'].includes(slot)) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Invalid level or asset slot' },
+      });
+    }
+    const part = await (req as unknown as { file: () => Promise<{ filename: string; toBuffer: () => Promise<Buffer> } | undefined> })
+      .file()
+      .catch(() => undefined);
+    if (!part) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'UPLOAD_FAILED', message: 'No file uploaded' },
+      });
+    }
+    const buffer = await part.toBuffer();
+    const sniff = sniffAsset(slot, part.filename || '', buffer);
+    if (!sniff.ok) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'INVALID_ASSET', message: sniff.error },
+      });
+    }
+    const assetKey = assetKeyFor(slot, level);
+    const asset = await this.fxAssets.uploadBuffer({
+      assetKey,
+      category: 'rocket',
+      mediaType: sniff.mediaType,
+      objectDir: `fx/v1/rocket/lv${level}`,
+      filePrefix: slot,
+      ext: sniff.ext,
+      buffer,
+      androidUsage: `Rocket LV${level} ${slot}`,
+    });
+    const result = await this.rockets.attachLevelAsset(parseId(id), level, slot, assetKey, user.id);
+    return { asset, ...result };
+  }
+
+  @Get('rockit/audit')
+  rockitAudit(@Query('campaign_id') campaignId?: string, @Query('limit') limit?: string) {
+    return this.rockets.auditLog(campaignId ? parseId(campaignId) : undefined, Number(limit) || 50);
+  }
+
+  @Post('rockit/audit/:id/restore')
+  restoreRockitAudit(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.rockets.restoreFromAudit(parseId(id), user.id);
   }
 }
