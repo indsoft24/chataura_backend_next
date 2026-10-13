@@ -579,7 +579,7 @@ export function renderLandingPage(config: LandingPageConfig): string {
                 <a href="#download" class="nav-btn">Download App</a>
                 <a href="/privacy-policy">Privacy</a>
                 <a href="/terms-and-conditions">Terms</a>
-                <a href="/child-safety">Child Safety</a>
+                <a href="/child-safety">Child Safety Standards</a>
             </nav>
         </header>
 
@@ -801,7 +801,7 @@ export function renderLandingPage(config: LandingPageConfig): string {
                 <a href="/privacy-policy">Privacy Policy</a>
                 <a href="/terms-and-conditions">Terms &amp; Conditions</a>
                 <a href="/delete-account">Delete Account</a>
-                <a href="/child-safety">Child Safety</a>
+                <a href="/child-safety">Child Safety Standards</a>
             </div>
             <p class="footer-copy">© 2026 ${appName}. All rights reserved.</p>
         </footer>

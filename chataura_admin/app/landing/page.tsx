@@ -46,7 +46,7 @@ export default function LandingPage() {
             </a>
             <a href="/privacy-policy" className="hover:text-cyan-400 transition">Privacy</a>
             <a href="/terms-and-conditions" className="hover:text-cyan-400 transition">Terms</a>
-            <a href="/child-safety" className="hover:text-cyan-400 transition">Child Safety</a>
+            <a href="/child-safety" className="hover:text-cyan-400 transition">Child Safety Standards</a>
           </nav>
         </header>
 
@@ -280,7 +280,7 @@ export default function LandingPage() {
             <a href="/privacy-policy" className="hover:text-cyan-400 transition">Privacy Policy</a>
             <a href="/terms-and-conditions" className="hover:text-cyan-400 transition">Terms &amp; Conditions</a>
             <a href="/delete-account" className="hover:text-cyan-400 transition">Delete Account</a>
-            <a href="/child-safety" className="hover:text-cyan-400 transition">Child Safety</a>
+            <a href="/child-safety" className="hover:text-cyan-400 transition">Child Safety Standards</a>
           </div>
           <p className="text-xs text-slate-500">© 2026 Chat Aura. All rights reserved.</p>
         </footer>

@@ -54,7 +54,8 @@ describe('Web Landing & Legal Pages (e2e)', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('text/html');
     expect(res.payload).toContain('Child Safety Standards – Chat Aura');
-    expect(res.payload).toContain('Strictly Prohibited Content & Behavior');
+    expect(res.payload).toContain('Child Sexual Abuse and Exploitation (CSAE)');
+    expect(res.payload).toContain('com.chataura.app');
     expect(res.payload).toContain('chataura05@gmail.com');
   });
 
