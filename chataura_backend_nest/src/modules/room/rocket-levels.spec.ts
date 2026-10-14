@@ -5,9 +5,12 @@ import {
   LevelRow,
   nextLevelAfter,
   nextResetAt,
+  pickLuckyWinners,
   resolveLevel,
   sniffAsset,
+  snapshotOf,
   splitContribution,
+  splitLucky,
   validateLevels,
 } from './rocket-levels';
 
@@ -44,6 +47,8 @@ function lvl(level: number, threshold: number): LevelRow {
     launchAssetKey: null,
     stationAssetKey: null,
     badgeAssetKey: null,
+    luckyAudiencePercent: 0,
+    luckyPoolPercentage: 0,
     isActive: true,
   };
 }
@@ -129,5 +134,47 @@ describe('sniffAsset', () => {
   it('rejects oversize', () => {
     const big = Buffer.concat([Buffer.from('1a45dfa3', 'hex'), Buffer.alloc(9 * 1024 * 1024)]);
     expect(sniffAsset('launch', 'a.webm', big).ok).toBe(false);
+  });
+});
+
+describe('lucky draw', () => {
+  const people = Array.from({ length: 35 }, (_, i) => i + 1);
+
+  it('picks 50% of 35 people = 17 distinct winners', () => {
+    const w = pickLuckyWinners(people, 50, 1_000_000);
+    expect(w).toHaveLength(17);
+    expect(new Set(w).size).toBe(17);
+    w.forEach((id) => expect(people).toContain(id));
+  });
+  it('gives at least one winner when the percent rounds down to zero', () =>
+    expect(pickLuckyWinners([7], 50, 100)).toEqual([7]));
+  it('is off at 0% or with nobody present', () => {
+    expect(pickLuckyWinners(people, 0, 100)).toEqual([]);
+    expect(pickLuckyWinners([], 50, 100)).toEqual([]);
+  });
+  it('never picks more winners than coins in the pool', () =>
+    expect(pickLuckyWinners(people, 100, 4)).toHaveLength(4));
+
+  it('splits the whole pool with every share above the floor', () => {
+    const shares = splitLucky(105_000, 17);
+    expect(shares).toHaveLength(17);
+    expect(shares.reduce((a, b) => a + b, 0)).toBe(105_000);
+    const floor = Math.floor((105_000 / 17) * 0.3);
+    shares.forEach((c) => expect(c).toBeGreaterThanOrEqual(floor));
+  });
+  it('gives every winner at least one coin when pool equals winners', () =>
+    splitLucky(4, 4).forEach((c) => expect(c).toBeGreaterThanOrEqual(1)));
+});
+
+describe('admin target change on a live rocket', () => {
+  it('re-snapshotting a lowered target launches on the next contribution', () => {
+    const snap = snapshotOf(lvl(1, 3_500_000), campaign, false);
+    // 3.75M already collected against the new 3.5M target: next gift launches, all coins carry over
+    const r = splitContribution(3_751_549, snap.threshold, 1_000, 30_000_000, true);
+    expect(r).toEqual({ applied: 0, launches: true, carry: 1_000 });
+  });
+  it('rejects reward pool + lucky pool above 100%', () => {
+    const lv = { level: 1, threshold_coins: 3_500_000, reward_pool_percentage: 90, reward_distribution_rules: [100], lucky_pool_percentage: 20 };
+    expect(validateLevels([lv]).join()).toContain('must not exceed 100%');
   });
 });

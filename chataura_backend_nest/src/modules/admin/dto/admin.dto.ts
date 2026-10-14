@@ -6,6 +6,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   Min,
 } from 'class-validator';
 
@@ -282,6 +283,19 @@ export class UpdateFrameDto {
   @IsOptional()
   @IsIn(['alpha', 'screen'])
   composite_mode?: 'alpha' | 'screen';
+
+  /** Null resets to the app default. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0.2)
+  @Max(1)
+  avatar_scale?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-0.5)
+  @Max(0.5)
+  avatar_offset_y?: number | null;
 }
 
 // ──────────────────────────────────────────────

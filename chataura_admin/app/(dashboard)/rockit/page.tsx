@@ -11,7 +11,6 @@ type Level = {
   reward_pool_percentage: number;
   reward_distribution_rules: number[];
   frame_id: number | null;
-  frame_winners: number;
   frame_days: number;
   xp_rate: number;
   min_xp: number;
@@ -21,6 +20,8 @@ type Level = {
   launch_asset_key: string | null;
   station_asset_key: string | null;
   badge_asset_key: string | null;
+  lucky_audience_percent: number;
+  lucky_pool_percentage: number;
   is_active: boolean;
 };
 
@@ -51,12 +52,13 @@ type AuditEntry = {
 type Frame = { id: number; name: string };
 
 /** Editable level row: numeric fields kept as strings while typing. */
-type LevelDraft = Omit<Level, 'threshold_coins' | 'reward_pool_percentage' | 'reward_distribution_rules' | 'frame_days' | 'frame_winners' | 'duration_seconds' | 'xp_rate' | 'min_xp'> & {
+type LevelDraft = Omit<Level, 'threshold_coins' | 'reward_pool_percentage' | 'reward_distribution_rules' | 'frame_days' | 'duration_seconds' | 'xp_rate' | 'min_xp' | 'lucky_audience_percent' | 'lucky_pool_percentage'> & {
   threshold_coins: string;
   reward_pool_percentage: string;
   reward_distribution_rules: string;
   frame_days: string;
-  frame_winners: string;
+  lucky_audience_percent: string;
+  lucky_pool_percentage: string;
   duration_minutes: string;
   xp_rate: string;
   min_xp: string;
@@ -77,7 +79,8 @@ function toDraft(l: Level): LevelDraft {
     reward_pool_percentage: String(l.reward_pool_percentage),
     reward_distribution_rules: (l.reward_distribution_rules ?? []).join(', '),
     frame_days: String(l.frame_days),
-    frame_winners: String(l.frame_winners),
+    lucky_audience_percent: String(l.lucky_audience_percent ?? 0),
+    lucky_pool_percentage: String(l.lucky_pool_percentage ?? 0),
     duration_minutes: String(Math.round(l.duration_seconds / 60)),
     xp_rate: String(l.xp_rate),
     min_xp: String(l.min_xp),
@@ -110,6 +113,11 @@ function levelErrors(drafts: LevelDraft[]): Record<number, string[]> {
     if (i > 0 && t <= Number(drafts[i - 1].threshold_coins)) errs.push(`Target must be above LV${i}`);
     const pool = Number(d.reward_pool_percentage);
     if (!(pool >= 0 && pool <= 100)) errs.push('Pool must be 0 – 100%');
+    const luckyAudience = Number(d.lucky_audience_percent);
+    if (!(luckyAudience >= 0 && luckyAudience <= 100)) errs.push('Lucky audience must be 0 – 100%');
+    const luckyPool = Number(d.lucky_pool_percentage);
+    if (!(luckyPool >= 0 && luckyPool <= 100)) errs.push('Lucky pool must be 0 – 100%');
+    else if (pool + luckyPool > 100) errs.push('Reward pool + lucky pool must not exceed 100%');
     const rules = parseRules(d.reward_distribution_rules);
     const sum = rules.reduce((a, b) => a + b, 0);
     if (rules.length === 0) errs.push('Add at least one winner %');
@@ -212,7 +220,8 @@ export default function RocketLevelsPage() {
         reward_pool_percentage: last?.reward_pool_percentage ?? '15',
         reward_distribution_rules: last?.reward_distribution_rules ?? '40, 25, 15, 12, 8',
         frame_id: last?.frame_id ?? null,
-        frame_winners: last?.frame_winners ?? '3',
+        lucky_audience_percent: last?.lucky_audience_percent ?? '50',
+        lucky_pool_percentage: last?.lucky_pool_percentage ?? '3',
         frame_days: last?.frame_days ?? '7',
         duration_minutes: '0',
         xp_rate: last?.xp_rate ?? '0.02',
@@ -269,10 +278,10 @@ export default function RocketLevelsPage() {
       flash(false, 'Fix the highlighted levels before publishing.');
       return;
     }
-    if (!confirm('Publish this ladder? New rockets use it immediately; rockets already running keep their current rules.')) return;
+    if (!confirm('Publish this ladder? It applies right away, including rockets already running (their progress is kept).')) return;
     setBusy('levels');
     try {
-      await api(`/admin/rockit/campaigns/${selected.id}/levels`, token, {
+      const res = await api<unknown>(`/admin/rockit/campaigns/${selected.id}/levels`, token, {
         method: 'PUT',
         body: JSON.stringify({
           levels: drafts.map((d) => ({
@@ -282,7 +291,8 @@ export default function RocketLevelsPage() {
             reward_pool_percentage: Number(d.reward_pool_percentage),
             reward_distribution_rules: parseRules(d.reward_distribution_rules),
             frame_id: d.frame_id,
-            frame_winners: Number(d.frame_winners),
+            lucky_audience_percent: Number(d.lucky_audience_percent),
+            lucky_pool_percentage: Number(d.lucky_pool_percentage),
             frame_days: Number(d.frame_days),
             xp_rate: Number(d.xp_rate),
             min_xp: Number(d.min_xp),
@@ -296,7 +306,8 @@ export default function RocketLevelsPage() {
           })),
         }),
       });
-      flash(true, 'Ladder published.');
+      const live = unwrap<{ refreshed_live_events?: number }>(res)?.refreshed_live_events ?? 0;
+      flash(true, live > 0 ? `Ladder published. ${live} live rocket${live === 1 ? '' : 's'} updated to the new rules.` : 'Ladder published.');
       await load(token, selected.id);
     } catch (e) {
       flash(false, `Publish failed: ${(e as Error).message}`);
@@ -584,6 +595,9 @@ export default function RocketLevelsPage() {
                 const rules = parseRules(d.reward_distribution_rules);
                 const sum = rules.reduce((a, b) => a + b, 0) || 1;
                 const pool = Math.floor((target * pct) / 100);
+                const luckyPct = Number(d.lucky_pool_percentage) || 0;
+                const luckyAudience = Number(d.lucky_audience_percent) || 0;
+                const luckyPool = luckyAudience > 0 ? Math.floor((target * luckyPct) / 100) : 0;
                 const errs = errors[d.level];
                 const launchUrl = urlFor(d, 'launch');
                 const stationUrl = urlFor(d, 'station');
@@ -619,8 +633,13 @@ export default function RocketLevelsPage() {
                       <span style={{ color: '#6b7280', fontSize: 13 }}>
                         Target <strong style={{ color: '#111827' }}>{short(target)}</strong> · Pool{' '}
                         <strong style={{ color: '#111827' }}>{short(pool)}</strong> · #1 gets{' '}
-                        <strong style={{ color: '#111827' }}>{short(Math.floor((pool * (rules[0] ?? 0)) / sum))}</strong> · Platform
-                        keeps {short(target - pool)} ({(100 - pct).toFixed(1)}%)
+                        <strong style={{ color: '#111827' }}>{short(Math.floor((pool * (rules[0] ?? 0)) / sum))}</strong>
+                        {luckyPool > 0 && (
+                          <>
+                            {' '}· Lucky {luckyAudience}% of room shares <strong style={{ color: '#111827' }}>{short(luckyPool)}</strong>
+                          </>
+                        )}{' '}
+                        · Platform keeps {short(target - pool - luckyPool)} ({(100 - pct - (luckyPool > 0 ? luckyPct : 0)).toFixed(1)}%)
                       </span>
                       <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
                         <input type="checkbox" checked={d.is_active} onChange={(e) => patch(d.level, { is_active: e.target.checked })} />
@@ -672,8 +691,12 @@ export default function RocketLevelsPage() {
                         </select>
                       </label>
                       <label>
-                        <span style={label}>Frame for top N</span>
-                        <input style={input} type="number" min={0} value={d.frame_winners} onChange={(e) => patch(d.level, { frame_winners: e.target.value })} />
+                        <span style={label}>Lucky audience % (0 = off)</span>
+                        <input style={input} type="number" min={0} max={100} step={1} value={d.lucky_audience_percent} onChange={(e) => patch(d.level, { lucky_audience_percent: e.target.value })} />
+                      </label>
+                      <label>
+                        <span style={label}>Lucky pool % of target</span>
+                        <input style={input} type="number" min={0} max={100} step={0.5} value={d.lucky_pool_percentage} onChange={(e) => patch(d.level, { lucky_pool_percentage: e.target.value })} />
                       </label>
                       <label>
                         <span style={label}>Frame days</span>

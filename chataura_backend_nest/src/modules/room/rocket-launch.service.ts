@@ -20,17 +20,21 @@ import {
   eventExpiry,
   LevelInput,
   LevelRow,
+  levelAtOrAbove,
   nextLevelAfter,
   nextResetAt,
   parseRules,
+  pickLuckyWinners,
   resolveLevel,
   RocketLevelSnapshot,
   safeTimeZone,
   snapshotOf,
   splitByPercent,
   splitContribution,
+  splitLucky,
   validateLevels,
 } from './rocket-levels';
+import { readMemberTimeoutSeconds } from './room-state/room-runtime.config';
 
 const ADMIN_LIMIT = 5;
 
@@ -581,10 +585,43 @@ export class RocketLaunchService {
         where: { id: campaignId },
         include: { levels: { orderBy: { level: 'asc' } } },
       });
-      await this.audit(tx, actorId, 'LEVELS_SAVE', campaignId, campaign, after);
-      return after;
+      const refreshed = await this.refreshPendingEvents(tx, after);
+      await this.audit(tx, actorId, 'LEVELS_SAVE', campaignId, campaign, { ...after, refreshed_live_events: refreshed });
+      return { after, refreshed };
     });
-    return { campaign: this.serializeCampaign(full) };
+    return { campaign: this.serializeCampaign(full.after), refreshed_live_events: full.refreshed };
+  }
+
+  /**
+   * Applies saved level settings to rockets already in progress, so a new target or reward
+   * split takes effect now instead of after the daily reset. Progress is kept; a rocket whose
+   * new target is already met launches on its next contribution.
+   */
+  private async refreshPendingEvents(tx: Prisma.TransactionClient, config: ActiveConfig): Promise<number> {
+    const pending = await tx.rocketEvent.findMany({
+      where: { configId: config.id, status: 'PENDING', cycleKey: { not: null } },
+      select: { id: true, roomId: true, level: true },
+      orderBy: { roomId: 'asc' },
+    });
+    if (pending.length === 0) return 0;
+    const ladder = activeLadder(config, config.levels);
+    const legacy = this.isLegacy(config);
+    let refreshed = 0;
+    for (const ev of pending) {
+      // Same per-room lock as contributions, so no contribution sees a half-updated rocket.
+      await tx.$queryRaw`SELECT 1 AS ok FROM (SELECT pg_advisory_xact_lock(hashtext(${`rocket:${ev.roomId}`}))) AS l`;
+      const level = levelAtOrAbove(ladder, ev.level);
+      const updated = await tx.rocketEvent.updateMany({
+        where: { id: ev.id, status: 'PENDING' },
+        data: {
+          level: level.level,
+          configSnapshot: snapshotOf(level, config, legacy) as unknown as Prisma.InputJsonValue,
+          version: { increment: 1 },
+        },
+      });
+      refreshed += updated.count;
+    }
+    return refreshed;
   }
 
   /** Point a level's launch/station/badge slot at an uploaded FX asset key. */
@@ -688,6 +725,8 @@ export class RocketLaunchService {
       launch_asset_key: (l.launchAssetKey as string | null) ?? null,
       station_asset_key: (l.stationAssetKey as string | null) ?? null,
       badge_asset_key: (l.badgeAssetKey as string | null) ?? null,
+      lucky_audience_percent: Number(l.luckyAudiencePercent ?? 0),
+      lucky_pool_percentage: Number(l.luckyPoolPercentage ?? 0),
       is_active: l.isActive !== false,
     };
   }
@@ -713,6 +752,8 @@ export class RocketLaunchService {
       launchAssetKey: l.launch_asset_key?.trim() || null,
       stationAssetKey: l.station_asset_key?.trim() || null,
       badgeAssetKey: l.badge_asset_key?.trim() || null,
+      luckyAudiencePercent: Number(l.lucky_audience_percent ?? 0),
+      luckyPoolPercentage: Number(l.lucky_pool_percentage ?? 0),
       isActive: l.is_active !== false,
     };
   }
@@ -969,8 +1010,8 @@ export class RocketLaunchService {
     const winners = aggregates.slice(0, rules.length);
     const coinShares = splitByPercent(pool, rules.slice(0, winners.length));
 
-    // Frame reward: the level's chosen frame for the top N, else the first N active frames.
-    const frameWinners = Math.min(snap.frame_winners, winners.length);
+    // Frame reward for every top winner: the level's chosen frame, else the first N active frames.
+    const frameWinners = winners.length;
     let frameFor: (rank: number) => { id: bigint; name: string } | null = () => null;
     if (frameWinners > 0) {
       if (snap.frame_id != null) {
@@ -1003,6 +1044,32 @@ export class RocketLaunchService {
           [snap.launch_asset_key, `rocket.launch_lv${snap.level}`, `rocket.launch_lv${jetLevel}`],
           tx,
         );
+
+    // Lucky draw: people present in the room now (contributed or not), excluding top winners.
+    const topIds = new Set(winners.map((w) => w.userId.toString()));
+    const luckyPercent = Number(snap.lucky_audience_percent ?? 0);
+    const luckyPoolTotal = Math.floor((accumulated * Number(snap.lucky_pool_percentage ?? 0)) / 100);
+    let audienceCount = 0;
+    let luckyWinners: bigint[] = [];
+    let luckyShares: number[] = [];
+    if (luckyPercent > 0 && luckyPoolTotal > 0) {
+      const setting = await tx.adminSetting
+        .findUnique({ where: { id: 1 }, select: { extraSettings: true } })
+        .catch(() => null);
+      const cutoff = new Date(
+        Date.now() - readMemberTimeoutSeconds(setting?.extraSettings as Record<string, unknown>) * 1000,
+      );
+      const present = await tx.roomMember.findMany({
+        where: { roomId: room.id, isActive: true, lastHeartbeatAt: { gte: cutoff } },
+        select: { userId: true },
+      });
+      audienceCount = present.length;
+      const candidates = present.map((m) => m.userId).filter((id) => !topIds.has(id.toString()));
+      // Sorted so wallet row locks are always taken in the same order.
+      luckyWinners = pickLuckyWinners(candidates, luckyPercent, luckyPoolTotal).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      luckyShares = splitLucky(luckyPoolTotal, luckyWinners.length);
+    }
+    const luckyPool = luckyShares.reduce((a, b) => a + b, 0);
 
     const xpFor = (coins: number) => Math.max(snap.min_xp, Math.round(coins * snap.xp_rate));
     const expires = new Date(Date.now() + snap.frame_days * 24 * 60 * 60 * 1000);
@@ -1062,6 +1129,26 @@ export class RocketLaunchService {
       }
     }
 
+    for (let i = 0; i < luckyWinners.length; i++) {
+      await this.ledger.creditCoins(
+        tx,
+        luckyWinners[i],
+        luckyShares[i],
+        'ROCKET_REWARD',
+        'Rockit lucky reward',
+        `rocket_lucky_${launchId}_${luckyWinners[i]}`,
+        null,
+        {
+          source: 'rocket',
+          currency: 'coins',
+          room_id: room.id,
+          launch_id: launchId,
+          kind: 'lucky',
+          rocket_level: snap.level,
+        },
+      );
+    }
+
     await tx.rocketLaunch.create({
       data: {
         id: launchId,
@@ -1077,18 +1164,31 @@ export class RocketLaunchService {
         levelName: snap.legacy_jet ? null : snap.name,
         launchVideoUrl,
         themeColor: snap.legacy_jet ? null : snap.theme_color,
+        luckyPool,
+        luckyCount: luckyWinners.length,
+        audienceCount,
         rewards: {
-          create: winners.map((w, i) => {
-            const frame = frameFor(i);
-            return {
-              userId: w.userId,
-              coins: coinShares[i] ?? 0,
-              xp: xpFor(coinShares[i] ?? 0),
-              frameId: frame?.id ?? null,
-              frameName: frame?.name ?? null,
-              frameDays: frame ? snap.frame_days : null,
-            };
-          }),
+          create: [
+            ...winners.map((w, i) => {
+              const frame = frameFor(i);
+              return {
+                userId: w.userId,
+                coins: coinShares[i] ?? 0,
+                xp: xpFor(coinShares[i] ?? 0),
+                frameId: frame?.id ?? null,
+                frameName: frame?.name ?? null,
+                frameDays: frame ? snap.frame_days : null,
+                kind: 'TOP',
+                rank: i + 1,
+              };
+            }),
+            ...luckyWinners.map((userId, i) => ({
+              userId,
+              coins: luckyShares[i],
+              xp: 0,
+              kind: 'LUCKY',
+            })),
+          ],
         },
       },
     });
@@ -1117,7 +1217,12 @@ export class RocketLaunchService {
         },
       },
     });
-    const rewards = [...launch.rewards].sort((a, b) => b.coins - a.coins);
+    // Top winners by rank first (pre-rank rows by coins), then lucky winners by coins.
+    const rewards = [...launch.rewards].sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === 'TOP' ? -1 : 1;
+      if (a.rank != null && b.rank != null) return a.rank - b.rank;
+      return b.coins - a.coins;
+    });
     const top =
       launch.topContributorId != null
         ? rewards.find((r) => r.userId === launch.topContributorId) ?? rewards[0]
@@ -1129,6 +1234,9 @@ export class RocketLaunchService {
       coin_pool: launch.coinPool,
       joined_count: launch.joinedCount,
       winner_count: launch.winnerCount,
+      lucky_pool: launch.luckyPool,
+      lucky_count: launch.luckyCount,
+      audience_count: launch.audienceCount,
       jet_level: launch.jetLevel,
       rocket_level: launch.rocketLevel,
       level_name: launch.levelName,
@@ -1157,6 +1265,8 @@ export class RocketLaunchService {
         frame_id: r.frameId == null ? null : Number(r.frameId),
         frame_name: r.frameName,
         frame_days: r.frameDays,
+        kind: r.kind,
+        rank: r.rank,
       })),
     };
   }
@@ -1360,6 +1470,8 @@ export class RocketLaunchService {
       reward_pool_percentage: snap.reward_pool_percentage,
       max_winners: snap.rules.length,
       frame_days: snap.frame_days,
+      lucky_audience_percent: snap.lucky_audience_percent ?? 0,
+      lucky_pool_percentage: snap.lucky_pool_percentage ?? 0,
       station_video_url: pick(snap.station_asset_key, `rocket.station_lv${snap.level}`),
       launch_video_url: pick(
         snap.launch_asset_key,
@@ -1392,6 +1504,8 @@ export class RocketLaunchService {
       reward_pool_percentage: l.rewardPoolPercentage,
       max_winners: Math.max(1, parseRules(l.rewardDistributionRules).length),
       frame_days: l.frameDays,
+      lucky_audience_percent: l.luckyAudiencePercent,
+      lucky_pool_percentage: l.luckyPoolPercentage,
       theme_color: l.themeColor,
       visual_tier: l.visualTier,
       badge_url:
@@ -1463,6 +1577,8 @@ export class RocketLaunchService {
         launch_asset_key: l.launchAssetKey,
         station_asset_key: l.stationAssetKey,
         badge_asset_key: l.badgeAssetKey,
+        lucky_audience_percent: l.luckyAudiencePercent,
+        lucky_pool_percentage: l.luckyPoolPercentage,
         is_active: l.isActive,
       })),
     };

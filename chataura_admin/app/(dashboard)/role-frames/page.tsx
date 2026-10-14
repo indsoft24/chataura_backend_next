@@ -22,6 +22,8 @@ type Frame = {
   animation_url: string | null;
   animation_key: string | null;
   composite_mode: 'alpha' | 'screen' | null;
+  avatar_scale?: number | null;
+  avatar_offset_y?: number | null;
 };
 
 export default function RoleFramesPage() {
@@ -54,6 +56,8 @@ export default function RoleFramesPage() {
   const [editImageUrl, setEditImageUrl] = useState('');
   const [editAnimationUrl, setEditAnimationUrl] = useState('');
   const [editComposite, setEditComposite] = useState<'alpha' | 'screen'>('alpha');
+  const [editAvatarScale, setEditAvatarScale] = useState('');
+  const [editAvatarOffsetY, setEditAvatarOffsetY] = useState('');
   const [editIsActive, setEditIsActive] = useState(true);
   const [editError, setEditError] = useState('');
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -123,6 +127,8 @@ export default function RoleFramesPage() {
     setEditImageUrl(frame.image_url ?? '');
     setEditAnimationUrl(frame.animation_url ?? '');
     setEditComposite(frame.composite_mode === 'screen' ? 'screen' : 'alpha');
+    setEditAvatarScale(frame.avatar_scale != null ? String(frame.avatar_scale) : '');
+    setEditAvatarOffsetY(frame.avatar_offset_y != null ? String(frame.avatar_offset_y) : '');
     setEditIsActive(frame.is_active);
     setEditError('');
     setEditModalOpen(true);
@@ -147,6 +153,9 @@ export default function RoleFramesPage() {
           image_url: editImageUrl.trim(),
           animation_url: editAnimationUrl.trim(),
           composite_mode: editComposite,
+          // Empty = null = app default fit.
+          avatar_scale: editAvatarScale.trim() ? Number(editAvatarScale) : null,
+          avatar_offset_y: editAvatarOffsetY.trim() ? Number(editAvatarOffsetY) : null,
           is_active: editIsActive,
         }),
       });
@@ -464,6 +473,38 @@ export default function RoleFramesPage() {
                 <option value="screen">Screen (black background glow video)</option>
               </select>
             </div>
+
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Photo Size (0.2–1)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.2"
+                  max="1"
+                  value={editAvatarScale}
+                  onChange={(e) => setEditAvatarScale(e.target.value)}
+                  placeholder="Default"
+                  style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Photo Move Down (-0.5–0.5)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="-0.5"
+                  max="0.5"
+                  value={editAvatarOffsetY}
+                  onChange={(e) => setEditAvatarOffsetY(e.target.value)}
+                  placeholder="0"
+                  style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
+                />
+              </div>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '-8px', marginBottom: '16px' }}>
+              Photo Size = hole width ÷ frame width. Move Down = how far the hole centre is below the frame centre, as a part of frame height. Leave empty for default.
+            </p>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
               <input

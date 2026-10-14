@@ -25,6 +25,10 @@ export type RocketLevelSnapshot = {
   station_asset_key: string | null;
   badge_asset_key: string | null;
   min_contribution: number;
+  /** % of people present in the room (excluding top winners) drawn for lucky coins; 0 = off. */
+  lucky_audience_percent?: number;
+  /** % of accumulated coins shared among lucky winners. */
+  lucky_pool_percentage?: number;
   /** Pre-ladder campaign (no level rows): jet skin still follows top contributor user level. */
   legacy_jet: boolean;
 };
@@ -47,6 +51,8 @@ export type LevelRow = {
   launchAssetKey: string | null;
   stationAssetKey: string | null;
   badgeAssetKey: string | null;
+  luckyAudiencePercent: number;
+  luckyPoolPercentage: number;
   isActive: boolean;
 };
 
@@ -164,6 +170,8 @@ export function activeLadder(campaign: CampaignRow, levels: LevelRow[]): LevelRo
       launchAssetKey: null,
       stationAssetKey: null,
       badgeAssetKey: null,
+      luckyAudiencePercent: 0,
+      luckyPoolPercentage: 0,
       isActive: true,
     },
   ];
@@ -190,6 +198,8 @@ export function snapshotOf(level: LevelRow, campaign: CampaignRow, legacy: boole
     station_asset_key: level.stationAssetKey,
     badge_asset_key: level.badgeAssetKey,
     min_contribution: Math.max(1, campaign.minimumContributionRequired),
+    lucky_audience_percent: clampPercent(level.luckyAudiencePercent),
+    lucky_pool_percentage: clampPercent(level.luckyPoolPercentage),
     legacy_jet: legacy,
     duration_seconds: Math.max(0, level.durationSeconds),
   };
@@ -247,6 +257,44 @@ export function splitByPercent(pool: number, percents: number[]): number[] {
   return shares;
 }
 
+function clampPercent(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
+}
+
+/**
+ * Random lucky winners: [percent]% of [candidates] (at least 1 when percent > 0), capped at
+ * [maxWinners] so every winner can receive at least one coin.
+ */
+export function pickLuckyWinners<T>(candidates: T[], percent: number, maxWinners: number, rng: () => number = Math.random): T[] {
+  const pct = clampPercent(percent);
+  if (pct <= 0 || candidates.length === 0 || maxWinners <= 0) return [];
+  const count = Math.min(Math.max(1, Math.floor((candidates.length * pct) / 100)), maxWinners, candidates.length);
+  const pool = [...candidates];
+  for (let i = 0; i < count; i++) {
+    const j = i + Math.floor(rng() * (pool.length - i));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, count);
+}
+
+/** Lucky shares never go below this fraction of an equal split, so nobody wins a token amount. */
+const LUCKY_FLOOR_RATIO = 0.3;
+
+/** Splits [pool] into [count] random shares, each ≥ 30% of an equal share, summing to [pool]. */
+export function splitLucky(pool: number, count: number, rng: () => number = Math.random): number[] {
+  if (count <= 0 || pool <= 0) return [];
+  // Callers cap count at pool, so the 1-coin minimum always fits.
+  const floor = Math.max(pool >= count ? 1 : 0, Math.floor((pool / count) * LUCKY_FLOOR_RATIO));
+  const spare = pool - floor * count;
+  const weights = Array.from({ length: count }, () => rng() + 0.01);
+  const sum = weights.reduce((a, b) => a + b, 0);
+  const shares = weights.map((w) => floor + Math.floor((spare * w) / sum));
+  const used = shares.reduce((a, b) => a + b, 0);
+  shares[Math.floor(rng() * count) % count] += pool - used;
+  return shares;
+}
+
 export function clampInt(v: unknown, min: number, max: number): number {
   const n = Math.floor(Number(v));
   if (!Number.isFinite(n)) return min;
@@ -270,6 +318,8 @@ export type LevelInput = {
   launch_asset_key?: string | null;
   station_asset_key?: string | null;
   badge_asset_key?: string | null;
+  lucky_audience_percent?: number;
+  lucky_pool_percentage?: number;
   is_active?: boolean;
 };
 
@@ -291,6 +341,15 @@ export function validateLevels(levels: LevelInput[]): string[] {
     }
     const pool = Number(l.reward_pool_percentage);
     if (!Number.isFinite(pool) || pool < 0 || pool > 100) errors.push(`${tag}: reward pool must be 0 – 100%`);
+    const luckyAudience = Number(l.lucky_audience_percent ?? 0);
+    if (!Number.isFinite(luckyAudience) || luckyAudience < 0 || luckyAudience > 100) {
+      errors.push(`${tag}: lucky audience must be 0 – 100%`);
+    }
+    const luckyPool = Number(l.lucky_pool_percentage ?? 0);
+    if (!Number.isFinite(luckyPool) || luckyPool < 0 || luckyPool > 100) errors.push(`${tag}: lucky pool must be 0 – 100%`);
+    if (Number.isFinite(pool) && Number.isFinite(luckyPool) && pool + luckyPool > 100) {
+      errors.push(`${tag}: reward pool + lucky pool must not exceed 100%`);
+    }
     const rules = parseRules(l.reward_distribution_rules);
     if (rules.length === 0 || rules.length > 50) errors.push(`${tag}: prize split needs 1 – 50 winners`);
     const sum = rules.reduce((a, b) => a + b, 0);

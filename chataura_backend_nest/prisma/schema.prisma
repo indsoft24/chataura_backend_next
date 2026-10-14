@@ -437,6 +437,10 @@ model Frame {
   animationUrl  String?  @map("animation_url") @db.Text
   animationKey  String?  @map("animation_key") @db.VarChar(128)
   compositeMode String   @default("alpha") @map("composite_mode") @db.VarChar(16)
+  /// Photo diameter as a fraction of the frame width (hole size). Null = app default.
+  avatarScale   Float?   @map("avatar_scale")
+  /// Hole centre offset from frame centre, fraction of frame height (+ = down). Null = 0.
+  avatarOffsetY Float?   @map("avatar_offset_y")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   unlocks              UserUnlockedFrame[]
@@ -660,6 +664,10 @@ model RocketLaunch {
   levelName      String?  @map("level_name") @db.VarChar(64)
   launchVideoUrl String?  @map("launch_video_url") @db.Text
   themeColor     String?  @map("theme_color") @db.VarChar(16)
+  luckyPool      Int      @default(0) @map("lucky_pool")
+  luckyCount     Int      @default(0) @map("lucky_count")
+  /// People present in the room at launch (lucky draw candidates + top winners)
+  audienceCount  Int      @default(0) @map("audience_count")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   room     Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
@@ -679,6 +687,10 @@ model RocketReward {
   frameId   BigInt? @map("frame_id")
   frameName String? @map("frame_name") @db.VarChar(128)
   frameDays Int?    @map("frame_days")
+  /// TOP = ranked contributor; LUCKY = random audience winner
+  kind      String  @default("TOP") @db.VarChar(8)
+  /// 1-based contributor rank; null for LUCKY
+  rank      Int?
 
   launch RocketLaunch @relation(fields: [launchId], references: [id], onDelete: Cascade)
   user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -745,6 +757,10 @@ model RocketLevelConfig {
   launchAssetKey          String?  @map("launch_asset_key") @db.VarChar(128)
   stationAssetKey         String?  @map("station_asset_key") @db.VarChar(128)
   badgeAssetKey           String?  @map("badge_asset_key") @db.VarChar(128)
+  /// % of people present in the room (excluding top winners) drawn for lucky coins; 0 = off
+  luckyAudiencePercent    Float    @default(0) @map("lucky_audience_percent")
+  /// % of accumulated coins shared among lucky winners
+  luckyPoolPercentage     Float    @default(0) @map("lucky_pool_percentage")
   isActive                Boolean  @default(true) @map("is_active")
   createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)

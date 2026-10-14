@@ -543,6 +543,25 @@ export class GamificationService {
     };
   }
 
+  /** Tuned frames only; the app matches by URL path so no other payload has to carry fit. */
+  async frameFit() {
+    const rows = await this.prisma.frame.findMany({
+      where: { OR: [{ avatarScale: { not: null } }, { avatarOffsetY: { not: null } }] },
+      select: { imageUrl: true, animationUrl: true, compositeMode: true, avatarScale: true, avatarOffsetY: true },
+    });
+    return {
+      frames: rows.map((f) => {
+        const media = presentFrameMedia(f.imageUrl, f.animationUrl, f.compositeMode);
+        const urls = [f.imageUrl, f.animationUrl, media.image_url, media.animation_url, media.animation_url_lite];
+        return {
+          urls: [...new Set(urls.filter((u): u is string => !!u))],
+          avatar_scale: f.avatarScale,
+          avatar_offset_y: f.avatarOffsetY,
+        };
+      }),
+    };
+  }
+
   async roleFramesCatalog() {
     let roleFrames = await this.prisma.frame.findMany({
       where: { category: 'role', isActive: true },

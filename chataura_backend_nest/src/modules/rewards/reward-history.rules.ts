@@ -169,10 +169,12 @@ function pushSuffix(
 export function rocketSubtitle(
   roomName: string | null,
   rank: number | null,
+  lucky = false,
 ): string | null {
   const parts: string[] = [];
   if (roomName) parts.push(roomName);
-  if (rank != null) parts.push(`Rank #${rank}`);
+  if (lucky) parts.push('Lucky winner');
+  else if (rank != null) parts.push(`Rank #${rank}`);
   return parts.length ? parts.join(' · ') : null;
 }
 

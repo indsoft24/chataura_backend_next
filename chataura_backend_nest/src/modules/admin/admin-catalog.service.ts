@@ -535,6 +535,8 @@ export class AdminCatalogService {
           animation_url: media.animation_url,
           animation_key: f.animationKey,
           composite_mode: f.compositeMode,
+          avatar_scale: f.avatarScale,
+          avatar_offset_y: f.avatarOffsetY,
           media_type: media.media_type,
         };
       }),
@@ -604,6 +606,8 @@ export class AdminCatalogService {
       animation_url?: string;
       animation_key?: string;
       composite_mode?: string;
+      avatar_scale?: number | null;
+      avatar_offset_y?: number | null;
     },
   ) {
     let mediaPatch: { imageUrl: string | null; animationUrl: string | null } | null =
@@ -665,6 +669,12 @@ export class AdminCatalogService {
         ...(body.animation_key !== undefined
           ? { animationKey: body.animation_key }
           : {}),
+        ...(body.avatar_scale !== undefined
+          ? { avatarScale: body.avatar_scale }
+          : {}),
+        ...(body.avatar_offset_y !== undefined
+          ? { avatarOffsetY: body.avatar_offset_y }
+          : {}),
       },
     });
     return {
@@ -675,6 +685,8 @@ export class AdminCatalogService {
       animation_url: f.animationUrl,
       animation_key: f.animationKey,
       composite_mode: f.compositeMode,
+      avatar_scale: f.avatarScale,
+      avatar_offset_y: f.avatarOffsetY,
       is_active: f.isActive,
     };
   }

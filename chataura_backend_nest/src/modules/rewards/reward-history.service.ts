@@ -38,6 +38,7 @@ type RewardRow = {
   frame_animation_url: string | null;
   rocket_room_id: string | null;
   rocket_rank: number | null;
+  rocket_kind: string | null;
 };
 
 type Totals = { coins: number; gems: number; xp: number; frames: number };
@@ -124,7 +125,7 @@ export class RewardHistoryService {
                0 AS xp, NULL::bigint AS frame_id, NULL::text AS frame_name,
                NULL::int AS frame_days, NULL::text AS frame_image_url,
                NULL::text AS frame_animation_url, NULL::uuid AS rocket_room_id,
-               NULL::int AS rocket_rank
+               NULL::int AS rocket_rank, NULL::text AS rocket_kind
         FROM coin_transactions ct
         WHERE ct.user_id = ${userId}
           AND ct.type IN (${Prisma.join(types)})
@@ -145,8 +146,10 @@ export class RewardHistoryService {
                rr.frame_id, COALESCE(rr.frame_name, f.name) AS frame_name,
                rr.frame_days, f.image_url AS frame_image_url,
                f.animation_url AS frame_animation_url, rl.room_id AS rocket_room_id,
-               (SELECT COUNT(*)::int FROM rocket_rewards o
-                 WHERE o.launch_id = rr.launch_id AND o.id <= rr.id) AS rocket_rank
+               CASE WHEN rr.kind = 'LUCKY' THEN NULL
+                    ELSE COALESCE(rr.rank, (SELECT COUNT(*)::int FROM rocket_rewards o
+                      WHERE o.launch_id = rr.launch_id AND o.id <= rr.id)) END AS rocket_rank,
+               rr.kind AS rocket_kind
         FROM rocket_rewards rr
         JOIN rocket_launches rl ON rl.id = rr.launch_id
         LEFT JOIN frames f ON f.id = rr.frame_id
@@ -235,7 +238,7 @@ export class RewardHistoryService {
           category: 'rocket' as const,
           type: 'ROCKET_REWARD',
           title: ROCKET_TITLE,
-          subtitle: rocketSubtitle(room, r.rocket_rank),
+          subtitle: rocketSubtitle(room, r.rocket_rank, r.rocket_kind === 'LUCKY'),
           coins: Number(r.coins),
           gems: 0,
           xp: r.xp,

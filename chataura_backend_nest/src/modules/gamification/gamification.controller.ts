@@ -71,6 +71,12 @@ export class GamificationController {
     return this.game.selectEntryBar(user.id, BigInt(body.entry_bar_id));
   }
 
+  /** Per-frame avatar fit, keyed by every media URL the app may bind. Only tuned frames. */
+  @Get('frames/fit')
+  frameFit() {
+    return this.game.frameFit();
+  }
+
   @Get('role-frames')
   roleFrames() {
     return this.game.roleFramesCatalog();
