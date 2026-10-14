@@ -155,8 +155,10 @@ export class GamificationService {
       where: { isActive: true },
       orderBy: [{ levelRequired: 'asc' }, { id: 'asc' }],
     });
-    // Role frames are managed via /role-frames, not the shop catalog.
-    all = all.filter((f) => f.category !== 'role');
+    // Role frames and relationship frames are managed via their respective systems, not the shop catalog.
+    all = all.filter(
+      (f) => f.category !== 'role' && f.category?.toUpperCase() !== 'RELATIONSHIP',
+    );
 
     if (all.length === 0) {
       const defaultFrames = [

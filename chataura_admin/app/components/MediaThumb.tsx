@@ -40,7 +40,12 @@ export default function MediaThumb({
     : isLoopingVideo(imageUrl)
       ? imageUrl
       : null;
+  const animatedImageSrc =
+    !videoSrc && animationUrl && /\.(webp|gif)(\?|#|$)/i.test(animationUrl)
+      ? animationUrl
+      : null;
   const still = imageUrl && !isLoopingVideo(imageUrl) ? imageUrl : null;
+  const displaySrc = animatedImageSrc || still;
   const screen = composite === 'screen';
 
   return (
@@ -70,9 +75,9 @@ export default function MediaThumb({
             mixBlendMode: screen ? 'screen' : 'normal',
           }}
         />
-      ) : still ? (
+      ) : displaySrc ? (
         <img
-          src={still}
+          src={displaySrc}
           alt={alt}
           style={{ width: '100%', height: '100%', objectFit: 'contain' }}
         />
