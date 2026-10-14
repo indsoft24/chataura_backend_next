@@ -82,3 +82,4 @@ chataura_backend_nest/assets/gifts/
 chataura_backend_nest/assets/cp-fx/**/*.webm
 chataura_backend_nest/assets/cp-fx/**/*.png
 # cp-fx/*.json (bond Lottie) remain tracked
+graphify-out/
