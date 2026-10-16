@@ -24,6 +24,7 @@ import { RoomRewardAdminService } from '../room/room-reward/room-reward-admin.se
 import { AdminCatalogService } from './admin-catalog.service';
 import { AdminRechargeService } from './admin-recharge.service';
 import { AdminService } from './admin.service';
+import { CoinSellerService } from '../wallet/coin-seller.service';
 import {
   AdjustBalanceDto,
   CreateEntryBarDto,
@@ -62,7 +63,35 @@ export class AdminController {
     private readonly rockets: RocketLaunchService,
     private readonly fxAssets: FxAssetsService,
     private readonly roomRewards: RoomRewardAdminService,
+    private readonly coinSellers: CoinSellerService,
   ) {}
+
+  // ---- Coin Sellers (offline recharge via WhatsApp) ----
+
+  @Get('coin-sellers')
+  coinSellerList() {
+    return this.coinSellers.adminList();
+  }
+
+  @Post('coin-sellers')
+  coinSellerCreate(@Body() body: Record<string, unknown>) {
+    return this.coinSellers.adminCreate(body);
+  }
+
+  @Put('coin-sellers/order')
+  coinSellerReorder(@Body() body: { ids?: unknown }) {
+    return this.coinSellers.adminReorder(body?.ids);
+  }
+
+  @Patch('coin-sellers/:id')
+  coinSellerUpdate(@Param('id') id: string, @Body() body: Record<string, unknown>) {
+    return this.coinSellers.adminUpdate(parseId(id), body);
+  }
+
+  @Delete('coin-sellers/:id')
+  coinSellerDelete(@Param('id') id: string) {
+    return this.coinSellers.adminDelete(parseId(id));
+  }
 
   // ---- Room Reward Levels ----
 
@@ -506,6 +535,11 @@ export class AdminController {
     @Body() body: { star_rank: number; star_bio_tag?: string },
   ) {
     return this.admin.updateStarAccount(BigInt(id), body);
+  }
+
+  @Post('star-accounts/:id/support-frame')
+  setStarSupportFrame(@Param('id') id: string, @Body() body: { enabled?: boolean }) {
+    return this.admin.setStarSupportFrame(BigInt(id), body?.enabled !== false);
   }
 
   @Post('star-accounts/:id/remove')

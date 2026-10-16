@@ -6,6 +6,7 @@ import {
   nextLevelAfter,
   nextResetAt,
   pickLuckyWinners,
+  rankPresentContributors,
   resolveLevel,
   sniffAsset,
   snapshotOf,
@@ -176,5 +177,18 @@ describe('admin target change on a live rocket', () => {
   it('rejects reward pool + lucky pool above 100%', () => {
     const lv = { level: 1, threshold_coins: 3_500_000, reward_pool_percentage: 90, reward_distribution_rules: [100], lucky_pool_percentage: 20 };
     expect(validateLevels([lv]).join()).toContain('must not exceed 100%');
+  });
+});
+
+describe('rankPresentContributors', () => {
+  const agg = (id: number, coins: number) => ({ userId: BigInt(id), _sum: { coins } });
+
+  it('skips contributors who left and moves the next present one up', () => {
+    const ranked = rankPresentContributors([agg(1, 500), agg(2, 900), agg(3, 300)], new Set(['1', '3']));
+    expect(ranked.map((a) => Number(a.userId))).toEqual([1, 3]);
+  });
+
+  it('returns nobody when every contributor left', () => {
+    expect(rankPresentContributors([agg(1, 500)], new Set())).toEqual([]);
   });
 });

@@ -248,6 +248,19 @@ export function splitContribution(
   return { applied: room, launches: true, carry };
 }
 
+/**
+ * Contributors eligible for top rewards: only people still in the room, biggest total first.
+ * Someone who contributed and left is skipped, so the next present contributor moves up.
+ */
+export function rankPresentContributors<T extends { userId: bigint; _sum: { coins: number | null } }>(
+  aggregates: T[],
+  presentIds: Set<string>,
+): T[] {
+  return aggregates
+    .filter((a) => (a._sum.coins ?? 0) > 0 && presentIds.has(a.userId.toString()))
+    .sort((a, b) => (b._sum.coins ?? 0) - (a._sum.coins ?? 0));
+}
+
 export function splitByPercent(pool: number, percents: number[]): number[] {
   if (percents.length === 0 || pool <= 0) return [];
   const sum = percents.reduce((a, b) => a + b, 0) || 1;
@@ -318,6 +331,8 @@ export type LevelInput = {
   launch_asset_key?: string | null;
   station_asset_key?: string | null;
   badge_asset_key?: string | null;
+  /** Default ladder only: frame looked up by slug when a campaign is created. */
+  frame_slug?: string;
   lucky_audience_percent?: number;
   lucky_pool_percentage?: number;
   is_active?: boolean;
@@ -365,11 +380,11 @@ export function validateLevels(levels: LevelInput[]): string[] {
 
 /** Standard ladder for new campaigns; reuses the five GCS jet videos (rocket.launch_lv1..5). */
 export const DEFAULT_LADDER: LevelInput[] = [
-  { level: 1, name: 'Emerald', threshold_coins: 10_000_000, reward_pool_percentage: 12, reward_distribution_rules: [40, 25, 15, 12, 8], frame_days: 1, theme_color: '#10B981', visual_tier: 1, launch_asset_key: 'rocket.launch_lv1' },
-  { level: 2, name: 'Amethyst', threshold_coins: 30_000_000, reward_pool_percentage: 13, reward_distribution_rules: [35, 22, 15, 10, 8, 6, 4], frame_days: 2, theme_color: '#A855F7', visual_tier: 2, launch_asset_key: 'rocket.launch_lv2' },
-  { level: 3, name: 'Crimson', threshold_coins: 60_000_000, reward_pool_percentage: 14, reward_distribution_rules: [35, 22, 15, 10, 8, 6, 4], frame_days: 3, theme_color: '#EF4444', visual_tier: 3, launch_asset_key: 'rocket.launch_lv3' },
-  { level: 4, name: 'Solar Gold', threshold_coins: 100_000_000, reward_pool_percentage: 15, reward_distribution_rules: [30, 18, 12, 10, 8, 6, 5, 4, 4, 3], frame_days: 5, theme_color: '#F59E0B', visual_tier: 4, launch_asset_key: 'rocket.launch_lv4' },
-  { level: 5, name: 'Cosmic', threshold_coins: 150_000_000, reward_pool_percentage: 16, reward_distribution_rules: [30, 18, 12, 10, 8, 6, 5, 4, 4, 3], frame_days: 7, theme_color: '#6366F1', visual_tier: 5, launch_asset_key: 'rocket.launch_lv5' },
+  { level: 1, name: 'Emerald', threshold_coins: 10_000_000, reward_pool_percentage: 12, reward_distribution_rules: [40, 25, 15, 12, 8], frame_days: 5, frame_slug: 'rocket_frame_lv1_emerald', theme_color: '#10B981', visual_tier: 1, launch_asset_key: 'rocket.launch_lv1' },
+  { level: 2, name: 'Amethyst', threshold_coins: 30_000_000, reward_pool_percentage: 13, reward_distribution_rules: [35, 22, 15, 10, 8, 6, 4], frame_days: 5, frame_slug: 'rocket_frame_lv2_amethyst', theme_color: '#A855F7', visual_tier: 2, launch_asset_key: 'rocket.launch_lv2' },
+  { level: 3, name: 'Crimson', threshold_coins: 60_000_000, reward_pool_percentage: 14, reward_distribution_rules: [35, 22, 15, 10, 8, 6, 4], frame_days: 5, frame_slug: 'rocket_frame_lv3_crimson', theme_color: '#EF4444', visual_tier: 3, launch_asset_key: 'rocket.launch_lv3' },
+  { level: 4, name: 'Solar Gold', threshold_coins: 100_000_000, reward_pool_percentage: 15, reward_distribution_rules: [30, 18, 12, 10, 8, 6, 5, 4, 4, 3], frame_days: 5, frame_slug: 'rocket_frame_lv4_solar_gold', theme_color: '#F59E0B', visual_tier: 4, launch_asset_key: 'rocket.launch_lv4' },
+  { level: 5, name: 'Cosmic', threshold_coins: 150_000_000, reward_pool_percentage: 16, reward_distribution_rules: [30, 18, 12, 10, 8, 6, 5, 4, 4, 3], frame_days: 5, frame_slug: 'rocket_frame_lv5_cosmic', theme_color: '#6366F1', visual_tier: 5, launch_asset_key: 'rocket.launch_lv5' },
 ];
 
 export type AssetSlot = 'launch' | 'station' | 'badge';

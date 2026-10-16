@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import {
@@ -8,46 +9,99 @@ import {
   type PeriodType,
 } from '../relationship/relationship-period';
 
-const SPEND_TYPES = ['GIFT', 'ROCKET'] as const;
+/** Daily personal ranking slot i (0-based) owns RANK_FRAME_SLUGS[i] while holding that slot. */
+export const RANK_FRAME_SLUGS = ['rank_frame_top1', 'rank_frame_top2', 'rank_frame_top3'] as const;
 
 @Injectable()
 export class RankingsService {
+  private readonly logger = new Logger(RankingsService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Gives today's Top 1/2/3 (personal spend) their rank frame and takes it back from anyone who
+   * lost the slot. Runs on every instance; an advisory lock lets only one do the work.
+   */
+  @Cron('*/2 * * * *')
+  async syncRankFrames() {
+    try {
+      const { items } = await this.personalSpend('daily', String(RANK_FRAME_SLUGS.length), null);
+      const frames = await this.prisma.frame.findMany({
+        where: { slug: { in: [...RANK_FRAME_SLUGS] }, isActive: true },
+        select: { id: true, slug: true },
+      });
+      const frameBySlug = new Map(frames.map((f) => [f.slug, f.id]));
+      await this.prisma.$transaction(async (tx) => {
+        const [lock] = await tx.$queryRaw<Array<{ locked: boolean }>>`
+          SELECT pg_try_advisory_xact_lock(hashtext('rank_frames_sync')) AS locked`;
+        if (!lock?.locked) return;
+        for (let i = 0; i < RANK_FRAME_SLUGS.length; i++) {
+          const frameId = frameBySlug.get(RANK_FRAME_SLUGS[i]);
+          if (frameId == null) continue;
+          const holder = items[i] ? BigInt(items[i].user_id) : null;
+          const lost = await tx.userUnlockedFrame.findMany({
+            where: { frameId, ...(holder != null ? { userId: { not: holder } } : {}) },
+            select: { userId: true },
+          });
+          if (lost.length > 0) {
+            const ids = lost.map((l) => l.userId);
+            await tx.userUnlockedFrame.deleteMany({ where: { frameId, userId: { in: ids } } });
+            await tx.user.updateMany({
+              where: { id: { in: ids }, selectedFrameId: frameId },
+              data: { selectedFrameId: null },
+            });
+          }
+          if (holder != null) {
+            await tx.userUnlockedFrame.upsert({
+              where: { userId_frameId: { userId: holder, frameId } },
+              create: { userId: holder, frameId, coinsPaid: 0, unlockType: 'rank' },
+              update: { unlockType: 'rank', expiresAt: null, durationDays: null },
+            });
+          }
+        }
+      });
+    } catch (e) {
+      this.logger.warn(`rank frame sync failed: ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * Personal ranking. `giver` = coins spent (gifts sent + rocket); `receiver` = gift value received
+   * (gross gems: net + commission). App tabs: Charm = giver, Honor = receiver.
+   */
   async personalSpend(
     periodRaw: string | undefined,
     limitRaw: string | undefined,
     viewerId: bigint | null,
+    typeRaw?: string,
   ) {
     const period: PeriodType = isPeriodType(periodRaw) ? periodRaw : 'all_time';
     const limit = Math.min(Math.max(Number(limitRaw ?? 50) || 50, 1), 100);
     const createdAt = periodCreatedAtFilter(period);
+    const type = typeRaw === 'receiver' ? 'receiver' : 'giver';
 
-    const where: Prisma.CoinTransactionWhereInput = {
-      type: { in: [...SPEND_TYPES] },
-      coinAmount: { lt: 0 },
-      ...(createdAt
-        ? { createdAt: { gte: createdAt.gte, lt: createdAt.lt } }
-        : {}),
-    };
+    const filter =
+      type === 'receiver'
+        ? Prisma.sql`type = 'GIFT_RECEIVED'`
+        : Prisma.sql`type IN ('GIFT', 'ROCKET') AND coin_amount < 0`;
+    const score =
+      type === 'receiver'
+        ? Prisma.sql`SUM(COALESCE(net_amount, 0) + COALESCE(commission_amount, 0))`
+        : Prisma.sql`SUM(ABS(coin_amount))`;
+    const periodSql = Prisma.sql`
+      ${createdAt?.gte ? Prisma.sql`AND created_at >= ${createdAt.gte}` : Prisma.empty}
+      ${createdAt?.lt ? Prisma.sql`AND created_at < ${createdAt.lt}` : Prisma.empty}`;
 
-    const rows = await this.prisma.coinTransaction.groupBy({
-      by: ['userId'],
-      where,
-      _sum: { coinAmount: true },
-      orderBy: { _sum: { coinAmount: 'asc' } }, // more negative = more spend
-      take: limit,
-    });
-
-    // groupBy orderBy on _sum can be flaky across providers — sort in memory.
-    const scored = rows
-      .map((r) => ({
-        userId: r.userId,
-        coins: Math.abs(Number(r._sum.coinAmount ?? 0)),
-      }))
-      .filter((r) => r.coins > 0)
-      .sort((a, b) => b.coins - a.coins)
-      .slice(0, limit);
+    const rows = await this.prisma.$queryRaw<Array<{ user_id: bigint; coins: bigint }>>`
+      SELECT user_id, ${score} AS coins
+      FROM coin_transactions
+      WHERE ${filter} ${periodSql}
+      GROUP BY user_id
+      HAVING ${score} > 0
+      ORDER BY coins DESC, user_id ASC
+      LIMIT ${limit}
+    `;
+    const scored = rows.map((r) => ({ userId: r.user_id, coins: Number(r.coins) }));
 
     const users = await this.prisma.user.findMany({
       where: { id: { in: scored.map((s) => s.userId) } },
@@ -92,28 +146,24 @@ export class RankingsService {
           avatar_url: inList.avatar_url,
         };
       } else {
-        const agg = await this.prisma.coinTransaction.aggregate({
-          where: { ...where, userId: viewerId },
-          _sum: { coinAmount: true },
-        });
-        const coins = Math.abs(Number(agg._sum.coinAmount ?? 0));
+        const [mine] = await this.prisma.$queryRaw<Array<{ coins: bigint | null }>>`
+          SELECT ${score} AS coins FROM coin_transactions
+          WHERE user_id = ${viewerId} AND ${filter} ${periodSql}
+        `;
+        const coins = Number(mine?.coins ?? 0);
         const viewer = await this.prisma.user.findUnique({
           where: { id: viewerId },
           select: { displayName: true, name: true, avatarUrl: true },
         });
-        // Approximate rank: count users with higher spend.
+        // Approximate rank: count users with a higher score.
         let rank: number | null = null;
         if (coins > 0) {
           const higher = await this.prisma.$queryRaw<Array<{ c: bigint }>>`
             SELECT COUNT(*)::bigint AS c FROM (
-              SELECT user_id
-              FROM coin_transactions
-              WHERE type IN ('GIFT', 'ROCKET')
-                AND coin_amount < 0
-                ${createdAt?.gte ? Prisma.sql`AND created_at >= ${createdAt.gte}` : Prisma.empty}
-                ${createdAt?.lt ? Prisma.sql`AND created_at < ${createdAt.lt}` : Prisma.empty}
+              SELECT user_id FROM coin_transactions
+              WHERE ${filter} ${periodSql}
               GROUP BY user_id
-              HAVING SUM(ABS(coin_amount)) > ${coins}
+              HAVING ${score} > ${coins}
             ) t
           `;
           rank = Number(higher[0]?.c ?? 0) + 1;
@@ -131,6 +181,7 @@ export class RankingsService {
     return {
       period,
       period_key: periodKey(period),
+      type,
       items,
       me,
     };

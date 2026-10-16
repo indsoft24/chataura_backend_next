@@ -6,14 +6,15 @@ import { RankingsService } from './rankings.service';
 export class RankingsController {
   constructor(private readonly rankings: RankingsService) {}
 
-  /** Users by coins spent (gift send + rocket contribute). */
+  /** Users by coins spent (`type=giver`, default) or gift value received (`type=receiver`). */
   @Get('personal')
   personal(
     @CurrentUser() user: { id: bigint },
     @Query('period') period?: string,
     @Query('limit') limit?: string,
+    @Query('type') type?: string,
   ) {
-    return this.rankings.personalSpend(period, limit, user.id);
+    return this.rankings.personalSpend(period, limit, user.id, type);
   }
 
   /** Public rooms by coins spent in-room (excludes private). */

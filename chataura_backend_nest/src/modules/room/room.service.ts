@@ -1,3 +1,4 @@
+import { bandForXp, ensureLaravelLevelBands } from '../gamification/level-bands';
 import { readMemberTimeoutSeconds } from './room-state/room-runtime.config';
 import { RedisService } from '../../common/redis/redis.service';
 import { RoomStateService } from './room-state/room-state.service';
@@ -1011,8 +1012,13 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       seen.add(key);
       return true;
     });
+    // Same XP → level rule as the profile screen, so the list shows each user's real level.
+    const bands = await ensureLaravelLevelBands(this.prisma);
     return {
-      users: unique.map((m) => this.serializeMember(m, m.user)),
+      users: unique.map((m) => ({
+        ...this.serializeMember(m, m.user),
+        level: bandForXp(Number(m.user.xp), bands).level,
+      })),
     };
   }
 

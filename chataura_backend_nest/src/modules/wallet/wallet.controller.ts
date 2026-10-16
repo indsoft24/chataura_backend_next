@@ -4,14 +4,24 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { WalletService } from './wallet.service';
+import { CoinSellerService } from './coin-seller.service';
 
 @Controller()
 export class WalletController {
-  constructor(private readonly wallet: WalletService) {}
+  constructor(
+    private readonly wallet: WalletService,
+    private readonly coinSellers: CoinSellerService,
+  ) {}
 
   @Get(['users/me/wallet', 'users/me/balance'])
   balance(@CurrentUser() user: AuthUser) {
     return this.wallet.balance(user.id);
+  }
+
+  /** Offline recharge: coin sellers the viewer can contact on WhatsApp. */
+  @Get('wallet/coin-sellers')
+  coinSellerList(@CurrentUser() user: AuthUser) {
+    return this.coinSellers.listForViewer(user.id);
   }
 
   @Get('wallet/packages')

@@ -12,6 +12,9 @@ import {
   ensureLaravelLevelBands,
 } from './level-bands';
 
+/** Frames won (rocket, daily rank) or given by admin (support) — never sold in the shop. */
+const REWARD_ONLY_FRAME_CATEGORIES = new Set(['rocket', 'rank', 'special']);
+
 @Injectable()
 export class GamificationService {
   constructor(
@@ -209,6 +212,11 @@ export class GamificationService {
     const unlockById = new Map(
       unlocked.map((u) => [u.frameId.toString(), u]),
     );
+    all = all.filter(
+      (f) =>
+        !REWARD_ONLY_FRAME_CATEGORIES.has(f.category ?? '') ||
+        this.frameOwned(unlockById.get(f.id.toString())),
+    );
 
     const masterAssets = [
       'cosmic_galaxy_wings_cutout',
@@ -345,6 +353,12 @@ export class GamificationService {
       throw new NotFoundException({
         success: false,
         error: { code: 'FRAME_NOT_FOUND', message: 'Frame not found' },
+      });
+    }
+    if (REWARD_ONLY_FRAME_CATEGORIES.has(frame.category ?? '')) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'REWARD_ONLY_FRAME', message: 'This frame can only be won, not bought' },
       });
     }
     const durationDays =

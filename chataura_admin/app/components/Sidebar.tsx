@@ -42,6 +42,7 @@ const MENU_GROUPS = [
     items: [
       { name: 'Users', href: '/users' },
       { name: 'Star Accounts', href: '/star-accounts' },
+      { name: 'Coin Sellers', href: '/coin-sellers' },
       { name: 'Withdrawals (legacy)', href: '/withdrawals' },
       { name: 'Reports', href: '/reports' },
       { name: 'Party Room Analytics', href: '/party-room-analytics' },

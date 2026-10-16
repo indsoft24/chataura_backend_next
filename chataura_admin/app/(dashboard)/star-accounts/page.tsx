@@ -15,6 +15,7 @@ type StarUser = {
   country: string | null;
   audio_call_rate: number | null;
   video_call_rate: number | null;
+  support_frame: boolean;
 };
 
 export default function StarAccountsPage() {
@@ -70,6 +71,19 @@ export default function StarAccountsPage() {
     }
   };
 
+  const handleSupportFrame = async (u: StarUser) => {
+    if (!token) return;
+    try {
+      const res = await api<any>(`/admin/star-accounts/${u.id}/support-frame`, token, {
+        method: 'POST',
+        body: JSON.stringify({ enabled: !u.support_frame }),
+      });
+      setStars(res.data?.stars ?? []);
+    } catch (err: any) {
+      alert(err.message || 'Failed to update support frame');
+    }
+  };
+
   const handleRemove = async (u: StarUser) => {
     if (!confirm(`Remove star account status from ${u.name}?`)) return;
     if (!token) return;
@@ -100,19 +114,20 @@ export default function StarAccountsPage() {
               <th style={{ padding: '12px 16px' }}>STAR USER</th>
               <th style={{ padding: '12px 16px' }}>BIO TAG</th>
               <th style={{ padding: '12px 16px' }}>COUNTRY</th>
+              <th style={{ padding: '12px 16px' }}>SUPPORT FRAME</th>
               <th style={{ padding: '12px 16px', textAlign: 'right' }}>ACTIONS</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={5} style={{ padding: 32, textAlign: 'center', color: '#9ca3af' }}>
+                <td colSpan={6} style={{ padding: 32, textAlign: 'center', color: '#9ca3af' }}>
                   Loading star accounts...
                 </td>
               </tr>
             ) : stars.length === 0 ? (
               <tr>
-                <td colSpan={5} style={{ padding: 32, textAlign: 'center', color: '#9ca3af' }}>
+                <td colSpan={6} style={{ padding: 32, textAlign: 'center', color: '#9ca3af' }}>
                   No star accounts currently assigned. Assign users via the Users page.
                 </td>
               </tr>
@@ -182,6 +197,14 @@ export default function StarAccountsPage() {
                     )}
                   </td>
                   <td style={{ padding: '12px 16px', color: '#4b5563' }}>{u.country ?? '—'}</td>
+                  <td style={{ padding: '12px 16px' }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={u.support_frame} onChange={() => handleSupportFrame(u)} />
+                      <span style={{ color: u.support_frame ? '#0f766e' : '#9ca3af', fontWeight: 500 }}>
+                        {u.support_frame ? 'On' : 'Off'}
+                      </span>
+                    </label>
+                  </td>
                   <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                     <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
                       <button

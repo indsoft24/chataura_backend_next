@@ -10,6 +10,8 @@ const PLATFORM_WALLET_EMAIL =
   process.env.PLATFORM_WALLET_EMAIL?.trim().toLowerCase() ||
   'platform@chataura.local';
 
+const SUPPORT_FRAME_SLUG = 'support_frame_official';
+
 @Injectable()
 export class AdminService {
   constructor(
@@ -343,6 +345,7 @@ export class AdminService {
           { displayName: { contains: term, mode: 'insensitive' } },
           { name: { contains: term, mode: 'insensitive' } },
           { phone: { contains: term } },
+          { displayId: term },
           ...(/^\d{1,18}$/.test(term) ? [{ id: BigInt(term) }] : []),
         ],
       });
@@ -1028,6 +1031,17 @@ export class AdminService {
       where: { isStarAccount: true, deletedAt: null },
       orderBy: [{ starRank: 'asc' }, { id: 'asc' }],
     });
+    const supportFrame = await this.supportFrame();
+    const withSupport = new Set(
+      supportFrame
+        ? (
+            await this.prisma.userUnlockedFrame.findMany({
+              where: { frameId: supportFrame.id, userId: { in: rows.map((u) => u.id) } },
+              select: { userId: true },
+            })
+          ).map((r) => r.userId.toString())
+        : [],
+    );
     return {
       stars: rows.map((u) => ({
         id: Number(u.id),
@@ -1040,8 +1054,55 @@ export class AdminService {
         country: u.country,
         audio_call_rate: u.audioCallRate,
         video_call_rate: u.videoCallRate,
+        support_frame: withSupport.has(u.id.toString()),
       })),
     };
+  }
+
+  private supportFrame() {
+    return this.prisma.frame.findFirst({
+      where: { slug: SUPPORT_FRAME_SLUG, isActive: true },
+      select: { id: true },
+    });
+  }
+
+  /** Admin gives / takes the Official Support frame from a star account. */
+  async setStarSupportFrame(userId: bigint, enabled: boolean) {
+    const frame = await this.supportFrame();
+    if (!frame) {
+      throw new NotFoundException({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Support frame not found' },
+      });
+    }
+    if (enabled) {
+      const user = await this.prisma.user.findFirst({
+        where: { id: userId, isStarAccount: true, deletedAt: null },
+        select: { id: true },
+      });
+      if (!user) {
+        throw new BadRequestException({
+          success: false,
+          error: { code: 'NOT_STAR', message: 'Support frame is only for star accounts' },
+        });
+      }
+      await this.prisma.userUnlockedFrame.upsert({
+        where: { userId_frameId: { userId, frameId: frame.id } },
+        create: { userId, frameId: frame.id, coinsPaid: 0, unlockType: 'admin' },
+        update: { unlockType: 'admin', expiresAt: null, durationDays: null },
+      });
+    } else {
+      await this.revokeSupportFrame(userId, frame.id);
+    }
+    return this.starAccounts();
+  }
+
+  private async revokeSupportFrame(userId: bigint, frameId: bigint) {
+    await this.prisma.userUnlockedFrame.deleteMany({ where: { userId, frameId } });
+    await this.prisma.user.updateMany({
+      where: { id: userId, selectedFrameId: frameId },
+      data: { selectedFrameId: null },
+    });
   }
 
   async updateStarAccount(userId: bigint, body: { star_rank: number; star_bio_tag?: string }) {
@@ -1057,6 +1118,8 @@ export class AdminService {
   }
 
   async removeStarAccount(userId: bigint) {
+    const supportFrame = await this.supportFrame();
+    if (supportFrame) await this.revokeSupportFrame(userId, supportFrame.id);
     const updated = await this.prisma.user.update({
       where: { id: userId },
       data: {

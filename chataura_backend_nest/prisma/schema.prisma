@@ -134,11 +134,31 @@ model User {
   bonusClaims         BonusClaim[]
   presenceSessions    UserRoomPresenceSession[]
   roomRewardGifting   RoomRewardGifting[]
+  coinSellerContact   CoinSellerContact?
 
   @@index([accountStatus])
   @@index([isStarAccount, starRank])
   @@index([invitedBy])
   @@map("users")
+}
+
+/// Offline recharge: a coin seller shown in the app's "Offline" recharge tab with a WhatsApp link.
+model CoinSellerContact {
+  id           BigInt   @id @default(autoincrement())
+  userId       BigInt   @unique @map("user_id")
+  /// Digits only, country code first, no "+" (e.g. 919876543210) — ready for wa.me links.
+  whatsappE164 String   @map("whatsapp_e164") @db.VarChar(16)
+  /// ISO country codes (upper case) that see this seller. Empty = every country.
+  countries    String[] @default([])
+  sortOrder    Int      @default(0) @map("sort_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([isActive, sortOrder])
+  @@map("coin_seller_contacts")
 }
 
 model RefreshToken {

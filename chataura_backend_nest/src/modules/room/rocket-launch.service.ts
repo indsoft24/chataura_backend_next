@@ -25,6 +25,7 @@ import {
   nextResetAt,
   parseRules,
   pickLuckyWinners,
+  rankPresentContributors,
   resolveLevel,
   RocketLevelSnapshot,
   safeTimeZone,
@@ -502,9 +503,16 @@ export class RocketLaunchService {
         ? await tx.rocketCampaignConfig.update({ where: { id }, data })
         : await tx.rocketCampaignConfig.create({ data });
       if (!id) {
-        // New campaigns start with the standard LV1–LV5 ladder.
+        // New campaigns start with the standard LV1–LV5 ladder and its rocket frames.
+        const frames = await tx.frame.findMany({
+          where: { slug: { in: DEFAULT_LADDER.map((l) => l.frame_slug ?? '') }, isActive: true },
+          select: { id: true, slug: true },
+        });
+        const frameBySlug = new Map(frames.map((f) => [f.slug, Number(f.id)]));
         await tx.rocketLevelConfig.createMany({
-          data: DEFAULT_LADDER.map((l) => this.levelData(saved.id, l)),
+          data: DEFAULT_LADDER.map((l) =>
+            this.levelData(saved.id, { ...l, frame_id: frameBySlug.get(l.frame_slug ?? '') ?? null }),
+          ),
         });
       }
       // Only one active campaign at a time when activating
@@ -1002,33 +1010,35 @@ export class RocketLaunchService {
       where: { eventId },
       _sum: { coins: true },
     });
-    const aggregates = [...aggregatesRaw]
-      .filter((a) => (a._sum.coins ?? 0) > 0)
-      .sort((a, b) => (b._sum.coins ?? 0) - (a._sum.coins ?? 0));
+    const aggregates = aggregatesRaw.filter((a) => (a._sum.coins ?? 0) > 0);
+
+    // People in the room right now (fresh heartbeat). Top and lucky rewards go only to them.
+    const setting = await tx.adminSetting
+      .findUnique({ where: { id: 1 }, select: { extraSettings: true } })
+      .catch(() => null);
+    const cutoff = new Date(
+      Date.now() - readMemberTimeoutSeconds(setting?.extraSettings as Record<string, unknown>) * 1000,
+    );
+    const present = await tx.roomMember.findMany({
+      where: { roomId: room.id, isActive: true, lastHeartbeatAt: { gte: cutoff } },
+      select: { userId: true },
+    });
+    const presentIds = new Set(present.map((m) => m.userId.toString()));
 
     const rules = snap.rules.slice(0, snap.max_winners);
-    const winners = aggregates.slice(0, rules.length);
+    const winners = rankPresentContributors(aggregates, presentIds).slice(0, rules.length);
     const coinShares = splitByPercent(pool, rules.slice(0, winners.length));
 
-    // Frame reward for every top winner: the level's chosen frame, else the first N active frames.
+    // Frame reward for every top winner: the level's chosen frame only (no frame when none is set,
+    // so winners never get paid shop frames for free).
     const frameWinners = winners.length;
     let frameFor: (rank: number) => { id: bigint; name: string } | null = () => null;
-    if (frameWinners > 0) {
-      if (snap.frame_id != null) {
-        const frame = await tx.frame.findFirst({
-          where: { id: BigInt(snap.frame_id), isActive: true },
-          select: { id: true, name: true },
-        });
-        frameFor = (rank) => (frame && rank < frameWinners ? frame : null);
-      } else {
-        const frames = await tx.frame.findMany({
-          where: { isActive: true },
-          orderBy: { id: 'asc' },
-          take: frameWinners,
-          select: { id: true, name: true },
-        });
-        frameFor = (rank) => frames[rank] ?? null;
-      }
+    if (frameWinners > 0 && snap.frame_id != null) {
+      const frame = await tx.frame.findFirst({
+        where: { id: BigInt(snap.frame_id), isActive: true },
+        select: { id: true, name: true },
+      });
+      frameFor = (rank) => (frame && rank < frameWinners ? frame : null);
     }
 
     const launcher = launcherId ?? room.hostId ?? room.ownerId;
@@ -1053,16 +1063,6 @@ export class RocketLaunchService {
     let luckyWinners: bigint[] = [];
     let luckyShares: number[] = [];
     if (luckyPercent > 0 && luckyPoolTotal > 0) {
-      const setting = await tx.adminSetting
-        .findUnique({ where: { id: 1 }, select: { extraSettings: true } })
-        .catch(() => null);
-      const cutoff = new Date(
-        Date.now() - readMemberTimeoutSeconds(setting?.extraSettings as Record<string, unknown>) * 1000,
-      );
-      const present = await tx.roomMember.findMany({
-        where: { roomId: room.id, isActive: true, lastHeartbeatAt: { gte: cutoff } },
-        select: { userId: true },
-      });
       audienceCount = present.length;
       const candidates = present.map((m) => m.userId).filter((id) => !topIds.has(id.toString()));
       // Sorted so wallet row locks are always taken in the same order.
