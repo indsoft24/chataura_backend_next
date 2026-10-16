@@ -40,6 +40,14 @@ describe('game RNG weights', () => {
   });
 });
 
+describe('lucky77 odds', () => {
+  it('77 lands about once every 11 rounds; fruits split the rest evenly', () => {
+    const total = Object.values(LUCKY77_OPTIONS).reduce((s, o) => s + o.weight, 0);
+    expect(LUCKY77_OPTIONS.lucky_77.weight / total).toBeCloseTo(0.09, 3);
+    expect(LUCKY77_OPTIONS.watermelon.weight).toBe(LUCKY77_OPTIONS.plum.weight);
+  });
+});
+
 describe('lucky77 bet combinations', () => {
   it.each([
     [[], 'watermelon'],

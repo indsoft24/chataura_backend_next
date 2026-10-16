@@ -5,6 +5,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { bandForXp, ensureLaravelLevelBands } from '../gamification/level-bands';
 import { LedgerService } from '../wallet/ledger.service';
 import { userForApi } from '../user/user.serializer';
+import { staffRoleKey } from '../gamification/frame-eligibility';
 
 const PLATFORM_WALLET_EMAIL =
   process.env.PLATFORM_WALLET_EMAIL?.trim().toLowerCase() ||
@@ -816,31 +817,34 @@ export class AdminService {
     const staffBadge =
       body.staff_badge_type ?? body.badge_type ?? undefined;
     const demoting = nextRole === 'user';
-    let roleFrameId: bigint | null | undefined = undefined;
-    if (demoting) {
-      roleFrameId = null;
-    } else if (staffBadge === 'ceo' && !user.selectedRoleFrameId) {
-      roleFrameId = 223n;
-    } else if (staffBadge === 'manager' && !user.selectedRoleFrameId) {
-      roleFrameId = 224n;
-    } else if (staffBadge === 'admin' && !user.selectedRoleFrameId) {
-      roleFrameId = 225n;
-    }
+    // One-frame rule: a new staff member wears their role frame only if they wear nothing yet;
+    // demoting drops a worn role frame (other owned frames stay).
+    const wornFrame = user.selectedFrameId
+      ? await this.prisma.frame.findUnique({ where: { id: user.selectedFrameId }, select: { category: true } })
+      : null;
+    const roleKey = demoting ? null : staffRoleKey(nextRole, staffBadge ?? user.staffBadgeType ?? null);
+    const defaultRoleFrame =
+      roleKey && !user.selectedFrameId
+        ? await this.prisma.frame.findFirst({
+            where: { category: 'role', isActive: true, animationKey: roleKey },
+            orderBy: { id: 'asc' },
+            select: { id: true },
+          })
+        : null;
+    const frameData = demoting
+      ? wornFrame?.category === 'role'
+        ? { selectedFrameId: null, selectedRoleFrameId: null }
+        : { selectedRoleFrameId: null }
+      : defaultRoleFrame
+        ? { selectedFrameId: defaultRoleFrame.id, selectedRoleFrameId: defaultRoleFrame.id }
+        : {};
     const updated = await this.prisma.user.update({
       where: { id: user.id },
       data: {
         role: nextRole,
         ...(body.email ? { email: body.email } : {}),
-        ...(demoting
-          ? { staffBadgeType: null, selectedRoleFrameId: null }
-          : staffBadge !== undefined
-            ? {
-                staffBadgeType: staffBadge || null,
-                ...(roleFrameId !== undefined ? { selectedRoleFrameId: roleFrameId } : {}),
-              }
-            : roleFrameId !== undefined
-              ? { selectedRoleFrameId: roleFrameId }
-              : {}),
+        ...(demoting ? { staffBadgeType: null } : staffBadge !== undefined ? { staffBadgeType: staffBadge || null } : {}),
+        ...frameData,
         accountStatus: 'active',
         isSuspended: false,
         deletedAt: null,

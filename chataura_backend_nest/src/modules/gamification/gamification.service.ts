@@ -1,22 +1,29 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { presentFrameMedia } from '../../common/utils/catalog-media';
-import { LedgerService } from '../wallet/ledger.service';
+import { LedgerService, REWARD_ONLY_FRAME_CATEGORIES } from '../wallet/ledger.service';
 import { buildRoleBadge } from '../user/user.serializer';
+import { periodKey } from '../relationship/relationship-period';
+import { eligibleFrames, type FrameSource } from './frame-eligibility';
 import {
   bandForXp,
   ensureLaravelLevelBands,
 } from './level-bands';
 
-/** Frames won (rocket, daily rank) or given by admin (support) — never sold in the shop. */
-const REWARD_ONLY_FRAME_CATEGORIES = new Set(['rocket', 'rank', 'special']);
+const REWARD_ONLY = new Set(REWARD_ONLY_FRAME_CATEGORIES);
+const SWEEP_BATCH = 2000;
 
 @Injectable()
 export class GamificationService {
+  private readonly logger = new Logger(GamificationService.name);
+  private sweepOffset = 0;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
@@ -158,9 +165,15 @@ export class GamificationService {
       where: { isActive: true },
       orderBy: [{ levelRequired: 'asc' }, { id: 'asc' }],
     });
-    // Role frames and relationship frames are managed via their respective systems, not the shop catalog.
+    const eligible = await this.eligibility(user, all);
+    const selectedFrameId = await this.clearIfIneligible(user, eligible);
+    // Shop shows sellable frames; role / CP / BCP / reward frames appear only for users who can wear them.
     all = all.filter(
-      (f) => f.category !== 'role' && f.category?.toUpperCase() !== 'RELATIONSHIP',
+      (f) =>
+        eligible.has(f.id.toString()) ||
+        (f.category !== 'role' &&
+          f.category?.toUpperCase() !== 'RELATIONSHIP' &&
+          !REWARD_ONLY.has(f.category ?? '')),
     );
 
     if (all.length === 0) {
@@ -212,11 +225,6 @@ export class GamificationService {
     const unlockById = new Map(
       unlocked.map((u) => [u.frameId.toString(), u]),
     );
-    all = all.filter(
-      (f) =>
-        !REWARD_ONLY_FRAME_CATEGORIES.has(f.category ?? '') ||
-        this.frameOwned(unlockById.get(f.id.toString())),
-    );
 
     const masterAssets = [
       'cosmic_galaxy_wings_cutout',
@@ -252,7 +260,7 @@ export class GamificationService {
         : media.preview_url || assetKey;
       const animationUrl = media.loop ? media.animation_url : displayUrl;
       const row = unlockById.get(f.id.toString());
-      const owned = this.frameOwned(row);
+      const owned = eligible.has(f.id.toString());
       return {
         id: Number(f.id),
         name: f.name,
@@ -279,70 +287,142 @@ export class GamificationService {
         expires_at: owned ? (row?.expiresAt?.toISOString() ?? null) : null,
         duration_days: row?.durationDays ?? null,
         coins_paid: row?.coinsPaid ?? 0,
-        is_selected: user.selectedFrameId === f.id,
+        is_selected: selectedFrameId === f.id,
+        source: eligible.get(f.id.toString()) ?? null,
       };
     };
 
     return {
       selected_frame: (() => {
-        if (!user.selectedFrameId) return null;
-        const fIdx = all.findIndex((x) => x.id === user.selectedFrameId);
+        if (!selectedFrameId) return null;
+        const fIdx = all.findIndex((x) => x.id === selectedFrameId);
         return fIdx >= 0 ? mapFrame(all[fIdx], fIdx) : null;
       })(),
       unlocked_frames: all
-        .filter((f) => this.frameOwned(unlockById.get(f.id.toString())))
+        .filter((f) => eligible.has(f.id.toString()))
         .map(mapFrame),
       available_frames: all.map(mapFrame),
       frames: all.map(mapFrame),
     };
   }
 
+  /** Equip any frame the user can wear now (paid, free, reward, support, role, CP/BCP). */
   async selectFrame(userId: bigint, frameId: bigint) {
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-    });
-    const staffRole = ['agency', 'seller', 'admin'].includes(user.role);
-    if (staffRole || user.staffBadgeType) {
-      throw new BadRequestException({
-        success: false,
-        error: {
-          code: 'STAFF_ROLE_FRAMES_ONLY',
-          message: 'Staff accounts use role frames only',
-        },
-      });
-    }
-    const frame = await this.prisma.frame.findFirst({
-      where: { id: frameId, isActive: true },
-    });
+    await this.equip(userId, frameId);
+    return this.frames(userId);
+  }
+
+  private async equip(userId: bigint, frameId: bigint) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const frame = await this.prisma.frame.findFirst({ where: { id: frameId, isActive: true } });
     if (!frame) {
       throw new NotFoundException({
         success: false,
         error: { code: 'FRAME_NOT_FOUND', message: 'Frame not found' },
       });
     }
-    if (frame.category === 'role') {
+    const eligible = await this.eligibility(user);
+    if (!eligible.has(frameId.toString())) {
       throw new BadRequestException({
         success: false,
-        error: {
-          code: 'ROLE_FRAME_SHOP_REJECTED',
-          message: 'Role frames cannot be selected via shop',
-        },
+        error: { code: 'LOCKED', message: 'You have not unlocked this frame' },
       });
     }
-    const unlocked = await this.prisma.userUnlockedFrame.findUnique({
-      where: { userId_frameId: { userId, frameId } },
-    });
-    if (!this.frameOwned(unlocked)) {
-      throw new BadRequestException({
-        success: false,
-        error: { code: 'LOCKED', message: 'Frame is locked' },
-      });
-    }
+    // selectedRoleFrameId mirrors the equipped frame only when it is a role frame, so
+    // every payload (and older apps) shows exactly the one frame the user picked.
     await this.prisma.user.update({
       where: { id: userId },
-      data: { selectedFrameId: frameId },
+      data: { selectedFrameId: frameId, selectedRoleFrameId: frame.category === 'role' ? frameId : null },
     });
-    return this.frames(userId);
+  }
+
+  /** Frames this user can wear right now, keyed by frame id. */
+  private async eligibility(
+    user: { id: bigint; role: string; staffBadgeType: string | null },
+    activeFrames?: Array<{ id: bigint; category: string | null; slug: string | null; animationKey: string | null }>,
+  ): Promise<Map<string, FrameSource>> {
+    const [frames, unlocks, rels] = await Promise.all([
+      activeFrames ??
+        this.prisma.frame.findMany({
+          where: { isActive: true },
+          select: { id: true, category: true, slug: true, animationKey: true },
+        }),
+      this.prisma.userUnlockedFrame.findMany({
+        where: { userId: user.id },
+        select: { frameId: true, expiresAt: true, coinsPaid: true, unlockType: true },
+      }),
+      this.prisma.userRelationship.findMany({
+        where: {
+          status: 'active',
+          OR: [{ userLowId: user.id }, { userHighId: user.id }],
+          relationshipType: { code: { in: ['cp', 'bcp'] } },
+        },
+        select: { id: true, relationshipType: { select: { code: true } } },
+      }),
+    ]);
+    const rank1 = rels.length
+      ? new Set(
+          (
+            await this.prisma.relationshipPeriodScore.findMany({
+              where: {
+                relationshipId: { in: rels.map((r) => r.id) },
+                periodType: 'all_time',
+                periodKey: periodKey('all_time'),
+                roomKey: '',
+                rank: 1,
+              },
+              select: { relationshipId: true },
+            })
+          ).map((r) => r.relationshipId),
+        )
+      : new Set<string>();
+    return eligibleFrames({
+      frames,
+      unlocks,
+      role: user.role,
+      staffBadgeType: user.staffBadgeType,
+      relationships: rels.map((r) => ({ typeCode: r.relationshipType.code, isRank1: rank1.has(r.id) })),
+    });
+  }
+
+  /** A worn frame the user lost (role removed, partner gone, expired…) falls back to no frame. */
+  private async clearIfIneligible(
+    user: { id: bigint; selectedFrameId: bigint | null },
+    eligible: Map<string, FrameSource>,
+  ): Promise<bigint | null> {
+    if (!user.selectedFrameId || eligible.has(user.selectedFrameId.toString())) return user.selectedFrameId;
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { selectedFrameId: null, selectedRoleFrameId: null },
+    });
+    return null;
+  }
+
+  /**
+   * Same fallback for everyone, so other people never see a frame its owner lost.
+   * Bounded batch; users who open their frames list are fixed immediately anyway.
+   */
+  @Cron('*/10 * * * *')
+  async sweepEquippedFrames() {
+    try {
+      const frames = await this.prisma.frame.findMany({
+        where: { isActive: true },
+        select: { id: true, category: true, slug: true, animationKey: true },
+      });
+      const worn = await this.prisma.user.findMany({
+        where: { selectedFrameId: { not: null } },
+        select: { id: true, role: true, staffBadgeType: true, selectedFrameId: true },
+        orderBy: { id: 'asc' },
+        take: SWEEP_BATCH,
+        skip: this.sweepOffset,
+      });
+      this.sweepOffset = worn.length < SWEEP_BATCH ? 0 : this.sweepOffset + SWEEP_BATCH;
+      for (const u of worn) {
+        await this.clearIfIneligible(u, await this.eligibility(u, frames));
+      }
+    } catch (e) {
+      this.logger.warn(`equipped frame sweep failed: ${(e as Error).message}`);
+    }
   }
 
   async purchaseFrame(userId: bigint, frameId: bigint, days?: number) {
@@ -355,7 +435,11 @@ export class GamificationService {
         error: { code: 'FRAME_NOT_FOUND', message: 'Frame not found' },
       });
     }
-    if (REWARD_ONLY_FRAME_CATEGORIES.has(frame.category ?? '')) {
+    if (
+      REWARD_ONLY.has(frame.category ?? '') ||
+      frame.category === 'role' ||
+      frame.category?.toUpperCase() === 'RELATIONSHIP'
+    ) {
       throw new BadRequestException({
         success: false,
         error: { code: 'REWARD_ONLY_FRAME', message: 'This frame can only be won, not bought' },
@@ -662,46 +746,14 @@ export class GamificationService {
     return { role_frames: items };
   }
 
-  private resolveStaffRoleKey(user: {
-    role: string;
-    staffBadgeType?: string | null;
-  }): string | null {
-    const userRole = user.role.toString().toLowerCase();
-    if (userRole === 'agency') return 'agency';
-    if (userRole === 'seller') return 'coin_seller';
-    if (userRole === 'admin') {
-      const badge = (user.staffBadgeType ?? 'admin').toLowerCase().trim();
-      return badge || 'admin';
-    }
-    return null;
-  }
-
   async myRoleFrames(userId: bigint) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
     });
 
     const catalog = await this.roleFramesCatalog();
-    const roleKey = this.resolveStaffRoleKey(user);
-
-    const unlocked = await this.prisma.userUnlockedFrame.findMany({
-      where: { userId },
-      select: { frameId: true },
-    });
-    const unlockedIds = new Set(unlocked.map((u) => u.frameId.toString()));
-
-    const eligible = catalog.role_frames.filter((f) => {
-      if (roleKey && f.role_key === roleKey) return true;
-      // Admins may also use the superadmin / admin catalog keys.
-      if (
-        user.role === 'admin' &&
-        (f.role_key === 'admin' || f.role_key === 'superadmin')
-      ) {
-        return true;
-      }
-      if (unlockedIds.has(String(f.id))) return true;
-      return false;
-    });
+    const eligibleIds = await this.eligibility(user);
+    const eligible = catalog.role_frames.filter((f) => eligibleIds.get(String(f.id)) === 'role');
 
     const selectedId = user.selectedRoleFrameId
       ? Number(user.selectedRoleFrameId)
@@ -732,61 +784,18 @@ export class GamificationService {
     };
   }
 
+  /** Older apps' role-frame picker: same one-frame equip as [selectFrame]. */
   async selectRoleFrame(
     userId: bigint,
     body: { role_frame_id?: number | string },
   ) {
-    const frameId = body.role_frame_id ? BigInt(body.role_frame_id) : null;
-    if (!frameId) {
+    if (!body.role_frame_id) {
       throw new BadRequestException({
         success: false,
         error: { code: 'INVALID_FRAME', message: 'role_frame_id is required' },
       });
     }
-
-    const frame = await this.prisma.frame.findFirst({
-      where: { id: frameId, isActive: true },
-    });
-    if (!frame) {
-      throw new NotFoundException({
-        success: false,
-        error: { code: 'FRAME_NOT_FOUND', message: 'Role frame not found' },
-      });
-    }
-    if (frame.category !== 'role') {
-      throw new BadRequestException({
-        success: false,
-        error: {
-          code: 'NOT_ROLE_FRAME',
-          message: 'Frame is not a role frame',
-        },
-      });
-    }
-
-    const unlocked = await this.prisma.userUnlockedFrame.findUnique({
-      where: { userId_frameId: { userId, frameId } },
-    });
-    if (!this.frameOwned(unlocked)) {
-      await this.prisma.userUnlockedFrame.upsert({
-        where: { userId_frameId: { userId, frameId } },
-        create: {
-          userId,
-          frameId,
-          coinsPaid: 0,
-          unlockType: 'role',
-        },
-        update: {
-          unlockType: 'role',
-          expiresAt: null,
-        },
-      });
-    }
-
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { selectedRoleFrameId: frameId },
-    });
-
+    await this.equip(userId, BigInt(body.role_frame_id));
     return this.myRoleFrames(userId);
   }
 

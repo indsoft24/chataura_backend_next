@@ -151,6 +151,18 @@ export class GameService {
     }
     const spec = GREEDY_ITEMS[item];
     const placed = await this.prisma.$transaction(async (tx) => {
+      // Shared lock on the round row. Settlement takes FOR UPDATE SKIP LOCKED on it, so a bet
+      // can never land in a round that is being / has been settled (and then never be paid).
+      const lockedRound = await tx.$queryRaw<
+        Array<{ phase: string; betting_ends_at: Date }>
+      >`SELECT phase, betting_ends_at FROM greedy_rounds WHERE id = ${round.id} FOR SHARE`;
+      const current = lockedRound[0];
+      if (!current || current.phase !== 'betting' || secondsRemaining(new Date(current.betting_ends_at)) <= 1) {
+        throw new BadRequestException({
+          success: false,
+          error: { code: 'BETTING_CLOSED', message: 'Betting is closed' },
+        });
+      }
       try {
         const { after } = await this.ledger.debitCoins(
           tx,

@@ -8,6 +8,7 @@ import {
 } from '../room/room-reward/room-reward.config';
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SPIN_EXPECTED_PAYOUT, SPIN_MIN_COST } from '../gamification/bonus-spin.service';
 import { Gift, Prisma } from '@prisma/client';
 import { resolve } from 'path';
 import {
@@ -1053,7 +1054,19 @@ export class AdminCatalogService {
       data.videoCallPricePerMin = Number(body.video_call_price_per_min);
     if (body.star_chat_price_per_min !== undefined)
       data.starChatPricePerMin = Number(body.star_chat_price_per_min);
-    if (body.spin_cost !== undefined) data.spinCost = Number(body.spin_cost);
+    if (body.spin_cost !== undefined) {
+      const cost = Number(body.spin_cost);
+      if (!Number.isFinite(cost) || cost < SPIN_MIN_COST) {
+        throw new BadRequestException({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: `Spin cost must be at least ${SPIN_MIN_COST} coins (average payout is ${SPIN_EXPECTED_PAYOUT.toFixed(1)})`,
+          },
+        });
+      }
+      data.spinCost = Math.floor(cost);
+    }
     if (body.bonus_config !== undefined)
       data.bonusConfig = body.bonus_config as Prisma.InputJsonValue;
 

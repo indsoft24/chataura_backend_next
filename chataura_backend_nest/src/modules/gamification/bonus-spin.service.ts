@@ -49,6 +49,18 @@ const SPIN_PRIZES = [
   },
 ];
 
+/** Average coins paid per spin by [SPIN_PRIZES]. */
+export const SPIN_EXPECTED_PAYOUT = SPIN_PRIZES.reduce((s, p) => s + p.probability * p.coins, 0);
+/**
+ * Cheapest allowed spin: the house keeps at least 10% on average. A lower admin price would
+ * make every spin profitable for players, so it is raised to this floor.
+ */
+export const SPIN_MIN_COST = Math.ceil(SPIN_EXPECTED_PAYOUT / 0.9);
+
+export function effectiveSpinCost(configured: number): number {
+  return Number.isFinite(configured) ? Math.max(Math.floor(configured), SPIN_MIN_COST) : SPIN_MIN_COST;
+}
+
 export const DEFAULT_BONUS_CONFIG = {
   daily_streak: { enabled: true, rewards: [5, 10, 15, 20, 25, 30, 50] },
   referral_milestone: { enabled: true, required_count: 5, coins: 100 },
@@ -100,6 +112,8 @@ export const DEFAULT_BONUS_CONFIG = {
 
 type GameBonusCfg = (typeof DEFAULT_BONUS_CONFIG)['game_1'];
 
+const REMOVED_BONUS_GAMES = new Set<string>(['game_1', 'game_3']);
+
 @Injectable()
 export class BonusSpinService {
   constructor(
@@ -110,14 +124,14 @@ export class BonusSpinService {
   async prizes() {
     const settings = await this.settings();
     return {
-      spin_cost: settings.spinCost,
+      spin_cost: effectiveSpinCost(settings.spinCost),
       prizes: SPIN_PRIZES,
     };
   }
 
   async play(userId: bigint) {
     const settings = await this.settings();
-    const cost = settings.spinCost;
+    const cost = effectiveSpinCost(settings.spinCost);
     const prize = this.pickPrize();
     const result = await this.prisma.$transaction(async (tx) => {
       try {
@@ -358,6 +372,14 @@ export class BonusSpinService {
     },
   ) {
     const key = this.normalizeGame(body.game_type);
+    // Fruit Chopping (game_1) and TicTacToe (game_3) were removed from the app; without this a
+    // direct API call could still claim their free daily rewards.
+    if (REMOVED_BONUS_GAMES.has(key)) {
+      throw new ForbiddenException({
+        success: false,
+        error: { code: 'GAME_REMOVED', message: 'This game is no longer available' },
+      });
+    }
     const cfg = await this.bonusCfg();
     const game = cfg[key];
     if (!game.enabled) {

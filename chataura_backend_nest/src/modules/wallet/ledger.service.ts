@@ -30,6 +30,9 @@ export interface LockedUser {
   last_streak_at: Date | null;
 }
 
+/** Frames won (rocket, daily rank) or given by admin (support) — never sold or auto-unlocked. */
+export const REWARD_ONLY_FRAME_CATEGORIES = ['rocket', 'rank', 'special'];
+
 @Injectable()
 export class LedgerService {
   constructor(private readonly prisma: PrismaService) {}
@@ -264,7 +267,11 @@ export class LedgerService {
         isActive: true,
         isPremium: false,
         levelRequired: { lte: level },
-        OR: [{ coinCost: null }, { coinCost: 0 }],
+        AND: [
+          { OR: [{ coinCost: null }, { coinCost: 0 }] },
+          // Null category must stay included (SQL NOT IN drops NULL rows).
+          { OR: [{ category: null }, { category: { notIn: REWARD_ONLY_FRAME_CATEGORIES } }] },
+        ],
       },
     });
     for (const frame of freeFrames) {

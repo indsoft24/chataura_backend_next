@@ -23,9 +23,10 @@ export const LUCKY77_OPTIONS: Record<
   string,
   { multiplier: number; weight: number }
 > = {
-  lucky_77: { multiplier: 8, weight: 1200 },
-  watermelon: { multiplier: 2, weight: 4400 },
-  plum: { multiplier: 2, weight: 4400 },
+  // 77 is the rare big win: ~9% of rounds (about 1 in 11). Fruits share the rest.
+  lucky_77: { multiplier: 8, weight: 900 },
+  watermelon: { multiplier: 2, weight: 4550 },
+  plum: { multiplier: 2, weight: 4550 },
 };
 
 /** Even-money options; a user may back at most one of them per round. */
