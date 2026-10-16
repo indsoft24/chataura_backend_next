@@ -44,6 +44,19 @@ describe('eligibleFrames', () => {
     expect(Object.fromEntries(out)).toEqual({ '1': 'paid', '5': 'role' });
   });
 
+  it('merchant frames: a seller owns every coin_seller role frame; nobody else does', () => {
+    const merchant = [...frames, f(293, 'role', 'merchant_frame_gold', 'coin_seller'), f(296, 'role', 'merchant_frame_sapphire', 'coin_seller')];
+    const seller = eligibleFrames({ ...base, frames: merchant, role: 'seller' });
+    expect(Object.fromEntries(seller)).toEqual({ '6': 'role', '293': 'role', '296': 'role' });
+    const user = eligibleFrames({
+      ...base,
+      frames: merchant,
+      unlocks: [{ frameId: 293n, expiresAt: null, coinsPaid: 0, unlockType: 'admin' }],
+    });
+    expect(user.size).toBe(0);
+    expect(eligibleFrames({ ...base, frames: merchant, role: 'admin' }).has('293')).toBe(false);
+  });
+
   it('role frames come only from the current role, never from an old unlock row', () => {
     const out = eligibleFrames({
       ...base,
