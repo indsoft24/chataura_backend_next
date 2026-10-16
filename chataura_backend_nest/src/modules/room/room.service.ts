@@ -694,7 +694,6 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
           });
         }
       }
-      await this.assertJoinFilters(room, userId);
     }
 
     const user = await this.prisma.user.findUniqueOrThrow({
@@ -2773,116 +2772,6 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       ...selectedFrameClientFields(user.selectedFrame),
       ...this.roleBadgeFields(user),
     };
-  }
-
-  private async assertJoinFilters(
-    room: {
-      allowedGender: string | null;
-      allowedCountry: string | null;
-      minAge: number | null;
-      maxAge: number | null;
-    },
-    userId: bigint,
-  ) {
-    const hasFilter =
-      !!room.allowedGender ||
-      !!room.allowedCountry ||
-      room.minAge != null ||
-      room.maxAge != null;
-    if (!hasFilter) return;
-
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { gender: true, country: true, dob: true },
-    });
-    if (!user) {
-      throw new ForbiddenException({
-        success: false,
-        error: {
-          code: 'ROOM_FILTER_MISMATCH',
-          message: 'Unable to verify profile for this room',
-        },
-      });
-    }
-
-    if (room.allowedGender) {
-      const want = room.allowedGender.trim().toLowerCase();
-      const got = (user.gender ?? '').trim().toLowerCase();
-      if (!got || got !== want) {
-        throw new ForbiddenException({
-          success: false,
-          error: {
-            code: 'ROOM_FILTER_MISMATCH',
-            message: `This room only allows ${room.allowedGender} users`,
-          },
-        });
-      }
-    }
-
-    if (room.allowedCountry) {
-      const want = normalizeCountryCode(room.allowedCountry);
-      const got = normalizeCountryCode(user.country);
-      if (!want || want === 'ALL') {
-        // no country filter
-      } else if (want === 'OTHER') {
-        if (got && got !== 'OTHER') {
-          throw new ForbiddenException({
-            success: false,
-            error: {
-              code: 'ROOM_FILTER_MISMATCH',
-              message: 'Your country does not match this room filter',
-            },
-          });
-        }
-      } else if (!got || got !== want) {
-        throw new ForbiddenException({
-          success: false,
-          error: {
-            code: 'ROOM_FILTER_MISMATCH',
-            message: 'Your country does not match this room filter',
-          },
-        });
-      }
-    }
-
-    if (room.minAge != null || room.maxAge != null) {
-      if (!user.dob) {
-        throw new ForbiddenException({
-          success: false,
-          error: {
-            code: 'ROOM_FILTER_MISMATCH',
-            message: 'Set your date of birth in profile to join this room',
-          },
-        });
-      }
-      const age = this.ageFromDob(user.dob);
-      if (room.minAge != null && age < room.minAge) {
-        throw new ForbiddenException({
-          success: false,
-          error: {
-            code: 'ROOM_FILTER_MISMATCH',
-            message: `This room requires age ${room.minAge}+`,
-          },
-        });
-      }
-      if (room.maxAge != null && age > room.maxAge) {
-        throw new ForbiddenException({
-          success: false,
-          error: {
-            code: 'ROOM_FILTER_MISMATCH',
-            message: `This room only allows ages up to ${room.maxAge}`,
-          },
-        });
-      }
-    }
-  }
-
-  private ageFromDob(dob: Date): number {
-    const now = new Date();
-    let age = now.getUTCFullYear() - dob.getUTCFullYear();
-    const m = now.getUTCMonth() - dob.getUTCMonth();
-    if (m < 0 || (m === 0 && now.getUTCDate() < dob.getUTCDate())) age -= 1;
-    return age;
   }
 
   private async serializeRoom(
