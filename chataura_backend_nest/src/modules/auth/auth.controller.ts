@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post, Res } from '@nestjs/common';
+import { Body, Controller, Headers, HttpCode, Post, Res } from '@nestjs/common';
 import { Throttle, seconds } from '@nestjs/throttler';
 import type { FastifyReply } from 'fastify';
 import { Public } from '../../common/decorators/public.decorator';
@@ -6,6 +6,7 @@ import { SkipEmailVerified } from '../../common/decorators/skip-email-verified.d
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { AuthService } from './auth.service';
+import { normalizeDeviceId } from './session.rules';
 import { FcmService } from '../../common/fcm/fcm.service';
 import {
   ChangePasswordRequestDto,
@@ -41,22 +42,26 @@ export class AuthController {
   @Public()
   @Throttle({ default: { limit: 5, ttl: seconds(60) } })
   @Post('register')
-  register(@Body() dto: RegisterDto) {
-    return this.auth.register(dto);
+  register(@Body() dto: RegisterDto, @Headers('x-device-id') deviceId?: string) {
+    return this.auth.register(dto, normalizeDeviceId(deviceId));
   }
 
   @Public()
   @Throttle({ default: { limit: 5, ttl: seconds(60) } })
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.auth.login(dto);
+  login(
+    @Body() dto: LoginDto,
+    @Headers('x-device-id') deviceId?: string,
+    @Headers('x-client') client?: string,
+  ) {
+    return this.auth.login(dto, normalizeDeviceId(deviceId), client === 'admin-panel');
   }
 
   @Public()
   @Throttle({ default: { limit: 10, ttl: seconds(60) } })
   @Post('google')
-  google(@Body() dto: GoogleLoginDto) {
-    return this.auth.google(dto);
+  google(@Body() dto: GoogleLoginDto, @Headers('x-device-id') deviceId?: string) {
+    return this.auth.google(dto, normalizeDeviceId(deviceId));
   }
 
   @Public()

@@ -26,6 +26,7 @@ import {
   VerifyEmailOtpDto,
 } from './dto/auth.dto';
 import { User } from '@prisma/client';
+import { canCreateAccount, PANEL_SESSION, readMaxAccountsPerDevice } from './session.rules';
 
 @Injectable()
 export class AuthService {
@@ -39,7 +40,7 @@ export class AuthService {
     private readonly online: OnlinePresenceService,
   ) {}
 
-  async register(dto: RegisterDto) {
+  async register(dto: RegisterDto, deviceId: string | null = null) {
     const email = dto.email.toLowerCase();
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
@@ -56,6 +57,8 @@ export class AuthService {
     const invitedBy = await this.resolveReferrerId(
       dto.referral_code ?? dto.invite_code,
     );
+
+    await this.assertDeviceCanCreateAccount(deviceId);
 
     const displayName = dto.display_name ?? dto.name ?? email.split('@')[0];
     const passwordHash = await bcrypt.hash(dto.password, 10);
@@ -78,6 +81,7 @@ export class AuthService {
       },
     }));
 
+    await this.recordDevice(user.id, deviceId);
     if (invitedBy) {
       await this.grantReferralCoins(user.id, invitedBy);
       // Also grant the standard signup bonus for the new user (idempotent via ledger check below).
@@ -87,7 +91,7 @@ export class AuthService {
     return this.authPayload(user);
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, deviceId: string | null = null, panel = false) {
     const user = await this.prisma.user.findFirst({
       where: {
         OR: [
@@ -119,10 +123,12 @@ export class AuthService {
       });
     }
 
+    if (panel) return this.panelPayload(user);
+    await this.recordDevice(user.id, deviceId);
     return this.authPayload(user);
   }
 
-  async google(dto: GoogleLoginDto) {
+  async google(dto: GoogleLoginDto, deviceId: string | null = null) {
     const payload = await this.verifyGoogleIdToken(dto.id_token);
     if (!payload?.email) {
       throw new UnauthorizedException({
@@ -140,6 +146,7 @@ export class AuthService {
 
     if (!user) {
       isNew = true;
+      await this.assertDeviceCanCreateAccount(deviceId);
       const name = String(payload.name ?? email);
       const passwordHash = await bcrypt.hash(
         randomBytes(24).toString('hex'),
@@ -174,6 +181,7 @@ export class AuthService {
         },
       }));
 
+      await this.recordDevice(user.id, deviceId);
       if (invitedBy) {
         await this.grantReferralCoins(user.id, invitedBy);
       }
@@ -201,12 +209,13 @@ export class AuthService {
     }
 
     void isNew;
+    await this.recordDevice(user.id, deviceId);
     return this.authPayload(user);
   }
 
   async refresh(dto: RefreshTokenDto) {
-    const user = await this.tokens.verifyRefreshToken(dto.refresh_token);
-    if (!user) {
+    const found = await this.tokens.verifyRefreshToken(dto.refresh_token);
+    if (!found) {
       throw new UnauthorizedException({
         success: false,
         error: {
@@ -215,7 +224,17 @@ export class AuthService {
         },
       });
     }
+    const { user } = found;
     this.assertAccountActive(user);
+
+    let sessionId = found.sessionId;
+    if (sessionId == null && user.currentSessionId == null) {
+      // Token from before single-session: the first phone to refresh claims the account.
+      sessionId = await this.tokens.startSession(user.id);
+    } else if (sessionId == null || sessionId !== user.currentSessionId) {
+      await this.tokens.revokeRefreshToken(dto.refresh_token);
+      throw this.sessionReplaced();
+    }
 
     if (dto.country) {
       await this.prisma.user.update({
@@ -224,8 +243,8 @@ export class AuthService {
       });
     }
 
-    const access_token = this.tokens.generateAccessToken(user);
-    const refresh_token = await this.tokens.generateRefreshToken(user);
+    const access_token = this.tokens.generateAccessToken(user, sessionId);
+    const refresh_token = await this.tokens.generateRefreshToken(user, sessionId);
     void this.online.touch(user.id);
     return {
       access_token,
@@ -235,9 +254,12 @@ export class AuthService {
   }
 
   async logout(dto: RefreshTokenDto) {
-    const userId = await this.tokens.userIdForRefreshToken(dto.refresh_token);
+    const owner = await this.tokens.userIdForRefreshToken(dto.refresh_token);
     await this.tokens.revokeRefreshToken(dto.refresh_token);
-    if (userId) await this.online.markOffline(userId);
+    if (owner) {
+      await this.tokens.endSession(owner.userId, owner.sessionId);
+      await this.online.markOffline(owner.userId);
+    }
     return { message: 'Logged out successfully' };
   }
 
@@ -428,13 +450,85 @@ export class AuthService {
     };
   }
 
+  private sessionReplaced() {
+    return new UnauthorizedException({
+      success: false,
+      error: { code: 'SESSION_REPLACED', message: 'Your account was logged in on another device.' },
+    });
+  }
+
+  /** Normal accounts made on this phone so far; staff accounts never count. */
+  private async assertDeviceCanCreateAccount(deviceId: string | null) {
+    if (!deviceId) return; // older app versions send no device id
+    const settings = await this.prisma.adminSetting.findUnique({ where: { id: 1 } });
+    const max = readMaxAccountsPerDevice(settings?.extraSettings as Record<string, unknown> | null);
+    const existing = await this.prisma.authDevice.count({
+      where: { deviceId, user: { role: 'user' } },
+    });
+    if (!canCreateAccount(existing, max)) {
+      throw new ForbiddenException({
+        success: false,
+        error: {
+          code: 'DEVICE_ACCOUNT_LIMIT',
+          message: `This phone already has ${existing} accounts. Please log in to one of them.`,
+        },
+      });
+    }
+  }
+
+  private async recordDevice(userId: bigint, deviceId: string | null) {
+    if (!deviceId) return;
+    await this.prisma.authDevice.upsert({
+      where: { deviceId_userId: { deviceId, userId } },
+      create: { deviceId, userId },
+      update: { lastSeenAt: new Date() },
+    });
+  }
+
+  /** True unless an earlier normal account was made on one of this user's phones (unknown phone = true). */
+  private async isFirstAccountOnDevice(userId: bigint): Promise<boolean> {
+    const mine = await this.prisma.authDevice.findMany({ where: { userId }, select: { deviceId: true, firstSeenAt: true } });
+    for (const d of mine) {
+      const earlier = await this.prisma.authDevice.count({
+        where: { deviceId: d.deviceId, userId: { not: userId }, firstSeenAt: { lt: d.firstSeenAt }, user: { role: 'user' } },
+      });
+      if (earlier > 0) return false;
+    }
+    return true;
+  }
+
+  private async shareDevice(a: bigint, b: bigint): Promise<boolean> {
+    const mine = await this.prisma.authDevice.findMany({ where: { userId: a }, select: { deviceId: true } });
+    if (mine.length === 0) return false;
+    const hit = await this.prisma.authDevice.count({
+      where: { userId: b, deviceId: { in: mine.map((d) => d.deviceId) } },
+    });
+    return hit > 0;
+  }
+
+  /** Admin panel login: its own token channel, so it never logs the admin out of their phone. */
+  private panelPayload(user: User) {
+    if (user.role !== 'admin') {
+      throw new ForbiddenException({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Admin role required' },
+      });
+    }
+    return {
+      user: userForApi(user),
+      access_token: this.tokens.generateAccessToken(user, PANEL_SESSION),
+      expires_in: this.tokens.getAccessExpiresIn(),
+    };
+  }
+
   private async authPayload(user: User) {
     const withFrame = await this.prisma.user.findUnique({
       where: { id: user.id },
       include: { selectedFrame: true, selectedRoleFrame: true },
     });
-    const access_token = this.tokens.generateAccessToken(user);
-    const refresh_token = await this.tokens.generateRefreshToken(user);
+    const sessionId = await this.tokens.startSession(user.id);
+    const access_token = this.tokens.generateAccessToken(user, sessionId);
+    const refresh_token = await this.tokens.generateRefreshToken(user, sessionId);
     return {
       user: userForApi(withFrame ?? user, withFrame?.selectedFrame, withFrame?.selectedRoleFrame),
       access_token,
@@ -498,6 +592,7 @@ export class AuthService {
   private async grantSignupBonus(userId: bigint) {
     const coins = Number(this.config.get('SIGNUP_BONUS_COINS', '50'));
     if (coins <= 0) return null;
+    if (!(await this.isFirstAccountOnDevice(userId))) return null;
     const already = await this.prisma.coinTransaction.findFirst({
       where: { userId, referenceId: `signup_bonus_${userId}` },
     });
@@ -545,6 +640,10 @@ export class AuthService {
   }
 
   async grantReferralCoins(inviteeId: bigint, referrerId: bigint) {
+    // Farming guard: only a phone's first account earns, and never by inviting yourself.
+    if (!(await this.isFirstAccountOnDevice(inviteeId)) || (await this.shareDevice(inviteeId, referrerId))) {
+      return null;
+    }
     const { referee, referrer: referrerAmt } =
       await this.resolveReferralRewards();
     return this.prisma.$transaction(async (tx) => {

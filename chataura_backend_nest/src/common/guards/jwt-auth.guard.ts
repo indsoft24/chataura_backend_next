@@ -10,6 +10,7 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 import { TokenService } from '../../modules/auth/token.service';
 import { AuthUser } from '../decorators/current-user.decorator';
+import { tokenAllowed } from '../../modules/auth/session.rules';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -55,6 +56,13 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException({
         success: false,
         error: { code: 'UNAUTHORIZED', message: 'User not found' },
+      });
+    }
+    if (!tokenAllowed(payload.sid, user.currentSessionId, user.role)) {
+      if (isPublic) return true;
+      throw new UnauthorizedException({
+        success: false,
+        error: { code: 'SESSION_REPLACED', message: 'Your account was logged in on another device.' },
       });
     }
     if (user.isSuspended || user.accountStatus === 'suspended') {

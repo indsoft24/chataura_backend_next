@@ -80,6 +80,8 @@ model User {
   selectedEntryBarId BigInt?      @map("selected_entry_bar_id")
   staffBadgeType   String?        @map("staff_badge_type") @db.VarChar(32)
   lastClientCountry String?       @map("last_client_country") @db.VarChar(8)
+  /// Session of the one phone allowed to use this account (null = not signed in since single-session).
+  currentSessionId  String?       @map("current_session_id") @db.VarChar(36)
   streakCount      Int            @default(0) @map("streak_count")
   lastStreakAt     DateTime?      @map("last_streak_at") @db.Timestamptz(6)
   createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -87,6 +89,7 @@ model User {
 
   refreshTokens       RefreshToken[]
   devices             UserDevice[]
+  authDevices         AuthDevice[]
   followers           UserFollower[]  @relation("Following")
   following           UserFollower[]  @relation("Follower")
   friendshipsAsUser   Friendship[]    @relation("FriendshipUser")
@@ -165,6 +168,8 @@ model RefreshToken {
   id        String   @id @default(uuid()) @db.Uuid
   userId    BigInt   @map("user_id")
   token     String   @db.VarChar(64)
+  /// Login session this token belongs to (null = issued before single-session).
+  sessionId String?  @map("session_id") @db.VarChar(36)
   expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -173,6 +178,21 @@ model RefreshToken {
   @@index([token])
   @@index([userId])
   @@map("refresh_tokens")
+}
+
+/// Phones each account signed up or logged in on (X-Device-Id), for the accounts-per-phone cap.
+model AuthDevice {
+  id          BigInt   @id @default(autoincrement())
+  deviceId    String   @map("device_id") @db.VarChar(128)
+  userId      BigInt   @map("user_id")
+  firstSeenAt DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, userId])
+  @@index([userId])
+  @@map("auth_devices")
 }
 
 model UserDevice {

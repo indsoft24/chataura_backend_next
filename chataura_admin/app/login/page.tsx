@@ -20,6 +20,8 @@ export default function LoginPage() {
         error?: { message?: string };
       }>('/auth/login', null, {
         method: 'POST',
+        // Panel tokens are a separate channel, so logging in here never logs the admin out of the app.
+        headers: { 'X-Client': 'admin-panel' },
         body: JSON.stringify({ email, password }),
       });
       if (!json.success || !json.data?.access_token) {

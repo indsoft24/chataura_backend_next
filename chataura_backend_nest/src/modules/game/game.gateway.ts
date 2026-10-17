@@ -26,7 +26,7 @@ export class GameGateway implements OnGatewayConnection {
     };
   }
 
-  handleConnection(client: Socket) {
+  async handleConnection(client: Socket) {
     if (wsThrottler.isRateLimited(client)) {
       client.emit('error', 'Too many connection attempts. Please wait.');
       client.disconnect(true);
@@ -39,7 +39,7 @@ export class GameGateway implements OnGatewayConnection {
         /^Bearer\s+/i,
         '',
       );
-    if (!this.tokens.verifyAccessToken(token)?.sub) {
+    if (!(await this.tokens.verifyAccessSession(token))?.sub) {
       client.disconnect();
     }
   }

@@ -35,7 +35,7 @@ export class RoomGateway implements OnGatewayConnection {
     };
   }
 
-  handleConnection(client: Socket) {
+  async handleConnection(client: Socket) {
     if (wsThrottler.isRateLimited(client)) {
       client.emit('error', 'Too many connection attempts. Please wait.');
       client.disconnect(true);
@@ -48,7 +48,7 @@ export class RoomGateway implements OnGatewayConnection {
         /^Bearer\s+/i,
         '',
       );
-    const payload = this.tokens.verifyAccessToken(token);
+    const payload = await this.tokens.verifyAccessSession(token);
     if (!payload?.sub) {
       client.disconnect();
       return;
