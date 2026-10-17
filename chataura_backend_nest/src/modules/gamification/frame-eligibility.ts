@@ -18,12 +18,15 @@ export type EligibilityInput = {
   unlocks: Array<{ frameId: bigint; expiresAt: Date | null; coinsPaid: number; unlockType: string | null }>;
   role: string;
   staffBadgeType: string | null;
+  /** C.S (special) frames are only for star accounts. */
+  isStarAccount: boolean;
   /** Active CP / BCP relationships of this user. */
   relationships: Array<{ typeCode: string; isRank1: boolean }>;
   now?: Date;
 };
 
 const RELATIONSHIP = 'RELATIONSHIP';
+const REWARD_UNLOCKS = new Set(['rocket', 'rank', 'admin']);
 
 /** Role-frame key for a staff account (matches frames.animation_key), or null for normal users. */
 export function staffRoleKey(role: string, staffBadgeType: string | null): string | null {
@@ -52,6 +55,9 @@ export function eligibleFrames(input: EligibilityInput): Map<string, FrameSource
     const f = byId.get(u.frameId.toString());
     // Role and CP/BCP frames come from the role / relationship itself, never from an unlock row.
     if (!f || f.category === 'role' || f.category?.toUpperCase() === RELATIONSHIP) continue;
+    // Reward frames count only from their real grant; an old shop/level row must not unlock them.
+    if ((f.category === 'rocket' || f.category === 'rank') && !REWARD_UNLOCKS.has(u.unlockType ?? '')) continue;
+    if (f.category === 'special' && (u.unlockType !== 'admin' || !input.isStarAccount)) continue;
     out.set(f.id.toString(), sourceOfUnlock(f.category, u));
   }
 

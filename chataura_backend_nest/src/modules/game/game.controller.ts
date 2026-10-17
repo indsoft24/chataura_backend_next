@@ -14,7 +14,8 @@ export class GameController {
     return this.games.greedyState(user.id);
   }
 
-  @Throttle({ default: { limit: 30, ttl: seconds(60) } })
+  // Tap game: 30/min tripped on normal fast tapping (ThrottlerException mid-round).
+  @Throttle({ default: { limit: 120, ttl: seconds(60) } })
   @Post('greedy/bet')
   greedyBet(
     @CurrentUser() user: AuthUser,

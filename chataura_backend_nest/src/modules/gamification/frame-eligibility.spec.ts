@@ -19,12 +19,13 @@ const frames = [
   f(9, 'RELATIONSHIP', 'rel_frame_bcp_normal'),
 ];
 const now = new Date('2026-10-16T12:00:00Z');
-const base = { frames, unlocks: [], role: 'user', staffBadgeType: null, relationships: [], now };
+const base = { frames, unlocks: [], role: 'user', staffBadgeType: null, isStarAccount: false, relationships: [], now };
 
 describe('eligibleFrames', () => {
   it('normal user: owned paid / free / reward frames, skipping expired ones', () => {
     const out = eligibleFrames({
       ...base,
+      isStarAccount: true,
       unlocks: [
         { frameId: 1n, expiresAt: null, coinsPaid: 100000, unlockType: 'purchase' },
         { frameId: 2n, expiresAt: null, coinsPaid: 0, unlockType: 'level' },
@@ -33,6 +34,15 @@ describe('eligibleFrames', () => {
       ],
     });
     expect(Object.fromEntries(out)).toEqual({ '1': 'paid', '2': 'free', '4': 'support' });
+  });
+
+  it('C.S frame: only an admin grant to a current star account', () => {
+    const admin = { frameId: 4n, expiresAt: null, coinsPaid: 0, unlockType: 'admin' };
+    expect(eligibleFrames({ ...base, unlocks: [admin] }).has('4')).toBe(false);
+    expect(eligibleFrames({ ...base, isStarAccount: true, unlocks: [{ ...admin, unlockType: 'level' }] }).has('4')).toBe(false);
+    expect(eligibleFrames({ ...base, isStarAccount: true, unlocks: [admin] }).get('4')).toBe('support');
+    const rocketBought = { frameId: 3n, expiresAt: null, coinsPaid: 0, unlockType: 'purchase' };
+    expect(eligibleFrames({ ...base, unlocks: [rocketBought] }).has('3')).toBe(false);
   });
 
   it('staff keep every owned frame and also get their role frames', () => {

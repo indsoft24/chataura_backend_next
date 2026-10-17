@@ -44,7 +44,7 @@ model User {
   gender           String?        @db.VarChar(16)
   dob              DateTime?      @db.Date
   language         String?        @db.VarChar(16)
-  country          String?        @db.VarChar(8)
+  country          String?        @db.VarChar(64)
   role             UserRole       @default(user)
   inviteCode       String?        @unique @map("invite_code") @db.VarChar(16)
   displayId        String         @unique @map("display_id") @db.VarChar(32)

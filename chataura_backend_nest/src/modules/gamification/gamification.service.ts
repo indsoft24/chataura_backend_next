@@ -338,7 +338,7 @@ export class GamificationService {
 
   /** Frames this user can wear right now, keyed by frame id. */
   private async eligibility(
-    user: { id: bigint; role: string; staffBadgeType: string | null },
+    user: { id: bigint; role: string; staffBadgeType: string | null; isStarAccount: boolean },
     activeFrames?: Array<{ id: bigint; category: string | null; slug: string | null; animationKey: string | null }>,
   ): Promise<Map<string, FrameSource>> {
     const [frames, unlocks, rels] = await Promise.all([
@@ -381,6 +381,7 @@ export class GamificationService {
       unlocks,
       role: user.role,
       staffBadgeType: user.staffBadgeType,
+      isStarAccount: user.isStarAccount,
       relationships: rels.map((r) => ({ typeCode: r.relationshipType.code, isRank1: rank1.has(r.id) })),
     });
   }
@@ -411,7 +412,7 @@ export class GamificationService {
       });
       const worn = await this.prisma.user.findMany({
         where: { selectedFrameId: { not: null } },
-        select: { id: true, role: true, staffBadgeType: true, selectedFrameId: true },
+        select: { id: true, role: true, staffBadgeType: true, isStarAccount: true, selectedFrameId: true },
         orderBy: { id: 'asc' },
         take: SWEEP_BATCH,
         skip: this.sweepOffset,

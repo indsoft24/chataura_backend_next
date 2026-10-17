@@ -4,7 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { randomUUID } from 'crypto';
+
+const SHARED_CACHE_MS = 2000;
+import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { GameEvents } from './game.events';
@@ -54,6 +57,21 @@ export class GameService {
   ) {}
 
   /**
+   * Every player polls state/result each round; history + today's leaderboard are the same for
+   * all of them, so share one load per short window (the promise also merges concurrent loads).
+   * shortcut: per-instance cache, other instances may show a result up to SHARED_CACHE_MS late; move to Redis if that matters.
+   */
+  private readonly sharedCache = new Map<string, { at: number; value: Promise<unknown> }>();
+  private cached<T>(key: string, load: () => Promise<T>): Promise<T> {
+    const hit = this.sharedCache.get(key);
+    if (hit && Date.now() - hit.at < SHARED_CACHE_MS) return hit.value as Promise<T>;
+    const value = load();
+    this.sharedCache.set(key, { at: Date.now(), value });
+    value.catch(() => this.sharedCache.delete(key));
+    return value;
+  }
+
+  /**
    * Coin sellers only are blocked from games.
    * Staff (admin/manager/ceo/superadmin) and agency are always allowed.
    */
@@ -87,7 +105,6 @@ export class GameService {
   }
 
   async greedyState(userId: bigint) {
-    await this.ensureGreedyRound();
     await this.settleGreedyIfDue();
     const round = await this.currentGreedy();
     const user = await this.prisma.user.findUniqueOrThrow({
@@ -114,17 +131,36 @@ export class GameService {
       user_balance: Number(user.walletBalance),
       user_bets: userBets,
       total_bets_pool: Number(pool._sum.chipAmount ?? 0n),
-      recent_history: await this.greedyHistory(15),
-      today_winners: await this.greedyLeaderboard(5),
+      recent_history: await this.cached('greedy_history', () => this.greedyHistory(15)),
+      today_winners: await this.cached('greedy_leaders', () => this.greedyLeaderboard(5)),
     };
   }
 
   async greedyBet(userId: bigint, item: string, amount: number) {
+    const round = await this.greedyBetPrecheck(userId, [item], amount);
+    const placed = await this.prisma.$transaction((tx) =>
+      this.greedyBetTx(tx, userId, round.id, item, amount),
+    );
+    const bets = await this.prisma.greedyBet.findMany({
+      where: { roundId: round.id, userId, item },
+    });
+    const totalOnItem = bets.reduce((s, b) => s + Number(b.chipAmount), 0);
+    return {
+      item,
+      placed_amount: amount,
+      total_on_item: totalOnItem,
+      remaining_balance: Number(placed),
+      round_id: Number(round.id),
+    };
+  }
+
+  /** Validation shared by single and quick bets; returns the open round. */
+  private async greedyBetPrecheck(userId: bigint, items: string[], amount: number) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
     });
     this.assertCanPlay(user);
-    if (!GREEDY_ITEMS[item]) {
+    if (items.some((item) => !GREEDY_ITEMS[item])) {
       throw new BadRequestException({
         success: false,
         error: { code: 'INVALID_ITEM', message: 'Invalid item' },
@@ -149,85 +185,92 @@ export class GameService {
         error: { code: 'BETTING_CLOSED', message: 'Betting is closed' },
       });
     }
-    const spec = GREEDY_ITEMS[item];
-    const placed = await this.prisma.$transaction(async (tx) => {
-      // Shared lock on the round row. Settlement takes FOR UPDATE SKIP LOCKED on it, so a bet
-      // can never land in a round that is being / has been settled (and then never be paid).
-      const lockedRound = await tx.$queryRaw<
-        Array<{ phase: string; betting_ends_at: Date }>
-      >`SELECT phase, betting_ends_at FROM greedy_rounds WHERE id = ${round.id} FOR SHARE`;
-      const current = lockedRound[0];
-      if (!current || current.phase !== 'betting' || secondsRemaining(new Date(current.betting_ends_at)) <= 1) {
-        throw new BadRequestException({
-          success: false,
-          error: { code: 'BETTING_CLOSED', message: 'Betting is closed' },
-        });
-      }
-      try {
-        const { after } = await this.ledger.debitCoins(
-          tx,
-          userId,
-          amount,
-          'GAME_GREEDY',
-          `Greedy bet ${item}`,
-          `greedy_${round.id}_${item}_${Date.now()}`,
-          undefined,
-          { source: 'game', currency: 'coins', round_id: round.id.toString(), item },
-        );
-        await tx.greedyBet.create({
-          data: {
-            roundId: round.id,
-            userId,
-            item,
-            chipAmount: BigInt(amount),
-            multiplier: spec.multiplier,
-            potentialPayout: BigInt(amount * spec.multiplier),
-          },
-        });
-        return after;
-      } catch (e) {
-        if ((e as { code?: string }).code === 'INSUFFICIENT_BALANCE') {
-          throw new BadRequestException({
-            success: false,
-            error: {
-              code: 'INSUFFICIENT_BALANCE',
-              message: 'Insufficient coin balance',
-            },
-          });
-        }
-        throw e;
-      }
-    });
-    const bets = await this.prisma.greedyBet.findMany({
-      where: { roundId: round.id, userId, item },
-    });
-    const totalOnItem = bets.reduce((s, b) => s + Number(b.chipAmount), 0);
-    return {
-      item,
-      placed_amount: amount,
-      total_on_item: totalOnItem,
-      remaining_balance: Number(placed),
-      round_id: Number(round.id),
-    };
+    return round;
   }
 
+  /** Debit + bet row inside the caller's transaction; returns the balance after. */
+  private async greedyBetTx(
+    tx: Prisma.TransactionClient,
+    userId: bigint,
+    roundId: bigint,
+    item: string,
+    amount: number,
+  ): Promise<bigint> {
+    // Shared lock on the round row. Settlement takes FOR UPDATE SKIP LOCKED on it, so a bet
+    // can never land in a round that is being / has been settled (and then never be paid).
+    const lockedRound = await tx.$queryRaw<
+      Array<{ phase: string; betting_ends_at: Date }>
+    >`SELECT phase, betting_ends_at FROM greedy_rounds WHERE id = ${roundId} FOR SHARE`;
+    const current = lockedRound[0];
+    if (!current || current.phase !== 'betting' || secondsRemaining(new Date(current.betting_ends_at)) <= 1) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'BETTING_CLOSED', message: 'Betting is closed' },
+      });
+    }
+    const spec = GREEDY_ITEMS[item];
+    try {
+      const { after } = await this.ledger.debitCoins(
+        tx,
+        userId,
+        amount,
+        'GAME_GREEDY',
+        `Greedy bet ${item}`,
+        // Unique per bet: a repeated reference is treated as a replay (no debit) yet the bet row
+        // would still be written — a free bet. Date.now() collided for same-millisecond bets.
+        `greedy_${roundId}_${item}_${randomUUID()}`,
+        undefined,
+        { source: 'game', currency: 'coins', round_id: roundId.toString(), item },
+      );
+      await tx.greedyBet.create({
+        data: {
+          roundId,
+          userId,
+          item,
+          chipAmount: BigInt(amount),
+          multiplier: spec.multiplier,
+          potentialPayout: BigInt(amount * spec.multiplier),
+        },
+      });
+      return after;
+    } catch (e) {
+      if ((e as { code?: string }).code === 'INSUFFICIENT_BALANCE') {
+        throw new BadRequestException({
+          success: false,
+          error: {
+            code: 'INSUFFICIENT_BALANCE',
+            message: 'Insufficient coin balance',
+          },
+        });
+      }
+      throw e;
+    }
+  }
+
+  /** All 4 items in one transaction: either every bet is placed or none (no partial charge). */
   async greedyQuickBet(userId: bigint, type: string, chipAmount: number) {
     const kind = type === 'veggie' || type === 'salad' ? 'salad' : 'feast';
     const items = kind === 'salad' ? GREEDY_SALAD : GREEDY_FEAST;
+    const round = await this.greedyBetPrecheck(userId, items, chipAmount);
+    const lastBalance = await this.prisma.$transaction(async (tx) => {
+      let after = 0n;
+      for (const item of items) {
+        after = await this.greedyBetTx(tx, userId, round.id, item, chipAmount);
+      }
+      return after;
+    });
+    const bets = await this.prisma.greedyBet.findMany({
+      where: { roundId: round.id, userId, item: { in: items } },
+    });
     const updated: Record<string, number> = {};
-    let lastBalance = 0;
-    for (const item of items) {
-      const res = await this.greedyBet(userId, item, chipAmount);
-      updated[item] = res.total_on_item;
-      lastBalance = res.remaining_balance;
-    }
+    for (const b of bets) updated[b.item] = (updated[b.item] ?? 0) + Number(b.chipAmount);
     return {
       type: kind,
       items,
       total_cost: chipAmount * items.length,
       updated_bets: updated,
-      remaining_balance: lastBalance,
-      round_id: Number((await this.currentGreedy()).id),
+      remaining_balance: Number(lastBalance),
+      round_id: Number(round.id),
     };
   }
 
@@ -268,8 +311,8 @@ export class GameService {
       phase: 'completed',
       seconds_remaining: secondsRemaining(next.bettingEndsAt),
       next_round_id: Number(next.id),
-      recent_history: await this.greedyHistory(15),
-      today_winners: await this.greedyLeaderboard(5),
+      recent_history: await this.cached('greedy_history', () => this.greedyHistory(15)),
+      today_winners: await this.cached('greedy_leaders', () => this.greedyLeaderboard(5)),
     };
   }
 
@@ -704,48 +747,37 @@ export class GameService {
         },
       });
 
-      const bets = await tx.greedyBet.findMany({
-        where: { roundId: current.id },
+      // Two set-based updates instead of one UPDATE per bet: settlement holds the round lock,
+      // so a busy round (100+ players) used to keep every client waiting on "DRAWING".
+      await tx.greedyBet.updateMany({
+        where: { roundId: current.id, item: { not: winner } },
+        data: { status: 'lost', actualPayout: 0n },
       });
-      const byUser = new Map<string, typeof bets>();
-      for (const b of bets) {
-        const k = b.userId.toString();
-        byUser.set(k, [...(byUser.get(k) ?? []), b]);
-      }
-      for (const [, userBets] of byUser) {
-        let payout = 0n;
-        for (const b of userBets) {
-          const won = b.item === winner;
-          const actual = won ? b.chipAmount * BigInt(mult) : 0n;
-          payout += actual;
-          await tx.greedyBet.update({
-            where: { id: b.id },
-            data: {
-              status: won ? 'won' : 'lost',
-              actualPayout: actual,
-            },
-          });
-        }
-        if (payout > 0n) {
-          const winRef = `greedy_win_${current.id}`;
-          const alreadyPaid = await tx.coinTransaction.findFirst({
-            where: {
-              userId: userBets[0].userId,
-              referenceId: winRef,
-            },
-          });
-          if (!alreadyPaid) {
-            await this.ledger.creditCoins(
-              tx,
-              userBets[0].userId,
-              payout,
-              'GAME_GREEDY_WIN',
-              `Greedy win ${winner}`,
-              winRef,
-              null,
-              { source: 'game', currency: 'coins', round_id: current.id.toString() },
-            );
-          }
+      await tx.$executeRaw`UPDATE greedy_bets SET status = 'won', actual_payout = chip_amount * ${BigInt(mult)}
+        WHERE round_id = ${current.id} AND item = ${winner}`;
+      const winners = await tx.greedyBet.groupBy({
+        by: ['userId'],
+        where: { roundId: current.id, item: winner },
+        _sum: { actualPayout: true },
+      });
+      const winRef = `greedy_win_${current.id}`;
+      for (const w of winners) {
+        const payout = w._sum.actualPayout ?? 0n;
+        if (payout <= 0n) continue;
+        const alreadyPaid = await tx.coinTransaction.findFirst({
+          where: { userId: w.userId, referenceId: winRef },
+        });
+        if (!alreadyPaid) {
+          await this.ledger.creditCoins(
+            tx,
+            w.userId,
+            payout,
+            'GAME_GREEDY_WIN',
+            `Greedy win ${winner}`,
+            winRef,
+            null,
+            { source: 'game', currency: 'coins', round_id: current.id.toString() },
+          );
         }
       }
 
@@ -759,6 +791,9 @@ export class GameService {
     if (!settled) return;
 
     await this.ensureGreedyRound();
+    // New result: drop cached history / winners so this round shows immediately.
+    this.sharedCache.delete('greedy_history');
+    this.sharedCache.delete('greedy_leaders');
     this.events.emitResult('greedy', {
       roundId: Number(settled.roundId),
       winningItem: settled.winner,
