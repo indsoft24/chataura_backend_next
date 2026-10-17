@@ -1,8 +1,6 @@
 import { Controller, Get, Param, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
-import { existsSync } from 'fs';
-import { join } from 'path';
 import { Public } from '../../common/decorators/public.decorator';
 import { renderLandingPage } from './templates/landing.template';
 import {
@@ -43,15 +41,21 @@ export class WebController {
       'PLAY_STORE_URL',
       'https://play.google.com/store/apps/details?id=com.chataura.app',
     );
-    const localApkPath = join(process.cwd(), 'public', 'apk', 'ChatAura.apk');
-    const hasLocalApk = existsSync(localApkPath);
     return {
       appName: 'Chat Aura',
       baseUrl,
       playStoreUrl,
-      hasLocalApk,
+      // No direct APK: a locally signed APK can't be updated from Play (different signing key).
+      hasLocalApk: false,
       apkDownloadUrl: `${baseUrl}/apk/ChatAura.apk`,
     };
+  }
+
+  /** Old shared APK links go to the Play Store, so installs stay updatable. */
+  @Get(['apk', 'apk/:file'])
+  @Public()
+  apkToPlayStore(@Res() res: FastifyReply) {
+    return res.redirect(this.getAppConfig().playStoreUrl, 302);
   }
 
   @Get()

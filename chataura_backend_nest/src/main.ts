@@ -93,6 +93,8 @@ async function bootstrap() {
       '.well-known/assetlinks.json',
       'app-ads.txt',
       'robots.txt',
+      'apk',
+      'apk/:file',
     ],
   });
   app.enableCors({
