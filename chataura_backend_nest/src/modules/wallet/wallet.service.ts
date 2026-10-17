@@ -22,6 +22,7 @@ import { ensureCpAffectionGiftCatalog } from '../room/cp-affection-gifts.catalog
 import { ensureExtraGiftCatalogs } from '../room/extra-gift-catalogs';
 import { RelationshipEngineService } from '../relationship/relationship-engine.service';
 import { LedgerService } from './ledger.service';
+import { isWholesaleAudience, splitPackagesForViewer } from './coin-seller.rules';
 
 @Injectable()
 export class WalletService {
@@ -66,7 +67,11 @@ export class WalletService {
     };
   }
 
-  async packages(country?: string) {
+  /** Wholesale lists depend on the caller's current DB role (not the JWT, which can be stale). */
+  async packages(country?: string, viewerId?: bigint) {
+    const viewer = viewerId
+      ? await this.prisma.user.findUnique({ where: { id: viewerId }, select: { role: true } })
+      : null;
     const pkgs = await this.prisma.coinPackage.findMany({
       where: { isActive: true },
       orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
@@ -81,21 +86,29 @@ export class WalletService {
       original_price: p.originalPrice ? Number(p.originalPrice) : null,
       base_price_inr: p.basePriceInr ? Number(p.basePriceInr) : null,
     }));
+    const split = splitPackagesForViewer(mapped, viewer?.role);
     const currency = mapped[0]?.currency ?? 'INR';
     return {
       country: country ?? 'IN',
       currency,
-      viewer: 'user',
+      viewer: split.viewer,
       promo: null,
-      packages: mapped,
+      packages: split.packages,
       seller_promo: null,
-      seller_packages: mapped.filter(
-        (p) =>
-          p.audience === 'coin_seller' ||
-          p.audience === 'reseller' ||
-          p.audience === 'seller',
-      ),
+      seller_packages: split.sellerPackages,
     };
+  }
+
+  /** Wholesale packages are for sellers only — blocks buying them by raw package_id. */
+  private async assertCanBuyPackage(userId: bigint, audience: string) {
+    if (!isWholesaleAudience(audience)) return;
+    const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+    if (u?.role !== 'seller') {
+      throw new ForbiddenException({
+        success: false,
+        error: { code: 'PACKAGE_NOT_ALLOWED', message: 'This package is only for coin sellers' },
+      });
+    }
   }
 
   async initiateRecharge(
@@ -112,6 +125,7 @@ export class WalletService {
         error: { code: 'PACKAGE_NOT_FOUND', message: 'Package not found' },
       });
     }
+    await this.assertCanBuyPackage(userId, pkg.audience);
 
     const currency = (body.currency ?? pkg.currency ?? 'INR').toUpperCase();
     const amountMinor = Math.round(Number(pkg.price) * 100);
@@ -347,6 +361,7 @@ export class WalletService {
         error: { code: 'PACKAGE_NOT_FOUND', message: 'Package not found' },
       });
     }
+    await this.assertCanBuyPackage(userId, pkg.audience);
 
     const currency = (body.currency ?? 'INR').toUpperCase();
     const cost = Number(pkg.price);

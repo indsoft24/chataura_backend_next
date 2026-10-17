@@ -1,8 +1,10 @@
 import {
   DEFAULT_COIN_SELLER_TEMPLATE,
+  isWholesaleAudience,
   normalizeCountries,
   normalizeWhatsappNumber,
   readCoinSellerTemplate,
+  splitPackagesForViewer,
 } from './coin-seller.rules';
 
 describe('normalizeWhatsappNumber', () => {
@@ -55,5 +57,37 @@ describe('readCoinSellerTemplate', () => {
       DEFAULT_COIN_SELLER_TEMPLATE,
     );
     expect(readCoinSellerTemplate({ coin_seller_message_template: 'Hi {userId}' })).toBe('Hi {userId}');
+  });
+});
+
+describe('splitPackagesForViewer', () => {
+  const pkgs = [
+    { id: 1, audience: 'user' },
+    { id: 2, audience: 'coin_seller' },
+    { id: 3, audience: 'Reseller' },
+  ];
+
+  it('user sees retail only, never wholesale', () => {
+    const r = splitPackagesForViewer(pkgs, 'user');
+    expect(r.viewer).toBe('user');
+    expect(r.packages.map((p) => p.id)).toEqual([1]);
+    expect(r.sellerPackages).toEqual([]);
+  });
+
+  it.each(['admin', 'agency', null, undefined])('%s gets no wholesale', (role) => {
+    expect(splitPackagesForViewer(pkgs, role).sellerPackages).toEqual([]);
+  });
+
+  it('seller sees retail plus wholesale', () => {
+    const r = splitPackagesForViewer(pkgs, 'seller');
+    expect(r.viewer).toBe('coin_seller');
+    expect(r.packages.map((p) => p.id)).toEqual([1]);
+    expect(r.sellerPackages.map((p) => p.id)).toEqual([2, 3]);
+  });
+
+  it('isWholesaleAudience', () => {
+    expect(isWholesaleAudience('coin_seller')).toBe(true);
+    expect(isWholesaleAudience('user')).toBe(false);
+    expect(isWholesaleAudience(null)).toBe(false);
   });
 });

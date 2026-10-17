@@ -25,8 +25,8 @@ export class WalletController {
   }
 
   @Get('wallet/packages')
-  packages(@Query('country') country?: string) {
-    return this.wallet.packages(country);
+  packages(@CurrentUser() user: AuthUser, @Query('country') country?: string) {
+    return this.wallet.packages(country, user.id);
   }
 
   @Public()

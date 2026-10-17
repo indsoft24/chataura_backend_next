@@ -63,3 +63,24 @@ export function readCoinSellerTemplate(extra: Record<string, unknown> | null | u
   const t = extra?.[COIN_SELLER_TEMPLATE_KEY];
   return typeof t === 'string' && t.trim() ? t.slice(0, 1000) : DEFAULT_COIN_SELLER_TEMPLATE;
 }
+
+// ── Wholesale packages: only sellers (merchants, role = 'seller') may see or buy them ──
+
+const WHOLESALE_AUDIENCES = new Set(['coin_seller', 'seller', 'reseller', 'authorized_seller']);
+
+export function isWholesaleAudience(audience: string | null | undefined): boolean {
+  return WHOLESALE_AUDIENCES.has(String(audience ?? '').trim().toLowerCase());
+}
+
+/** Retail list for everyone; the wholesale list is non-empty only for sellers. */
+export function splitPackagesForViewer<T extends { audience: string }>(
+  pkgs: T[],
+  viewerRole: string | null | undefined,
+): { viewer: 'coin_seller' | 'user'; packages: T[]; sellerPackages: T[] } {
+  const isSeller = viewerRole === 'seller';
+  return {
+    viewer: isSeller ? 'coin_seller' : 'user',
+    packages: pkgs.filter((p) => !isWholesaleAudience(p.audience)),
+    sellerPackages: isSeller ? pkgs.filter((p) => isWholesaleAudience(p.audience)) : [],
+  };
+}
