@@ -11,6 +11,7 @@ import { LedgerService } from '../wallet/ledger.service';
 import { RoomEvents } from './room.events';
 import {
   activeLadder,
+  ALL_TIME_CYCLE,
   assetKeyFor,
   AssetSlot,
   CampaignRow,
@@ -20,6 +21,7 @@ import {
   eventExpiry,
   LevelInput,
   LevelRow,
+  ladderStatus,
   levelAtOrAbove,
   nextLevelAfter,
   nextResetAt,
@@ -33,11 +35,13 @@ import {
   splitByPercent,
   splitContribution,
   splitLucky,
+  unlockedTopLevel,
   validateLevels,
 } from './rocket-levels';
 import { readMemberTimeoutSeconds } from './room-state/room-runtime.config';
 
 const ADMIN_LIMIT = 5;
+const LEVEL_SWITCH_COOLDOWN_MS = 10_000;
 
 type ActiveConfig = Prisma.RocketCampaignConfigGetPayload<{ include: { levels: true } }>;
 
@@ -285,6 +289,104 @@ export class RocketLaunchService {
       where: { roomId: room.id, userId: targetId },
     });
     return this.state(actorId, room.id);
+  }
+
+  // shortcut: per-process cooldown map; move to Redis if the API runs on more than one instance.
+  private readonly levelSwitchAt = new Map<string, number>();
+
+  /**
+   * Host / owner / co-host switches the room rocket to an unlocked level. The current level's
+   * progress is paused (kept) and resumes when the room switches back.
+   */
+  async selectLevel(actorId: bigint, roomKey: string, level: number) {
+    const room = await this.findRoom(roomKey);
+    if (!this.isManager(room, actorId)) {
+      throw new ForbiddenException({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Only the host, owner or co-host can change the rocket level' },
+      });
+    }
+    const config = await this.activeConfig();
+    if (!config || !this.roomEligible(room, config.eligibleRoomTypes) || this.isLegacy(config)) {
+      throw this.rocketError('ROCKET_UNAVAILABLE', 'Rocket levels are not available in this room');
+    }
+    const ladder = activeLadder(config, config.levels);
+    const target = ladder.find((l) => l.level === Math.floor(Number(level)));
+    if (!target) throw this.rocketError('VALIDATION_ERROR', 'Unknown rocket level');
+    const lastSwitch = this.levelSwitchAt.get(room.id) ?? 0;
+    if (Date.now() - lastSwitch < LEVEL_SWITCH_COOLDOWN_MS) {
+      throw this.rocketError('TOO_FAST', 'Please wait a few seconds before switching again');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // Holds the per-room rocket lock, so no contribution or launch runs in between.
+      const pending = await this.ensurePendingEvent(tx, room, config);
+      if (pending.level === target.level) return;
+      const cycleKey = pending.cycleKey ?? cycleKeyAt(new Date(), config);
+      const top = unlockedTopLevel(ladder, await this.highestLaunchedLevel(tx, room.id, cycleKey));
+      if (target.level > top) {
+        throw this.rocketError('LEVEL_LOCKED', `LV${target.level} is locked. Launch LV${top} to unlock the next level.`);
+      }
+      const paused = await tx.rocketEvent.updateMany({
+        where: { id: pending.id, status: 'PENDING' },
+        data: { status: 'PAUSED', version: { increment: 1 } },
+      });
+      if (paused.count !== 1) throw this.rocketError('ROCKET_BUSY', 'The rocket just changed. Try again.');
+      await this.openLevelEvent(tx, room.id, config, target, cycleKey, 0);
+    });
+    this.levelSwitchAt.set(room.id, Date.now());
+    return this.state(actorId, room.id);
+  }
+
+  private rocketError(code: string, message: string) {
+    return new BadRequestException({ success: false, error: { code, message } });
+  }
+
+  /** Highest level this room ever launched (this cycle when daily reset is on); pre-ladder rows ignored. */
+  private async highestLaunchedLevel(
+    tx: Prisma.TransactionClient,
+    roomId: string,
+    cycleKey: string,
+  ): Promise<number | null> {
+    const r = await tx.rocketEvent.aggregate({
+      where: {
+        roomId,
+        status: 'LAUNCHED',
+        cycleKey: cycleKey === ALL_TIME_CYCLE ? { not: null } : cycleKey,
+      },
+      _max: { level: true },
+    });
+    return r._max.level ?? null;
+  }
+
+  /**
+   * Makes [level] the room's PENDING event: resumes its paused event (adding [initialCoins],
+   * capped below the threshold so one contribution never launches twice) or creates a new one.
+   * Returns the event and the coins actually added.
+   */
+  private async openLevelEvent(
+    tx: Prisma.TransactionClient,
+    roomId: string,
+    config: ActiveConfig,
+    level: LevelRow,
+    cycleKey: string,
+    initialCoins: number,
+  ): Promise<{ event: RocketEvent; added: number }> {
+    const paused = await tx.rocketEvent.findFirst({
+      where: { roomId, status: 'PAUSED', level: level.level, cycleKey },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (paused) {
+      const threshold = this.snapshotFromEvent(paused, config).threshold;
+      const added = Math.max(0, Math.min(initialCoins, threshold - 1 - paused.accumulatedCoins));
+      const event = await tx.rocketEvent.update({
+        where: { id: paused.id },
+        data: { status: 'PENDING', accumulatedCoins: { increment: added }, version: { increment: 1 } },
+      });
+      return { event, added };
+    }
+    const event = await this.createEvent(tx, roomId, config, level, this.isLegacy(config), cycleKey, initialCoins);
+    return { event, added: initialCoins };
   }
 
   /**
@@ -937,23 +1039,21 @@ export class RocketLaunchService {
             );
             launched = true;
 
-            // Next rung starts immediately (wraps to the first level after the top).
-            const legacy = this.isLegacy(config);
-            const nextEvent = await this.createEvent(
+            // Next rung starts immediately (resuming its paused progress; the top level repeats).
+            const { event: nextEvent, added: carry } = await this.openLevelEvent(
               tx,
               args.room.id,
               config,
               next,
-              legacy,
-              cycleKeyAt(new Date(), config),
+              event.cycleKey ?? cycleKeyAt(new Date(), config),
               split.carry,
             );
-            if (split.carry > 0) {
+            if (carry > 0) {
               await tx.rocketContribution.create({
                 data: {
                   eventId: nextEvent.id,
                   userId: args.userId,
-                  coins: split.carry,
+                  coins: carry,
                   source: args.source,
                   txId: `${args.txId}#carry`,
                 },
@@ -1306,6 +1406,15 @@ export class RocketLaunchService {
       });
     }
 
+    // Daily reset switched off: the running event joins the forever cycle instead of being lost.
+    if (pending && cycleKey === ALL_TIME_CYCLE && pending.cycleKey !== cycleKey && pending.expiresAt > now) {
+      const duration = Number((pending.configSnapshot as { duration_seconds?: number } | null)?.duration_seconds ?? 0);
+      pending = await tx.rocketEvent.update({
+        where: { id: pending.id },
+        data: { cycleKey, expiresAt: eventExpiry(now, duration, config) },
+      });
+    }
+
     if (pending && (pending.expiresAt <= now || pending.cycleKey !== cycleKey)) {
       await tx.rocketEvent.update({ where: { id: pending.id }, data: { status: 'EXPIRED' } });
       pending = null;
@@ -1322,13 +1431,20 @@ export class RocketLaunchService {
     });
     if (pending) return pending;
 
+    if (cycleKey === ALL_TIME_CYCLE && !legacy) {
+      // Levels stay unlocked forever: continue on the highest unlocked level.
+      const top = unlockedTopLevel(ladder, await this.highestLaunchedLevel(tx, room.id, cycleKey));
+      const level = levelAtOrAbove(ladder, top);
+      return (await this.openLevelEvent(tx, room.id, config, level, cycleKey, 0)).event;
+    }
+
     const last = await tx.rocketEvent.findFirst({
       where: { roomId: room.id, cycleKey, status: { in: ['LAUNCHED', 'EXPIRED'] } },
       orderBy: { createdAt: 'desc' },
       select: { status: true, level: true },
     });
     const level = resolveLevel(ladder, last, config.expiryMode);
-    return this.createEvent(tx, room.id, config, level, legacy, cycleKey, 0);
+    return (await this.openLevelEvent(tx, room.id, config, level, cycleKey, 0)).event;
   }
 
   private createEvent(
@@ -1408,7 +1524,10 @@ export class RocketLaunchService {
     const manager = this.isManager(room, actorId);
     const snap = event && config ? this.snapshotFromEvent(event, config) : null;
     const detail = event && snap && config ? await this.eventDetail(event, snap, config, actorId) : null;
-    const ladder = config && snap && !snap.legacy_jet ? await this.serializeLadder(config, snap.level) : [];
+    const ladder =
+      config && snap && !snap.legacy_jet && event
+        ? await this.serializeLadder(config, snap.level, room.id, event.cycleKey ?? cycleKeyAt(new Date(), config))
+        : [];
     const resetAt = config ? nextResetAt(new Date(), config) : null;
     return {
       price: snap?.threshold ?? config?.launchThresholdCoins ?? 100_000,
@@ -1416,6 +1535,7 @@ export class RocketLaunchService {
       admin_limit: ADMIN_LIMIT,
       can_manage: manager,
       can_launch: false,
+      can_select_level: manager && ladder.length > 1,
       can_contribute: joined && Boolean(detail),
       mode: 'crowdfund',
       event: detail,
@@ -1492,8 +1612,15 @@ export class RocketLaunchService {
     };
   }
 
-  private async serializeLadder(config: ActiveConfig, currentLevel: number) {
+  private async serializeLadder(config: ActiveConfig, currentLevel: number, roomId: string, cycleKey: string) {
     const ladder = activeLadder(config, config.levels);
+    const highest = await this.highestLaunchedLevel(this.prisma, roomId, cycleKey);
+    const top = unlockedTopLevel(ladder, highest);
+    const paused = await this.prisma.rocketEvent.findMany({
+      where: { roomId, status: 'PAUSED', cycleKey },
+      select: { level: true, accumulatedCoins: true },
+    });
+    const pausedCoins = new Map(paused.map((p) => [p.level, p.accumulatedCoins]));
     const urls = await this.assetUrls(
       ladder.flatMap((l) => [l.badgeAssetKey, `rocket.badge_lv${l.level}`]),
     );
@@ -1512,7 +1639,8 @@ export class RocketLaunchService {
         (l.badgeAssetKey ? urls.get(l.badgeAssetKey) : undefined) ??
         urls.get(`rocket.badge_lv${l.level}`) ??
         null,
-      status: l.level < currentLevel ? 'done' : l.level === currentLevel ? 'current' : 'locked',
+      status: ladderStatus(l.level, currentLevel, highest, top),
+      paused_coins: pausedCoins.get(l.level) ?? 0,
     }));
   }
 

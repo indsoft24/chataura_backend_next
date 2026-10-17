@@ -5,6 +5,9 @@ import {
   LevelRow,
   nextLevelAfter,
   nextResetAt,
+  NO_EXPIRY,
+  ladderStatus,
+  unlockedTopLevel,
   pickLuckyWinners,
   rankPresentContributors,
   resolveLevel,
@@ -73,6 +76,12 @@ describe('rocket ladder cycle (04:00 IST)', () => {
     expect(eventExpiry(now, 0, campaign).toISOString()).toBe('2026-10-12T22:30:00.000Z');
     expect(eventExpiry(now, 600, campaign).toISOString()).toBe('2026-10-12T22:10:00.000Z');
   });
+  it('no daily reset never expires unless the level has a duration', () => {
+    const now = new Date('2026-10-12T22:00:00Z');
+    const off = { ...campaign, dailyResetEnabled: false };
+    expect(eventExpiry(now, 0, off)).toBe(NO_EXPIRY);
+    expect(eventExpiry(now, 600, off).toISOString()).toBe('2026-10-12T22:10:00.000Z');
+  });
   it('no daily reset uses a single cycle', () => {
     expect(cycleKeyAt(new Date(), { ...IST, dailyResetEnabled: false })).toBe('ALL');
   });
@@ -83,8 +92,8 @@ describe('level progression', () => {
     expect(resolveLevel(ladder, null, 'RESET_PROGRESS').level).toBe(1);
     expect(resolveLevel(ladder, { status: 'LAUNCHED', level: 2 }, 'RESET_PROGRESS').level).toBe(3);
   });
-  it('wraps to LV1 after the top level', () => {
-    expect(nextLevelAfter(ladder, 5).level).toBe(1);
+  it('stays on the top level after it launches', () => {
+    expect(nextLevelAfter(ladder, 5).level).toBe(5);
   });
   it('expiry keeps the level or resets the cycle per mode', () => {
     expect(resolveLevel(ladder, { status: 'EXPIRED', level: 3 }, 'RESET_PROGRESS').level).toBe(3);
@@ -190,5 +199,24 @@ describe('rankPresentContributors', () => {
 
   it('returns nobody when every contributor left', () => {
     expect(rankPresentContributors([agg(1, 500)], new Set())).toEqual([]);
+  });
+});
+
+describe('unlocked levels', () => {
+  it('a room that never launched has only LV1', () => {
+    expect(unlockedTopLevel(ladder, null)).toBe(1);
+  });
+  it('launching LV2 unlocks up to LV3', () => {
+    expect(unlockedTopLevel(ladder, 2)).toBe(3);
+  });
+  it('the top level never unlocks past itself', () => {
+    expect(unlockedTopLevel(ladder, 5)).toBe(5);
+  });
+  it('chip status: current, launched, reachable, locked', () => {
+    // On LV1 after launching LV2 (LV3 reachable, LV4+ locked).
+    expect(ladderStatus(1, 1, 2, 3)).toBe('current');
+    expect(ladderStatus(2, 1, 2, 3)).toBe('done');
+    expect(ladderStatus(3, 1, 2, 3)).toBe('unlocked');
+    expect(ladderStatus(4, 1, 2, 3)).toBe('locked');
   });
 });

@@ -1,7 +1,8 @@
 /**
- * Rocket ladder rules (pure, unit-tested). A room climbs LV1 → LVmax; after the top level it
- * restarts at the first level with zero progress. The whole ladder resets daily at
- * reset_hour in reset_timezone (default 04:00 Asia/Kolkata).
+ * Rocket ladder rules (pure, unit-tested). A room climbs LV1 → LVmax and stays on the top level.
+ * With daily reset on, the ladder resets at reset_hour in reset_timezone (default 04:00
+ * Asia/Kolkata). With it off, events never expire and launched levels stay unlocked forever,
+ * so the host can switch between them (unfinished progress is paused, not lost).
  */
 
 export type ExpiryMode = 'RESET_PROGRESS' | 'RESET_CYCLE';
@@ -134,8 +135,12 @@ export function nextResetAt(now: Date, campaign: Pick<CampaignRow, 'dailyResetEn
   return new Date(start + DAY_MS);
 }
 
+/** Expiry used for events that never expire (daily reset off and no per-level duration). */
+export const NO_EXPIRY = new Date('9999-12-31T00:00:00Z');
+
 export function eventExpiry(now: Date, snapshotDurationSeconds: number, campaign: CampaignRow): Date {
   const reset = nextResetAt(now, campaign);
+  if (!reset && !(snapshotDurationSeconds > 0)) return NO_EXPIRY;
   const fallbackSec = Math.max(60, campaign.rockitDurationSeconds || 3600);
   const durMs = snapshotDurationSeconds > 0 ? snapshotDurationSeconds * 1000 : reset ? Infinity : fallbackSec * 1000;
   const byDuration = now.getTime() + durMs;
@@ -205,9 +210,30 @@ export function snapshotOf(level: LevelRow, campaign: CampaignRow, legacy: boole
   };
 }
 
-/** Level after [level] in the ladder; wraps to the first level after the top. */
+/** Level after [level] in the ladder; the top level stays on the top level. */
 export function nextLevelAfter(ladder: LevelRow[], level: number): LevelRow {
-  return ladder.find((l) => l.level > level) ?? ladder[0];
+  return ladder.find((l) => l.level > level) ?? ladder[ladder.length - 1];
+}
+
+/**
+ * Highest level a room may play: the level after its highest launch (LV1 when it never
+ * launched). Every level at or below it is unlocked.
+ */
+export function unlockedTopLevel(ladder: LevelRow[], highestLaunched: number | null): number {
+  if (highestLaunched == null || highestLaunched < ladder[0].level) return ladder[0].level;
+  return nextLevelAfter(ladder, highestLaunched).level;
+}
+
+/** Ladder chip status for the app. */
+export function ladderStatus(
+  level: number,
+  currentLevel: number,
+  highestLaunched: number | null,
+  unlockedTop: number,
+): 'current' | 'done' | 'unlocked' | 'locked' {
+  if (level === currentLevel) return 'current';
+  if (level > unlockedTop) return 'locked';
+  return highestLaunched != null && level <= highestLaunched ? 'done' : 'unlocked';
 }
 
 /** Level at or above [level] (used when the previous level was removed by an admin). */

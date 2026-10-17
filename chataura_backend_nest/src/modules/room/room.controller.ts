@@ -394,6 +394,16 @@ export class RoomController {
     return this.rockets.removeAdmin(user.id, id, BigInt(userId));
   }
 
+  @Throttle({ default: { limit: 10, ttl: seconds(60) } })
+  @Post('rooms/:id/rocket/level')
+  selectRocketLevel(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { level: number | string },
+  ) {
+    return this.rockets.selectLevel(user.id, id, Number(body.level));
+  }
+
   @Throttle({ default: { limit: 6, ttl: seconds(60) } })
   @Post('rooms/:id/rocket/launch')
   launchRocket(@CurrentUser() user: AuthUser, @Param('id') id: string) {
