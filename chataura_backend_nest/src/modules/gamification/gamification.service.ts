@@ -18,6 +18,8 @@ import {
 
 const REWARD_ONLY = new Set(REWARD_ONLY_FRAME_CATEGORIES);
 const SWEEP_BATCH = 2000;
+/** Free frame a user gets when the frame they wore is no longer allowed for them. */
+const FALLBACK_FRAME_SLUG = 'free_silver_glow';
 
 @Injectable()
 export class GamificationService {
@@ -392,11 +394,26 @@ export class GamificationService {
     eligible: Map<string, FrameSource>,
   ): Promise<bigint | null> {
     if (!user.selectedFrameId || eligible.has(user.selectedFrameId.toString())) return user.selectedFrameId;
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { selectedFrameId: null, selectedRoleFrameId: null },
+    const fallback = await this.prisma.frame.findFirst({
+      where: { slug: FALLBACK_FRAME_SLUG, isActive: true },
+      select: { id: true },
     });
-    return null;
+    // Never "fall back" onto the very frame being removed.
+    const next = fallback && fallback.id !== user.selectedFrameId ? fallback.id : null;
+    await this.prisma.$transaction(async (tx) => {
+      if (next) {
+        await tx.userUnlockedFrame.upsert({
+          where: { userId_frameId: { userId: user.id, frameId: next } },
+          create: { userId: user.id, frameId: next, coinsPaid: 0, unlockType: 'level' },
+          update: {},
+        });
+      }
+      await tx.user.update({
+        where: { id: user.id },
+        data: { selectedFrameId: next, selectedRoleFrameId: null },
+      });
+    });
+    return next;
   }
 
   /**
