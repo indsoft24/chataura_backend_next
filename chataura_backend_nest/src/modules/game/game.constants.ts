@@ -1,4 +1,4 @@
-export const BETTING_SECONDS = 20;
+export const BETTING_SECONDS = 30;
 
 export const GREEDY_ITEMS: Record<
   string,
