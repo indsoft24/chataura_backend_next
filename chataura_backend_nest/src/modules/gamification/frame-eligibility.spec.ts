@@ -36,11 +36,12 @@ describe('eligibleFrames', () => {
     expect(Object.fromEntries(out)).toEqual({ '1': 'paid', '2': 'free', '4': 'support' });
   });
 
-  it('C.S frame: only an admin grant to a current star account', () => {
+  it('C.S frame: every star account, nobody else (staff and grants alone do not count)', () => {
     const admin = { frameId: 4n, expiresAt: null, coinsPaid: 0, unlockType: 'admin' };
     expect(eligibleFrames({ ...base, unlocks: [admin] }).has('4')).toBe(false);
-    expect(eligibleFrames({ ...base, isStarAccount: true, unlocks: [{ ...admin, unlockType: 'level' }] }).has('4')).toBe(false);
-    expect(eligibleFrames({ ...base, isStarAccount: true, unlocks: [admin] }).get('4')).toBe('support');
+    expect(eligibleFrames({ ...base, role: 'admin', staffBadgeType: 'admin' }).has('4')).toBe(false);
+    expect(eligibleFrames({ ...base, isStarAccount: true }).get('4')).toBe('support');
+    expect(eligibleFrames({ ...base, role: 'seller', isStarAccount: true }).get('4')).toBe('support');
     const rocketBought = { frameId: 3n, expiresAt: null, coinsPaid: 0, unlockType: 'purchase' };
     expect(eligibleFrames({ ...base, unlocks: [rocketBought] }).has('3')).toBe(false);
   });
