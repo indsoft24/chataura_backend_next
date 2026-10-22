@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
+import { EmptyRow, Field, PageHeader, SearchBox, SkeletonRows, errorText, formatDate, useConfirm, useToasts } from '@/components/admin-ui';
 
 type Report = {
   id: number;
@@ -17,148 +17,129 @@ type Report = {
 };
 
 export default function ReportsPage() {
-  const router = useRouter();
   const { token } = useAdminAuth();
+  const { toast, toastNode } = useToasts();
+  const { confirm, confirmNode } = useConfirm();
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
-  const [actionMsg, setActionMsg] = useState('');
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [q, setQ] = useState('');
+  const [reason, setReason] = useState('');
 
-  async function load(tok: string) {
+  async function load() {
+    if (!token) return;
     setLoading(true);
     try {
-      const json = await api<{ success: boolean; data?: { reports: Report[] } }>('/admin/reports', tok);
+      const json = await api<{ success: boolean; data?: { reports: Report[] } }>('/admin/reports', token);
       setReports(json.data?.reports ?? []);
     } catch (e) {
-      console.error(e);
+      toast('error', errorText(e, 'Could not load reports'));
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (token) {
-      void load(token);
-    }
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  async function resolveReport(id: number) {
-    const token = localStorage.getItem('ca_admin_token');
+  const reasons = useMemo(() => Array.from(new Set(reports.map((r) => r.reason))).sort(), [reports]);
+  const visible = useMemo(() => {
+    const term = q.trim().toLowerCase().replace(/^#/, '');
+    return reports.filter((r) =>
+      (!reason || r.reason === reason) &&
+      (!term || [r.reporter?.name, r.reported?.name, r.description, String(r.reporter_id), String(r.reported_id)].some((v) => v && v.toLowerCase().includes(term))),
+    );
+  }, [reports, q, reason]);
+
+  async function dismiss(r: Report) {
     if (!token) return;
+    setBusyId(r.id);
     try {
-      await api(`/admin/reports/${id}`, token, { method: 'DELETE' });
-      setActionMsg(`Report #${id} resolved.`);
-      setTimeout(() => setActionMsg(''), 3000);
-      void load(token);
+      await api(`/admin/reports/${r.id}`, token, { method: 'DELETE' });
+      toast('success', `Report #${r.id} dismissed`);
+      void load();
     } catch (e) {
-      console.error(e);
+      toast('error', errorText(e, 'Could not dismiss report'));
+    } finally {
+      setBusyId(null);
     }
   }
 
-  async function suspendReported(userId: number, reportId: number) {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) return;
-    if (!confirm(`Are you sure you want to suspend User #${userId}?`)) return;
-    try {
-      await api(`/admin/users/${userId}/suspend`, token, {
-        method: 'POST',
-        body: JSON.stringify({ reason: 'Reported violation' }),
-      });
-      await api(`/admin/reports/${reportId}`, token, { method: 'DELETE' });
-      setActionMsg(`User #${userId} suspended and report resolved.`);
-      setTimeout(() => setActionMsg(''), 3000);
-      void load(token);
-    } catch (e) {
-      console.error(e);
-    }
+  function suspend(r: Report) {
+    const who = r.reported?.name ?? `User #${r.reported_id}`;
+    confirm({
+      title: `Suspend ${who}?`,
+      message: <>The account is suspended with reason &ldquo;Reported violation&rdquo; and this report is resolved.</>,
+      confirmLabel: 'Suspend user',
+      tone: 'danger',
+      onConfirm: async () => {
+        await api(`/admin/users/${r.reported_id}/suspend`, token, { method: 'POST', body: JSON.stringify({ reason: 'Reported violation' }) });
+        await api(`/admin/reports/${r.id}`, token, { method: 'DELETE' });
+        toast('success', `${who} suspended and report resolved`);
+        void load();
+      },
+    });
   }
 
   return (
-    <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>User Reports & Moderation</h1>
-        <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>Review reports, dismiss false alarms, or instantly moderate violating users.</p>
-      </div>
+    <main className="ad-page">
+      <PageHeader title="Reports" subtitle={`Quick reports from users · ${reports.length} open. Dismiss false alarms or suspend the reported user.`} />
 
-      {actionMsg && (
-        <div style={{ padding: '12px 16px', background: '#d1fae5', color: '#065f46', borderRadius: '8px', marginBottom: '20px', fontWeight: 600 }}>
-          {actionMsg}
+      <section className="ad-card">
+        <div className="ad-toolbar">
+          <SearchBox value={q} onChange={setQ} placeholder="Search user, ID or details" />
+          <Field label="Reason">
+            <select value={reason} onChange={(e) => setReason(e.target.value)}>
+              <option value="">All reasons</option>
+              {reasons.map((x) => (
+                <option key={x} value={x}>{x}</option>
+              ))}
+            </select>
+          </Field>
         </div>
-      )}
-
-      <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb' }}>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+        <div className="ad-summary">Showing <strong>{visible.length}</strong> of <strong>{reports.length}</strong> open reports</div>
+        <div className="ad-table-wrap">
+          <table className="ad-table is-stack">
             <thead>
               <tr>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb' }}>Date</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb' }}>Reporter</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb' }}>Reported User</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb' }}>Reason</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb' }}>Details</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'right' }}>Actions</th>
+                <th className="ad-th">Reported user</th>
+                <th className="ad-th">Reason</th>
+                <th className="ad-th">Reporter</th>
+                <th className="ad-th">Details</th>
+                <th className="ad-th">Date</th>
+                <th className="ad-th ad-num">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {loading ? (
-                <tr><td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#6b7280' }}>Loading reports...</td></tr>
-              ) : reports.length === 0 ? (
-                <tr><td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#6b7280' }}>No pending reports found. All clear!</td></tr>
+              {loading && reports.length === 0 ? (
+                <SkeletonRows cols={6} />
+              ) : visible.length === 0 ? (
+                <EmptyRow cols={6} title={reports.length ? 'No reports match' : 'All clear'} hint={reports.length ? 'Try a different search.' : 'There are no open reports.'} />
               ) : (
-                reports.map((r) => (
-                  <tr key={r.id}>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', color: '#4b5563', fontSize: '0.9rem' }}>
-                      {new Date(r.created_at).toLocaleDateString()}
+                visible.map((r) => (
+                  <tr key={r.id} className={`ad-row ${busyId === r.id ? 'is-busy' : ''}`}>
+                    <td className="ad-td is-main">
+                      <div>
+                        <div className="ad-name tone-red">{r.reported?.name ?? `User #${r.reported_id}`}</div>
+                        <div className="ad-sub">#{r.reported_id} · report #{r.id}</div>
+                      </div>
+                      <span className="ad-mobile-only"><span className="ad-badge red">{r.reason}</span></span>
                     </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6' }}>
-                      <div style={{ fontWeight: 600, color: '#111827' }}>{r.reporter?.name ?? `User #${r.reporter_id}`}</div>
-                      <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>ID #{r.reporter_id}</div>
+                    <td className="ad-td is-hide-sm"><span className="ad-badge red">{r.reason}</span></td>
+                    <td className="ad-td" data-label="Reporter">
+                      <div style={{ fontWeight: 600 }}>{r.reporter?.name ?? `User #${r.reporter_id}`}</div>
+                      <div className="ad-sub">#{r.reporter_id}</div>
                     </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6' }}>
-                      <div style={{ fontWeight: 600, color: '#b91c1c' }}>{r.reported?.name ?? `User #${r.reported_id}`}</div>
-                      <div style={{ fontSize: '0.75rem', color: '#ef4444' }}>ID #{r.reported_id}</div>
+                    <td className="ad-td is-full" data-label="Details" style={{ maxWidth: 320, color: '#4b5563' }}>
+                      {r.description || <span className="ad-hint" style={{ fontStyle: 'italic' }}>No description</span>}
                     </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6' }}>
-                      <span style={{ padding: '4px 8px', borderRadius: '4px', background: '#fee2e2', color: '#991b1b', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>
-                        {r.reason}
-                      </span>
-                    </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', color: '#6b7280', fontSize: '0.9rem', maxWidth: '280px' }}>
-                      {r.description || <span style={{ fontStyle: 'italic', color: '#9ca3af' }}>No description provided</span>}
-                    </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                        <button
-                          type="button"
-                          onClick={() => void resolveReport(r.id)}
-                          style={{
-                            padding: '6px 12px',
-                            fontSize: '0.8rem',
-                            background: '#f3f4f6',
-                            color: '#374151',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '6px',
-                            cursor: 'pointer',
-                            width: 'auto',
-                          }}
-                        >
-                          Dismiss
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void suspendReported(r.reported_id, r.id)}
-                          style={{
-                            padding: '6px 12px',
-                            fontSize: '0.8rem',
-                            background: '#fee2e2',
-                            color: '#b91c1c',
-                            border: '1px solid #fca5a5',
-                            borderRadius: '6px',
-                            cursor: 'pointer',
-                            width: 'auto',
-                          }}
-                        >
-                          Suspend User
-                        </button>
+                    <td className="ad-td" data-label="Date">{formatDate(r.created_at)}</td>
+                    <td className="ad-td ad-num is-actions is-fill">
+                      <div className="ad-actions">
+                        <button type="button" className="ad-btn ad-btn-ghost" onClick={() => void dismiss(r)}>Dismiss</button>
+                        <button type="button" className="ad-btn ad-btn-danger-soft" onClick={() => suspend(r)}>Suspend user</button>
                       </div>
                     </td>
                   </tr>
@@ -167,7 +148,9 @@ export default function ReportsPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
+      {confirmNode}
+      {toastNode}
     </main>
   );
 }

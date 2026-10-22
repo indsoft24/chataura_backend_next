@@ -14,6 +14,7 @@ import {
 import { Throttle, seconds } from '@nestjs/throttler';
 import type { FastifyRequest } from 'fastify';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { MinTier } from '../../common/decorators/min-tier.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { MediaService } from '../media/media.service';
@@ -68,26 +69,31 @@ export class AdminController {
 
   // ---- Coin Sellers (offline recharge via WhatsApp) ----
 
+  @MinTier('ceo')
   @Get('coin-sellers')
   coinSellerList() {
     return this.coinSellers.adminList();
   }
 
+  @MinTier('ceo')
   @Post('coin-sellers')
   coinSellerCreate(@Body() body: Record<string, unknown>) {
     return this.coinSellers.adminCreate(body);
   }
 
+  @MinTier('ceo')
   @Put('coin-sellers/order')
   coinSellerReorder(@Body() body: { ids?: unknown }) {
     return this.coinSellers.adminReorder(body?.ids);
   }
 
+  @MinTier('ceo')
   @Patch('coin-sellers/:id')
   coinSellerUpdate(@Param('id') id: string, @Body() body: Record<string, unknown>) {
     return this.coinSellers.adminUpdate(parseId(id), body);
   }
 
+  @MinTier('ceo')
   @Delete('coin-sellers/:id')
   coinSellerDelete(@Param('id') id: string) {
     return this.coinSellers.adminDelete(parseId(id));
@@ -227,13 +233,17 @@ export class AdminController {
   }
 
   @Post('users/:id/suspend')
-  suspend(@Param('id') id: string, @Body() body?: SuspendDto) {
-    return this.admin.suspend(BigInt(id), body?.reason);
+  suspend(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body() body?: SuspendDto,
+  ) {
+    return this.admin.suspend(actor, BigInt(id), body?.reason);
   }
 
   @Post('users/:id/unsuspend')
-  unsuspend(@Param('id') id: string) {
-    return this.admin.unsuspend(BigInt(id));
+  unsuspend(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
+    return this.admin.unsuspend(actor, BigInt(id));
   }
 
   @Post('users/:id/star')
@@ -242,8 +252,12 @@ export class AdminController {
   }
 
   @Post('users/:id/deactivate')
-  deactivate(@Param('id') id: string, @Body() body?: SuspendDto) {
-    return this.admin.deactivate(BigInt(id), body?.reason);
+  deactivate(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body() body?: SuspendDto,
+  ) {
+    return this.admin.deactivate(actor, BigInt(id), body?.reason);
   }
 
   @Post('users/:id/adjust-balance')
@@ -256,8 +270,12 @@ export class AdminController {
   }
 
   @Post('users/:id/link')
-  link(@Param('id') id: string, @Body() body?: LinkUserDto) {
-    return this.admin.linkExistingUser(BigInt(id), body ?? {});
+  link(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body() body?: LinkUserDto,
+  ) {
+    return this.admin.linkExistingUser(actor, BigInt(id), body ?? {});
   }
 
   @Get('staff')
@@ -265,21 +283,25 @@ export class AdminController {
     return this.admin.staff();
   }
 
+  @MinTier('ceo')
   @Get('packages')
   packages() {
     return this.catalog.packages();
   }
 
+  @MinTier('ceo')
   @Post('packages')
   createPackage(@Body() body: CreatePackageDto) {
     return this.catalog.createPackage(body);
   }
 
+  @MinTier('ceo')
   @Patch('packages/:id')
   updatePackage(@Param('id') id: string, @Body() body: UpdatePackageDto) {
     return this.catalog.updatePackage(BigInt(id), body);
   }
 
+  @MinTier('ceo')
   @Delete('packages/:id')
   deletePackage(@Param('id') id: string) {
     return this.catalog.deletePackage(BigInt(id));
@@ -340,16 +362,19 @@ export class AdminController {
     return this.catalog.deleteBanner(BigInt(id));
   }
 
+  @MinTier('ceo')
   @Get('withdrawals')
   withdrawals() {
     return this.admin.withdrawals();
   }
 
+  @MinTier('ceo')
   @Post('withdrawals/:id/approve')
   approveWithdrawal(@Param('id') id: string) {
     return this.admin.approveWithdrawal(BigInt(id));
   }
 
+  @MinTier('ceo')
   @Post('withdrawals/:id/reject')
   rejectWithdrawal(
     @Param('id') id: string,
@@ -464,11 +489,13 @@ export class AdminController {
   }
 
   // Settings
+  @MinTier('superadmin')
   @Get('settings')
   settings() {
     return this.catalog.settings();
   }
 
+  @MinTier('superadmin')
   @Patch('settings')
   updateSettings(@Body() body: Record<string, unknown>) {
     return this.catalog.updateSettings(body);
@@ -677,27 +704,32 @@ export class AdminController {
   }
 
   // Transactions
+  @MinTier('ceo')
   @Get('transactions')
   adminTransactions(@Query() query: Record<string, string | undefined>) {
     return this.admin.adminTransactions(query);
   }
 
+  @MinTier('ceo')
   @Get('transactions/fetch')
   adminTransactionsFetch(@Query() query: Record<string, string | undefined>) {
     return this.admin.adminTransactions(query);
   }
 
+  @MinTier('ceo')
   @Get('transactions/export')
   exportTransactionsCsv(@Query() query: Record<string, string | undefined>) {
     return this.admin.exportTransactionsCsv(query);
   }
 
   // Recharges (real-money coin purchases) + GST reporting
+  @MinTier('ceo')
   @Get('recharges')
   adminRecharges(@Query() query: Record<string, string | undefined>) {
     return this.recharges.list(query);
   }
 
+  @MinTier('ceo')
   @Get('recharges/export')
   exportRechargesExcel(@Query() query: Record<string, string | undefined>) {
     return this.recharges.exportExcel(query);
@@ -708,34 +740,40 @@ export class AdminController {
     return this.recharges.gstConfig().then((config) => ({ config }));
   }
 
+  @MinTier('ceo')
   @Patch('recharges/gst-config')
   updateRechargeGstConfig(@Body() body: Record<string, unknown>) {
     return this.recharges.updateGstConfig(body);
   }
 
   @Throttle({ default: { limit: 6, ttl: seconds(60) } })
+  @MinTier('ceo')
   @Post('recharges/sync')
   syncRecharges(@Body() body: { from?: string; to?: string }) {
     return this.recharges.syncWithRazorpay(body ?? {});
   }
 
+  @MinTier('ceo')
   @Post('recharges/import')
   importRazorpayRecharges(@Body() body: { payment_ids?: string[] }) {
     return this.recharges.importRazorpayPayments(body ?? {});
   }
 
+  @MinTier('ceo')
   @Post('recharges/:id/credit')
   creditReviewedRecharge(@Param('id') id: string) {
     if (!/^\d{1,18}$/.test(id)) throw new BadRequestException('Invalid recharge id');
     return this.recharges.creditReviewed(BigInt(id));
   }
 
+  @MinTier('ceo')
   @Post('recharges/:id/mark-paid')
   markReviewedRechargePaid(@Param('id') id: string, @Body() body: { note?: string }) {
     if (!/^\d{1,18}$/.test(id)) throw new BadRequestException('Invalid recharge id');
     return this.recharges.markReviewedPaid(BigInt(id), body ?? {});
   }
 
+  @MinTier('ceo')
   @Patch('recharges/:id/place-of-supply')
   setRechargePlaceOfSupply(@Param('id') id: string, @Body() body: { state?: string | null }) {
     if (!/^\d{1,18}$/.test(id)) throw new BadRequestException('Invalid recharge id');

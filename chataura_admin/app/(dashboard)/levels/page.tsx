@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import FileUploadInput from '@/app/components/FileUploadInput';
+import { EmptyRow, Field, Modal, PageHeader, Pager, SearchBox, SkeletonRows, errorText, useClientPager, useConfirm, useToasts } from '@/components/admin-ui';
 
 type Level = {
   id: number;
@@ -16,271 +16,191 @@ type Level = {
   icon_url?: string | null;
 };
 
+type Draft = { id?: number; level: string; minXp: string; maxXp: string; label: string; badgeUrl: string };
+
 export default function LevelsPage() {
-  const router = useRouter();
   const { token } = useAdminAuth();
+  const { toast, toastNode } = useToasts();
+  const { confirm, confirmNode } = useConfirm();
   const [levels, setLevels] = useState<Level[]>([]);
   const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState('');
+  const [sort, setSort] = useState('asc');
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
 
-  // Form states
-  const [levelNum, setLevelNum] = useState('1');
-  const [minXp, setMinXp] = useState('0');
-  const [maxXp, setMaxXp] = useState('1000');
-  const [label, setLabel] = useState('Beginner');
-  const [badgeUrl, setBadgeUrl] = useState('');
-  const [error, setError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  // Edit Modal states
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editingLevel, setEditingLevel] = useState<Level | null>(null);
-  const [editLevelNum, setEditLevelNum] = useState('1');
-  const [editMinXp, setEditMinXp] = useState('0');
-  const [editMaxXp, setEditMaxXp] = useState('1000');
-  const [editLabel, setEditLabel] = useState('');
-  const [editBadgeUrl, setEditBadgeUrl] = useState('');
-  const [editError, setEditError] = useState('');
-  const [editSubmitting, setEditSubmitting] = useState(false);
-
-  async function load(tok: string) {
+  async function load() {
+    if (!token) return;
     setLoading(true);
     try {
-      const json = await api<{ success: boolean; data?: { levels: Level[] } }>('/admin/levels', tok);
-      const list = json.data?.levels ?? [];
-      setLevels(list);
-      if (list.length > 0) {
-        const highestLevel = Math.max(...list.map((l) => l.level));
-        const maxCurrentXp = Math.max(...list.map((l) => l.max_xp));
-        setLevelNum(String(highestLevel + 1));
-        setMinXp(String(maxCurrentXp + 1));
-        setMaxXp(String(maxCurrentXp + 5000));
-        setLabel(`Level ${highestLevel + 1}`);
-      }
+      const json = await api<{ success: boolean; data?: { levels: Level[] } }>('/admin/levels', token);
+      setLevels(json.data?.levels ?? []);
     } catch (e) {
-      console.error(e);
+      toast('error', errorText(e, 'Could not load levels'));
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (token) {
-      void load(token);
-    }
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  async function create() {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) return;
-    setSubmitting(true);
-    setError('');
+  const maxXp = useMemo(() => Math.max(1, ...levels.map((l) => l.max_xp)), [levels]);
+  const visible = useMemo(() => {
+    const term = q.trim().toLowerCase().replace(/^(lv|level)\s*/, '');
+    return levels
+      .filter((l) => !term || String(l.level) === term || (l.label ?? '').toLowerCase().includes(term))
+      .sort((a, b) => (sort === 'asc' ? a.level - b.level : b.level - a.level));
+  }, [levels, q, sort]);
+  const { pageItems, pagerProps } = useClientPager(visible, `${q}|${sort}`);
+
+  function openNew() {
+    const top = levels.length ? Math.max(...levels.map((l) => l.level)) : 0;
+    const topXp = levels.length ? Math.max(...levels.map((l) => l.max_xp)) : -1;
+    setFormError('');
+    setDraft({
+      level: String(top + 1),
+      minXp: String(topXp + 1),
+      maxXp: String(levels.length ? topXp + 5000 : 1000),
+      label: levels.length ? `Level ${top + 1}` : 'Beginner',
+      badgeUrl: '',
+    });
+  }
+
+  async function save() {
+    if (!token || !draft) return;
+    setSaving(true);
+    setFormError('');
     try {
-      const json = await api<{ success: boolean; error?: { message?: string } }>('/admin/levels', token, {
-        method: 'POST',
-        body: JSON.stringify({
-          level: Number(levelNum),
-          min_xp: Number(minXp),
-          max_xp: Number(maxXp),
-          label: label.trim() || undefined,
-          badge_url: badgeUrl.trim() || undefined,
-        }),
-      });
-      if (!json.success) {
-        setError(json.error?.message ?? 'Create failed');
-        return;
+      if (draft.id) {
+        await api(`/admin/levels/${draft.id}`, token, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            min_xp: Number(draft.minXp),
+            max_xp: Number(draft.maxXp),
+            label: draft.label.trim() || undefined,
+            badge_url: draft.badgeUrl.trim() || undefined,
+          }),
+        });
+        toast('success', `Level ${draft.level} updated`);
+      } else {
+        const json = await api<{ success: boolean; error?: { message?: string } }>('/admin/levels', token, {
+          method: 'POST',
+          body: JSON.stringify({
+            level: Number(draft.level),
+            min_xp: Number(draft.minXp),
+            max_xp: Number(draft.maxXp),
+            label: draft.label.trim() || undefined,
+            badge_url: draft.badgeUrl.trim() || undefined,
+          }),
+        });
+        if (!json.success) throw new Error(json.error?.message ?? 'Create failed');
+        toast('success', `Level ${draft.level} added`);
       }
-      setBadgeUrl('');
-      setLevelNum(String(Number(levelNum) + 1));
-      setMinXp(String(Number(maxXp) + 1));
-      setMaxXp(String(Number(maxXp) + 2000));
-      void load(token);
-    } catch (e: any) {
-      setError(e?.message ?? 'Network Error');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  function openEdit(l: Level) {
-    setEditingLevel(l);
-    setEditLevelNum(String(l.level));
-    setEditMinXp(String(l.min_xp));
-    setEditMaxXp(String(l.max_xp));
-    setEditLabel(l.label ?? '');
-    setEditBadgeUrl(l.badge_url ?? '');
-    setEditError('');
-    setEditModalOpen(true);
-  }
-
-  async function saveEdit() {
-    if (!editingLevel) return;
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) return;
-    setEditSubmitting(true);
-    setEditError('');
-    try {
-      await api(`/admin/levels/${editingLevel.id}`, token, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          min_xp: Number(editMinXp),
-          max_xp: Number(editMaxXp),
-          label: editLabel.trim() || undefined,
-          badge_url: editBadgeUrl.trim() || undefined,
-        }),
-      });
-      setEditModalOpen(false);
-      setEditingLevel(null);
-      void load(token);
-    } catch (e: any) {
-      setEditError(e?.message ?? 'Failed to update level');
-    } finally {
-      setEditSubmitting(false);
-    }
-  }
-
-  async function deleteLevel(id: number) {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) return;
-    if (!confirm('Are you sure you want to delete this level configuration?')) return;
-    try {
-      await api(`/admin/levels/${id}`, token, { method: 'DELETE' });
-      void load(token);
+      setDraft(null);
+      void load();
     } catch (e) {
-      console.error(e);
+      setFormError(errorText(e, 'Failed to save level'));
+    } finally {
+      setSaving(false);
     }
   }
+
+  function remove(l: Level) {
+    confirm({
+      title: `Delete level ${l.level}?`,
+      message: <>&ldquo;{l.label || `Level ${l.level}`}&rdquo; ({l.min_xp.toLocaleString()}–{l.max_xp.toLocaleString()} XP) is removed from the progression.</>,
+      confirmLabel: 'Delete',
+      tone: 'danger',
+      onConfirm: async () => {
+        await api(`/admin/levels/${l.id}`, token, { method: 'DELETE' });
+        toast('success', `Level ${l.level} deleted`);
+        void load();
+      },
+    });
+  }
+
+  const set = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
 
   return (
-    <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>User Level & Progression Architecture</h1>
-        <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>Configure user XP thresholds, rank progression badges, and leveling perks.</p>
-      </div>
+    <main className="ad-page">
+      <style dangerouslySetInnerHTML={{ __html: LV_STYLES }} />
+      <PageHeader
+        title="User Levels"
+        subtitle="XP thresholds, titles and rank badges for user progression."
+        actions={<button type="button" className="ad-btn ad-btn-accent ad-btn-lg" onClick={openNew} disabled={loading}>+ New level</button>}
+      />
 
-      {/* Creation Box */}
-      <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', marginBottom: '32px' }}>
-        <h2 style={{ fontSize: '1.15rem', fontWeight: 600, margin: '0 0 16px 0', color: '#111827' }}>Configure New Level</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '16px' }}>
-          <div>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Level #</div>
-            <input type="number" value={levelNum} onChange={(e) => setLevelNum(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }} />
-          </div>
-
-          <div>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Min XP</div>
-            <input type="number" value={minXp} onChange={(e) => setMinXp(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }} />
-          </div>
-
-          <div>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Max XP</div>
-            <input type="number" value={maxXp} onChange={(e) => setMaxXp(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }} />
-          </div>
-
-          <div>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Label / Title</div>
-            <input placeholder="e.g. Master" value={label} onChange={(e) => setLabel(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }} />
-          </div>
+      <section className="ad-card">
+        <div className="ad-toolbar">
+          <SearchBox value={q} onChange={setQ} placeholder="Search level number or title" />
+          <Field label="Order">
+            <select value={sort} onChange={(e) => setSort(e.target.value)}>
+              <option value="asc">Level 1 → top</option>
+              <option value="desc">Top → level 1</option>
+            </select>
+          </Field>
         </div>
-
-        <FileUploadInput
-          label="Level Rank Badge (.png, .svg, .webp)"
-          value={badgeUrl}
-          onChange={(url) => setBadgeUrl(url)}
-          accept="image/*"
-          placeholder="https://.../badge.png or upload image"
-          helpText="Upload a crisp vector or PNG level badge shown beside the user's name."
-        />
-
-        {error && <p style={{ color: '#b91c1c', fontSize: '0.85rem', marginBottom: '16px' }}>⚠️ {error}</p>}
-
-        <button type="button" onClick={() => void create()} disabled={submitting} style={{ padding: '10px 24px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 600, fontSize: '0.9rem', cursor: submitting ? 'not-allowed' : 'pointer' }}>
-          {submitting ? 'Adding...' : '+ Add Level'}
-        </button>
-      </div>
-
-      {/* Table */}
-      <div style={{ backgroundColor: '#fff', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', overflow: 'hidden' }}>
-        <div style={{ padding: '20px 24px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: 0, color: '#111827' }}>Configured Levels ({levels.length})</h2>
+        <div className="ad-summary">
+          <strong>{visible.length}</strong> of <strong>{levels.length}</strong> levels · up to <strong>{maxXp.toLocaleString()}</strong> XP
         </div>
-
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+        <div className="ad-table-wrap">
+          <table className="ad-table is-stack">
             <thead>
               <tr>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb' }}>Level</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb' }}>Title</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'right' }}>Min XP</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'right' }}>Max XP</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'center' }}>Badge</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'right' }}>Actions</th>
+                <th className="ad-th">Level</th>
+                <th className="ad-th">XP range</th>
+                <th className="ad-th ad-num">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {loading ? (
-                <tr><td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#6b7280' }}>Loading levels...</td></tr>
-              ) : levels.length === 0 ? (
-                <tr><td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#6b7280' }}>No levels configured yet.</td></tr>
+              {loading && levels.length === 0 ? (
+                <SkeletonRows cols={3} rows={6} />
+              ) : visible.length === 0 ? (
+                <EmptyRow cols={3} title={levels.length ? 'No level matches' : 'No levels yet'} hint={levels.length ? 'Try a different search.' : 'Add the first level to start user progression.'} />
               ) : (
-                levels.map((l) => (
-                  <tr key={l.id}>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px', borderRadius: '50%', background: '#6366f1', color: '#fff', fontWeight: 700, fontSize: '0.85rem' }}>
-                        {l.level}
-                      </span>
+                pageItems.map((l) => (
+                  <tr key={l.id} className="ad-row">
+                    <td className="ad-td is-main">
+                      <div className="ad-user" style={{ minWidth: 0 }}>
+                        <div className="lv-badge">
+                          {l.badge_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={l.badge_url} alt="" />
+                          ) : (
+                            <span>{l.level}</span>
+                          )}
+                        </div>
+                        <div>
+                          <div className="ad-name">{l.label || `Level ${l.level}`}</div>
+                          <div className="ad-sub">Level {l.level}</div>
+                        </div>
+                      </div>
                     </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', fontWeight: 600, color: '#111827' }}>
-                      {l.label || `Level ${l.level}`}
+                    <td className="ad-td" data-label="XP range">
+                      <div className="lv-range">
+                        <span>{l.min_xp.toLocaleString()} – {l.max_xp.toLocaleString()} XP</span>
+                        <div className="lv-track">
+                          <div style={{ marginLeft: `${(l.min_xp / maxXp) * 100}%`, width: `${Math.max(1.5, ((l.max_xp - l.min_xp) / maxXp) * 100)}%` }} />
+                        </div>
+                      </div>
                     </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'right', fontWeight: 600, color: '#4b5563' }}>
-                      {l.min_xp.toLocaleString()} XP
-                    </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'right', fontWeight: 600, color: '#4b5563' }}>
-                      {l.max_xp.toLocaleString()} XP
-                    </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'center' }}>
-                      {l.badge_url ? (
-                        <img src={l.badge_url} alt={`Badge ${l.level}`} style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
-                      ) : (
-                        <span style={{ fontSize: '1.2rem' }}>🎖️</span>
-                      )}
-                    </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                    <td className="ad-td ad-num is-actions is-half">
+                      <div className="ad-actions">
                         <button
                           type="button"
-                          onClick={() => openEdit(l)}
-                          style={{
-                            padding: '6px 12px',
-                            fontSize: '0.8rem',
-                            background: '#e0e7ff',
-                            color: '#3730a3',
-                            border: '1px solid #c7d2fe',
-                            borderRadius: '6px',
-                            cursor: 'pointer',
-                            fontWeight: 600,
+                          className="ad-btn ad-btn-ghost"
+                          onClick={() => {
+                            setFormError('');
+                            setDraft({ id: l.id, level: String(l.level), minXp: String(l.min_xp), maxXp: String(l.max_xp), label: l.label ?? '', badgeUrl: l.badge_url ?? '' });
                           }}
                         >
-                          ✏️ Edit
+                          Edit
                         </button>
-
-                        <button
-                          type="button"
-                          onClick={() => void deleteLevel(l.id)}
-                          style={{
-                            padding: '6px 12px',
-                            fontSize: '0.8rem',
-                            background: '#fee2e2',
-                            color: '#b91c1c',
-                            border: '1px solid #fca5a5',
-                            borderRadius: '6px',
-                            cursor: 'pointer',
-                            width: 'auto',
-                            fontWeight: 600,
-                          }}
-                        >
-                          Delete
-                        </button>
+                        <button type="button" className="ad-btn ad-btn-danger-soft" onClick={() => remove(l)}>Delete</button>
                       </div>
                     </td>
                   </tr>
@@ -289,127 +209,58 @@ export default function LevelsPage() {
             </tbody>
           </table>
         </div>
-      </div>
+        {visible.length > 25 && <Pager {...pagerProps} />}
+      </section>
 
-      {/* Edit Modal */}
-      {editModalOpen && editingLevel && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: '20px',
-          }}
+      {draft && (
+        <Modal
+          title={draft.id ? `Edit level ${draft.level}` : 'New level'}
+          busy={saving}
+          onClose={() => setDraft(null)}
+          onSubmit={() => void save()}
+          footer={
+            <>
+              <button type="button" className="ad-btn ad-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
+              <button type="submit" className="ad-btn ad-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Add level'}</button>
+            </>
+          }
         >
-          <div
-            style={{
-              backgroundColor: '#fff',
-              borderRadius: '12px',
-              padding: '28px',
-              maxWidth: '520px',
-              width: '100%',
-              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, color: '#111827' }}>
-                Edit Level #{editingLevel.level} Configuration
-              </h2>
-              <button
-                type="button"
-                onClick={() => setEditModalOpen(false)}
-                style={{ background: 'none', border: 'none', fontSize: '1.25rem', color: '#6b7280', cursor: 'pointer' }}
-              >
-                ✕
-              </button>
-            </div>
-
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Level Title</label>
-              <input
-                type="text"
-                value={editLabel}
-                onChange={(e) => setEditLabel(e.target.value)}
-                style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
-              />
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Min XP</label>
-                <input
-                  type="number"
-                  value={editMinXp}
-                  onChange={(e) => setEditMinXp(e.target.value)}
-                  style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Max XP</label>
-                <input
-                  type="number"
-                  value={editMaxXp}
-                  onChange={(e) => setEditMaxXp(e.target.value)}
-                  style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
-                />
-              </div>
-            </div>
-
-            <FileUploadInput
-              label="Level Rank Badge (.png, .svg, .webp)"
-              value={editBadgeUrl}
-              onChange={(url) => setEditBadgeUrl(url)}
-              accept="image/*"
-              placeholder="https://.../badge.png"
-            />
-
-            {editError && <p style={{ color: '#b91c1c', fontSize: '0.85rem', marginBottom: '16px' }}>⚠️ {editError}</p>}
-
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                onClick={() => setEditModalOpen(false)}
-                style={{
-                  padding: '9px 18px',
-                  backgroundColor: '#f3f4f6',
-                  color: '#374151',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '6px',
-                  fontWeight: 600,
-                  fontSize: '0.9rem',
-                  cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveEdit()}
-                disabled={editSubmitting}
-                style={{
-                  padding: '9px 22px',
-                  backgroundColor: '#4f46e5',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontWeight: 600,
-                  fontSize: '0.9rem',
-                  cursor: editSubmitting ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {editSubmitting ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
+          <div className="ad-form-grid is-2up">
+            <Field label="Level #">
+              <input type="number" inputMode="numeric" value={draft.level} disabled={Boolean(draft.id)} onChange={(e) => set({ level: e.target.value })} />
+            </Field>
+            <Field label="Title">
+              <input placeholder="e.g. Master" value={draft.label} onChange={(e) => set({ label: e.target.value })} />
+            </Field>
+            <Field label="Min XP">
+              <input type="number" inputMode="numeric" value={draft.minXp} onChange={(e) => set({ minXp: e.target.value })} />
+            </Field>
+            <Field label="Max XP">
+              <input type="number" inputMode="numeric" value={draft.maxXp} onChange={(e) => set({ maxXp: e.target.value })} />
+            </Field>
           </div>
-        </div>
+          <FileUploadInput
+            label="Rank badge (.png, .svg, .webp)"
+            value={draft.badgeUrl}
+            onChange={(url) => set({ badgeUrl: url })}
+            accept="image/*"
+            placeholder="https://.../badge.png"
+            helpText="Shown beside the user's name."
+          />
+          {formError && <div className="ad-alert">{formError}</div>}
+        </Modal>
       )}
+      {confirmNode}
+      {toastNode}
     </main>
   );
 }
+
+const LV_STYLES = `
+.lv-badge { flex: 0 0 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #818cf8, #4f46e5); color: #fff; font-weight: 700; font-size: 0.85rem; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.lv-badge img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
+.lv-range { display: grid; gap: 6px; min-width: 220px; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 0.86rem; }
+.lv-track { height: 6px; border-radius: 999px; background: #f1f2f6; overflow: hidden; }
+.lv-track > div { height: 100%; border-radius: 999px; background: #818cf8; }
+@media (max-width: 640px) { .lv-range { min-width: 0; } }
+`;

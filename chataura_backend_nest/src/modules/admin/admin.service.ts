@@ -1,7 +1,14 @@
 import { RoomStateService } from '../room/room-state/room-state.service';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, UserRole } from '@prisma/client';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma, UserRole, User } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import type { AuthUser } from '../../common/decorators/current-user.decorator';
+import { AdminTier, canManageTier, isTier, tierOf } from '../../common/admin-tier';
 import { bandForXp, ensureLaravelLevelBands } from '../gamification/level-bands';
 import { LedgerService } from '../wallet/ledger.service';
 import { userForApi } from '../user/user.serializer';
@@ -465,7 +472,20 @@ export class AdminService {
     return userForApi(u);
   }
 
-  async suspend(id: bigint, reason?: string) {
+  /** A staff target can only be acted on by a strictly higher tier; non-staff targets are unrestricted. */
+  private assertCanManage(actor: AuthUser, target: Pick<User, 'role' | 'staffBadgeType'>) {
+    const targetTier = tierOf(target.role, target.staffBadgeType);
+    if (!targetTier) return;
+    const actorTier = tierOf(actor.role, actor.staffBadgeType);
+    if (!actorTier || !canManageTier(actorTier, targetTier)) {
+      throw new ForbiddenException({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'You cannot manage this staff member.' },
+      });
+    }
+  }
+
+  async suspend(actor: AuthUser, id: bigint, reason?: string) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) {
       throw new NotFoundException({
@@ -473,6 +493,7 @@ export class AdminService {
         error: { code: 'NOT_FOUND', message: 'User not found' },
       });
     }
+    this.assertCanManage(actor, user);
     const u = await this.prisma.user.update({
       where: { id },
       data: {
@@ -484,7 +505,7 @@ export class AdminService {
     return userForApi(u);
   }
 
-  async unsuspend(id: bigint) {
+  async unsuspend(actor: AuthUser, id: bigint) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) {
       throw new NotFoundException({
@@ -492,6 +513,7 @@ export class AdminService {
         error: { code: 'NOT_FOUND', message: 'User not found' },
       });
     }
+    this.assertCanManage(actor, user);
     const u = await this.prisma.user.update({
       where: { id },
       data: {
@@ -737,12 +759,19 @@ export class AdminService {
     return { message: 'Report resolved and removed' };
   }
 
-  async deactivate(id: bigint, reason?: string) {
+  async deactivate(actor: AuthUser, id: bigint, reason?: string) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) {
       throw new NotFoundException({
         success: false,
         error: { code: 'NOT_FOUND', message: 'User not found' },
+      });
+    }
+    // Deactivation deletes the account; a staff member may be removed only by the superadmin.
+    if (tierOf(user.role, user.staffBadgeType) && actor.staffBadgeType !== 'superadmin') {
+      throw new ForbiddenException({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Only the superadmin can remove a staff member.' },
       });
     }
     // Rooms whose live state this changes (ended rooms + rooms the user was in).
@@ -791,6 +820,7 @@ export class AdminService {
   }
 
   async linkExistingUser(
+    actor: AuthUser,
     userId: bigint,
     body: {
       role?: 'agency' | 'user' | 'seller' | 'admin';
@@ -816,6 +846,21 @@ export class AdminService {
     const nextRole = body.role ?? 'admin';
     const staffBadge =
       body.staff_badge_type ?? body.badge_type ?? undefined;
+
+    // Tier hierarchy: an actor may only create/change staff tiers strictly below their own,
+    // may never mint a superadmin (single fixed account), and only the superadmin assigns
+    // the seller/agency roles. Editing an existing staff member needs power over them too.
+    const actorTier = tierOf(actor.role, actor.staffBadgeType);
+    if (!actorTier) throw new ForbiddenException({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient role' } });
+    this.assertCanManage(actor, user);
+    const denied = (message: string) => new ForbiddenException({ success: false, error: { code: 'FORBIDDEN', message } });
+    if (nextRole === 'admin') {
+      const wantTier: AdminTier = isTier(staffBadge) ? staffBadge : 'admin';
+      if (wantTier === 'superadmin') throw denied('The superadmin is a single fixed account.');
+      if (!canManageTier(actorTier, wantTier)) throw denied(`You cannot assign the ${wantTier} tier.`);
+    } else if (nextRole !== 'user' && actorTier !== 'superadmin') {
+      throw denied('Only the superadmin can assign the seller or agency role.');
+    }
     const demoting = nextRole === 'user';
     // One-frame rule: a new staff member wears their role frame only if they wear nothing yet;
     // demoting drops a worn role frame (other owned frames stay).

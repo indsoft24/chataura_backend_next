@@ -1,9 +1,21 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
+import {
+  EmptyRow,
+  Field,
+  Modal,
+  PageHeader,
+  SearchBox,
+  SkeletonRows,
+  Switch,
+  Tabs,
+  errorText,
+  useConfirm,
+  useToasts,
+} from '@/components/admin-ui';
 
 type Pack = {
   id: number;
@@ -15,296 +27,222 @@ type Pack = {
   is_active: boolean;
 };
 
+type Draft = { id?: number; coins: string; price: string; originalPrice: string; currency: string; audience: string; isActive: boolean };
+
+const NEW_DRAFT: Draft = { coins: '100', price: '99', originalPrice: '149', currency: 'INR', audience: 'user', isActive: true };
+const AUDIENCE_LABEL: Record<string, string> = { user: 'Users', coin_seller: 'Sellers' };
+
 export default function PackagesPage() {
-  const router = useRouter();
   const { token } = useAdminAuth();
+  const { toast, toastNode } = useToasts();
+  const { confirm, confirmNode } = useConfirm();
   const [rows, setRows] = useState<Pack[]>([]);
-  const [coins, setCoins] = useState('100');
-  const [price, setPrice] = useState('99');
-  const [originalPrice, setOriginalPrice] = useState('149');
-  const [currency, setCurrency] = useState('INR');
-  const [audience, setAudience] = useState('user');
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const [busyId, setBusyId] = useState<number | null>(null);
 
-  // Edit Modal state
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editingPack, setEditingPack] = useState<Pack | null>(null);
-  const [editCoins, setEditCoins] = useState('100');
-  const [editPrice, setEditPrice] = useState('99');
-  const [editOriginalPrice, setEditOriginalPrice] = useState('');
-  const [editCurrency, setEditCurrency] = useState('INR');
-  const [editAudience, setEditAudience] = useState('user');
-  const [editIsActive, setEditIsActive] = useState(true);
-  const [editError, setEditError] = useState('');
-  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [audience, setAudience] = useState('');
+  const [status, setStatus] = useState('');
+  const [q, setQ] = useState('');
+  const [sort, setSort] = useState('coins');
 
-  async function load(tok: string) {
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
+
+  async function load() {
+    if (!token) return;
     setLoading(true);
     try {
-      const json = await api<{ success: boolean; data?: { packages: Pack[] } }>(
-        '/admin/packages',
-        tok,
-      );
+      const json = await api<{ success: boolean; data?: { packages: Pack[] } }>('/admin/packages', token);
       setRows(json.data?.packages ?? []);
     } catch (e) {
-      console.error(e);
+      toast('error', errorText(e, 'Could not load packages'));
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (token) {
-      void load(token);
-    }
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  async function create() {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) return;
-    setSubmitting(true);
-    setError('');
+  const counts = useMemo(() => ({
+    all: rows.length,
+    user: rows.filter((r) => r.audience === 'user').length,
+    coin_seller: rows.filter((r) => r.audience === 'coin_seller').length,
+  }), [rows]);
+
+  const visible = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    const out = rows.filter((r) =>
+      (!audience || r.audience === audience) &&
+      (!status || (status === 'active') === r.is_active) &&
+      (!term || [r.id, r.coins, r.price, r.currency].some((v) => String(v).toLowerCase().includes(term))),
+    );
+    const by: Record<string, (a: Pack, b: Pack) => number> = {
+      coins: (a, b) => a.coins - b.coins,
+      price: (a, b) => a.price - b.price,
+      id: (a, b) => b.id - a.id,
+    };
+    return out.sort(by[sort]);
+  }, [rows, audience, status, q, sort]);
+
+  async function save() {
+    if (!token || !draft) return;
+    setSaving(true);
+    setFormError('');
+    const body = {
+      coins: Number(draft.coins),
+      price: Number(draft.price),
+      original_price: draft.originalPrice ? Number(draft.originalPrice) : undefined,
+      currency: draft.currency,
+      audience: draft.audience,
+    };
     try {
-      const json = await api<{ success: boolean; error?: { message?: string } }>(
-        '/admin/packages',
-        token,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            coins: Number(coins),
-            price: Number(price),
-            original_price: originalPrice ? Number(originalPrice) : undefined,
-            currency,
-            audience,
-          }),
-        },
-      );
-      if (!json.success) {
-        setError(json.error?.message ?? 'Create failed');
-        return;
+      if (draft.id) {
+        await api(`/admin/packages/${draft.id}`, token, { method: 'PATCH', body: JSON.stringify({ ...body, is_active: draft.isActive }) });
+        toast('success', `Package #${draft.id} updated`);
+      } else {
+        const json = await api<{ success: boolean; error?: { message?: string } }>('/admin/packages', token, { method: 'POST', body: JSON.stringify(body) });
+        if (!json.success) throw new Error(json.error?.message ?? 'Create failed');
+        toast('success', 'Package created');
       }
-      setCoins('100');
-      setPrice('99');
-      setOriginalPrice('149');
-      void load(token);
-    } catch (e: any) {
-      setError(e?.message ?? 'Network Error');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  function openEdit(pack: Pack) {
-    setEditingPack(pack);
-    setEditCoins(String(pack.coins));
-    setEditPrice(String(pack.price));
-    setEditOriginalPrice(pack.original_price ? String(pack.original_price) : '');
-    setEditCurrency(pack.currency);
-    setEditAudience(pack.audience);
-    setEditIsActive(pack.is_active);
-    setEditError('');
-    setEditModalOpen(true);
-  }
-
-  async function saveEdit() {
-    if (!editingPack) return;
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) return;
-    setEditSubmitting(true);
-    setEditError('');
-    try {
-      await api(`/admin/packages/${editingPack.id}`, token, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          coins: Number(editCoins),
-          price: Number(editPrice),
-          original_price: editOriginalPrice ? Number(editOriginalPrice) : undefined,
-          currency: editCurrency,
-          audience: editAudience,
-          is_active: editIsActive,
-        }),
-      });
-      setEditModalOpen(false);
-      setEditingPack(null);
-      void load(token);
-    } catch (e: any) {
-      setEditError(e?.message ?? 'Failed to update package');
-    } finally {
-      setEditSubmitting(false);
-    }
-  }
-
-  async function toggleActive(id: number, current: boolean) {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) return;
-    try {
-      await api(`/admin/packages/${id}`, token, {
-        method: 'PATCH',
-        body: JSON.stringify({ is_active: !current }),
-      });
-      void load(token);
+      setDraft(null);
+      void load();
     } catch (e) {
-      console.error(e);
+      setFormError(errorText(e, 'Failed to save package'));
+    } finally {
+      setSaving(false);
     }
   }
 
-  async function deletePackage(id: number) {
-    const token = localStorage.getItem('ca_admin_token');
+  async function toggleActive(p: Pack) {
     if (!token) return;
-    if (!confirm('Are you sure you want to delete this coin package?')) return;
+    setBusyId(p.id);
     try {
-      await api(`/admin/packages/${id}`, token, { method: 'DELETE' });
-      void load(token);
+      await api(`/admin/packages/${p.id}`, token, { method: 'PATCH', body: JSON.stringify({ is_active: !p.is_active }) });
+      setRows((rs) => rs.map((r) => (r.id === p.id ? { ...r, is_active: !p.is_active } : r)));
     } catch (e) {
-      console.error(e);
+      toast('error', errorText(e, 'Could not update package'));
+    } finally {
+      setBusyId(null);
     }
   }
+
+  function remove(p: Pack) {
+    confirm({
+      title: `Delete package #${p.id}?`,
+      message: <>🪙 {p.coins.toLocaleString()} for {p.price} {p.currency} disappears from the recharge store.</>,
+      confirmLabel: 'Delete',
+      tone: 'danger',
+      onConfirm: async () => {
+        await api(`/admin/packages/${p.id}`, token, { method: 'DELETE' });
+        toast('success', `Package #${p.id} deleted`);
+        void load();
+      },
+    });
+  }
+
+  const filtered = Boolean(audience || status || q);
+  const set = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
 
   return (
-    <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Coin Recharge Packages</h1>
-        <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>Configure coin bundles, pricing, discounts, and target audiences for payment recharges.</p>
-      </div>
+    <main className="ad-page">
+      <PageHeader
+        title="Coin Packages"
+        subtitle="Coin bundles, pricing and discounts shown in the recharge store, for users and for authorized sellers."
+        actions={
+          <button type="button" className="ad-btn ad-btn-accent ad-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>
+            + New package
+          </button>
+        }
+      />
 
-      <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', marginBottom: '32px' }}>
-        <h2 style={{ fontSize: '1.15rem', fontWeight: 600, margin: '0 0 16px 0', color: '#111827' }}>Create Coin Package</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', alignItems: 'flex-end' }}>
-          <div>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Target Audience</div>
-            <select value={audience} onChange={(e) => setAudience(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem', backgroundColor: '#fff' }}>
-              <option value="user">Standard User</option>
-              <option value="coin_seller">Authorized Seller</option>
+      <section className="ad-card">
+        <Tabs
+          value={audience}
+          onChange={setAudience}
+          tabs={[
+            { value: '', label: 'All', count: counts.all },
+            { value: 'user', label: 'Users', count: counts.user },
+            { value: 'coin_seller', label: 'Sellers', count: counts.coin_seller },
+          ]}
+        />
+        <div className="ad-toolbar">
+          <SearchBox value={q} onChange={setQ} placeholder="Search coins, price or ID" />
+          <Field label="Status">
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="">Any status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
             </select>
-          </div>
-
-          <div>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Coins Amount</div>
-            <input type="number" placeholder="100" value={coins} onChange={(e) => setCoins(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }} />
-          </div>
-
-          <div>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Price</div>
-            <input type="number" placeholder="99" value={price} onChange={(e) => setPrice(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }} />
-          </div>
-
-          <div>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Original Price (Strike)</div>
-            <input type="number" placeholder="149" value={originalPrice} onChange={(e) => setOriginalPrice(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }} />
-          </div>
-
-          <div>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Currency</div>
-            <input placeholder="INR" value={currency} onChange={(e) => setCurrency(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }} />
-          </div>
-
-          <div>
-            <button type="button" onClick={() => void create()} disabled={submitting} style={{ width: '100%', padding: '10px 16px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 600, fontSize: '0.9rem', cursor: submitting ? 'not-allowed' : 'pointer' }}>
-              {submitting ? 'Creating...' : '+ Add Package'}
-            </button>
-          </div>
+          </Field>
+          <Field label="Sort by">
+            <select value={sort} onChange={(e) => setSort(e.target.value)}>
+              <option value="coins">Coins (low → high)</option>
+              <option value="price">Price (low → high)</option>
+              <option value="id">Newest first</option>
+            </select>
+          </Field>
         </div>
-        {error && <p style={{ color: '#b91c1c', fontSize: '0.85rem', marginTop: '12px', marginBottom: 0 }}>⚠️ {error}</p>}
-      </div>
-
-      {/* Packages Table */}
-      <div style={{ backgroundColor: '#fff', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', overflow: 'hidden' }}>
-        <div style={{ padding: '20px 24px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: 0, color: '#111827' }}>Active Bundles ({rows.length})</h2>
+        <div className="ad-summary">
+          Showing <strong>{visible.length}</strong> of <strong>{rows.length}</strong>
+          {filtered ? (
+            <>
+              {' · '}
+              <button type="button" className="ad-link" onClick={() => { setAudience(''); setStatus(''); setQ(''); }}>Clear filters</button>
+            </>
+          ) : null}
         </div>
 
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+        <div className="ad-table-wrap">
+          <table className="ad-table is-stack">
             <thead>
               <tr>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb' }}>ID</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb' }}>Audience</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'right' }}>Coins</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'right' }}>Price</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'center' }}>Active</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'right' }}>Actions</th>
+                <th className="ad-th">Package</th>
+                <th className="ad-th">Audience</th>
+                <th className="ad-th ad-num">Price</th>
+                <th className="ad-th">Active</th>
+                <th className="ad-th ad-num">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {loading ? (
-                <tr><td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#6b7280' }}>Loading packages...</td></tr>
-              ) : rows.length === 0 ? (
-                <tr><td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#6b7280' }}>No packages found.</td></tr>
+              {loading && rows.length === 0 ? (
+                <SkeletonRows cols={5} rows={5} />
+              ) : visible.length === 0 ? (
+                <EmptyRow
+                  cols={5}
+                  title={rows.length ? 'No packages match' : 'No packages yet'}
+                  hint={rows.length ? 'Try a different filter.' : 'Create the first coin bundle for the recharge store.'}
+                  onReset={filtered ? () => { setAudience(''); setStatus(''); setQ(''); } : undefined}
+                />
               ) : (
-                rows.map((p) => (
-                  <tr key={p.id}>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', color: '#4b5563', fontSize: '0.9rem' }}>#{p.id}</td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6' }}>
-                      <span style={{ padding: '4px 8px', borderRadius: '4px', background: p.audience === 'user' ? '#e0e7ff' : '#fef3c7', color: p.audience === 'user' ? '#3730a3' : '#92400e', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>
-                        {p.audience.replace('_', ' ')}
-                      </span>
+                visible.map((p) => (
+                  <tr key={p.id} className={`ad-row ${busyId === p.id ? 'is-busy' : ''} ${p.is_active ? '' : 'is-muted'}`}>
+                    <td className="ad-td is-main">
+                      <div>
+                        <div className="ad-name" style={{ fontSize: '1rem' }}>🪙 {p.coins.toLocaleString()}</div>
+                        <div className="ad-sub">Package #{p.id}</div>
+                      </div>
+                      <span className="ad-mobile-only"><span className={`ad-badge ${p.audience === 'user' ? 'indigo' : 'amber'}`}>{AUDIENCE_LABEL[p.audience] ?? p.audience}</span></span>
                     </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'right', fontWeight: 700, color: '#111827' }}>🪙 {p.coins.toLocaleString()}</td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'right', fontWeight: 600, color: '#10b981' }}>
-                      {p.price} {p.currency}
-                      {p.original_price && <span style={{ marginLeft: '6px', fontSize: '0.8rem', color: '#9ca3af', textDecoration: 'line-through' }}>{p.original_price}</span>}
+                    <td className="ad-td is-hide-sm">
+                      <span className={`ad-badge ${p.audience === 'user' ? 'indigo' : 'amber'}`}>{AUDIENCE_LABEL[p.audience] ?? p.audience}</span>
                     </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'center' }}>
-                      <span style={{ padding: '4px 8px', borderRadius: '4px', background: p.is_active ? '#d1fae5' : '#fee2e2', color: p.is_active ? '#065f46' : '#991b1b', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>
-                        {p.is_active ? 'Active' : 'Inactive'}
-                      </span>
+                    <td className="ad-td ad-num" data-label="Price">
+                      <strong className="tone-green">{p.price} {p.currency}</strong>
+                      {p.original_price ? <span className="ad-hint" style={{ marginLeft: 6, textDecoration: 'line-through', fontSize: '0.8rem' }}>{p.original_price}</span> : null}
                     </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                        <button
-                          type="button"
-                          onClick={() => void toggleActive(p.id, p.is_active)}
-                          style={{
-                            padding: '6px 12px',
-                            fontSize: '0.8rem',
-                            background: p.is_active ? '#fef3c7' : '#d1fae5',
-                            color: p.is_active ? '#92400e' : '#047857',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '6px',
-                            cursor: 'pointer',
-                            width: 'auto',
-                            fontWeight: 500,
-                          }}
-                        >
-                          {p.is_active ? 'Deactivate' : 'Activate'}
+                    <td className="ad-td" data-label="Active">
+                      <Switch label={`Package #${p.id} active`} checked={p.is_active} disabled={busyId === p.id} onChange={() => void toggleActive(p)} />
+                    </td>
+                    <td className="ad-td ad-num is-actions">
+                      <div className="ad-actions">
+                        <button type="button" className="ad-btn ad-btn-ghost" onClick={() => { setFormError(''); setDraft({ id: p.id, coins: String(p.coins), price: String(p.price), originalPrice: p.original_price ? String(p.original_price) : '', currency: p.currency, audience: p.audience, isActive: p.is_active }); }}>
+                          Edit
                         </button>
-
-                        <button
-                          type="button"
-                          onClick={() => openEdit(p)}
-                          style={{
-                            padding: '6px 12px',
-                            fontSize: '0.8rem',
-                            background: '#e0e7ff',
-                            color: '#3730a3',
-                            border: '1px solid #c7d2fe',
-                            borderRadius: '6px',
-                            cursor: 'pointer',
-                            fontWeight: 600,
-                          }}
-                        >
-                          ✏️ Edit
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => void deletePackage(p.id)}
-                          style={{
-                            padding: '6px 12px',
-                            fontSize: '0.8rem',
-                            background: '#fee2e2',
-                            color: '#b91c1c',
-                            border: '1px solid #fca5a5',
-                            borderRadius: '6px',
-                            cursor: 'pointer',
-                            width: 'auto',
-                            fontWeight: 600,
-                          }}
-                        >
-                          Delete
-                        </button>
+                        <button type="button" className="ad-btn ad-btn-danger-soft" onClick={() => remove(p)}>Delete</button>
                       </div>
                     </td>
                   </tr>
@@ -313,157 +251,56 @@ export default function PackagesPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
 
-      {/* Edit Modal */}
-      {editModalOpen && editingPack && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: '20px',
-          }}
+      {draft && (
+        <Modal
+          title={draft.id ? `Edit package #${draft.id}` : 'New coin package'}
+          busy={saving}
+          onClose={() => setDraft(null)}
+          onSubmit={() => void save()}
+          footer={
+            <>
+              <button type="button" className="ad-btn ad-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
+              <button type="submit" className="ad-btn ad-btn-primary" disabled={saving || !draft.coins || !draft.price}>
+                {saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create package'}
+              </button>
+            </>
+          }
         >
-          <div
-            style={{
-              backgroundColor: '#fff',
-              borderRadius: '12px',
-              padding: '28px',
-              maxWidth: '520px',
-              width: '100%',
-              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, color: '#111827' }}>
-                Edit Package #{editingPack.id}
-              </h2>
-              <button
-                type="button"
-                onClick={() => setEditModalOpen(false)}
-                style={{ background: 'none', border: 'none', fontSize: '1.25rem', color: '#6b7280', cursor: 'pointer' }}
-              >
-                ✕
-              </button>
-            </div>
-
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Target Audience</label>
-              <select
-                value={editAudience}
-                onChange={(e) => setEditAudience(e.target.value)}
-                style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem', backgroundColor: '#fff' }}
-              >
-                <option value="user">Standard User</option>
-                <option value="coin_seller">Authorized Seller</option>
+          <div className="ad-form-grid is-2up">
+            <Field label="Audience" wide>
+              <select value={draft.audience} onChange={(e) => set({ audience: e.target.value })}>
+                <option value="user">Standard users</option>
+                <option value="coin_seller">Authorized sellers</option>
               </select>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Coins</label>
-                <input
-                  type="number"
-                  value={editCoins}
-                  onChange={(e) => setEditCoins(e.target.value)}
-                  style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Price</label>
-                <input
-                  type="number"
-                  value={editPrice}
-                  onChange={(e) => setEditPrice(e.target.value)}
-                  style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Original Price</label>
-                <input
-                  type="number"
-                  placeholder="Optional"
-                  value={editOriginalPrice}
-                  onChange={(e) => setEditOriginalPrice(e.target.value)}
-                  style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Currency</label>
-                <input
-                  type="text"
-                  value={editCurrency}
-                  onChange={(e) => setEditCurrency(e.target.value)}
-                  style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
-              <input
-                type="checkbox"
-                id="editPackActive"
-                checked={editIsActive}
-                onChange={(e) => setEditIsActive(e.target.checked)}
-                style={{ width: '16px', height: '16px' }}
-              />
-              <label htmlFor="editPackActive" style={{ fontSize: '0.9rem', color: '#374151', cursor: 'pointer', fontWeight: 500 }}>
-                Active & Visible on App Recharge Store
-              </label>
-            </div>
-
-            {editError && <p style={{ color: '#b91c1c', fontSize: '0.85rem', marginBottom: '16px' }}>⚠️ {editError}</p>}
-
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                onClick={() => setEditModalOpen(false)}
-                style={{
-                  padding: '9px 18px',
-                  backgroundColor: '#f3f4f6',
-                  color: '#374151',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '6px',
-                  fontWeight: 600,
-                  fontSize: '0.9rem',
-                  cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveEdit()}
-                disabled={editSubmitting}
-                style={{
-                  padding: '9px 22px',
-                  backgroundColor: '#4f46e5',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontWeight: 600,
-                  fontSize: '0.9rem',
-                  cursor: editSubmitting ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {editSubmitting ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
+            </Field>
+            <Field label="Coins">
+              <input type="number" inputMode="numeric" value={draft.coins} onChange={(e) => set({ coins: e.target.value })} />
+            </Field>
+            <Field label="Currency">
+              <input value={draft.currency} onChange={(e) => set({ currency: e.target.value })} />
+            </Field>
+            <Field label="Price">
+              <input type="number" inputMode="decimal" value={draft.price} onChange={(e) => set({ price: e.target.value })} />
+            </Field>
+            <Field label="Original price" hint="Optional strike-through price.">
+              <input type="number" inputMode="decimal" placeholder="Optional" value={draft.originalPrice} onChange={(e) => set({ originalPrice: e.target.value })} />
+            </Field>
           </div>
-        </div>
+          {draft.id ? (
+            <div className="ad-toggle-row">
+              <div>
+                <div className="ad-toggle-title">Visible in the recharge store</div>
+              </div>
+              <Switch label="Active" checked={draft.isActive} onChange={(v) => set({ isActive: v })} />
+            </div>
+          ) : null}
+          {formError && <div className="ad-alert">{formError}</div>}
+        </Modal>
       )}
+      {confirmNode}
+      {toastNode}
     </main>
   );
 }

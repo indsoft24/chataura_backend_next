@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import {
-  AdminStyles,
   EmptyRow,
   errorText,
   fmt,
@@ -385,8 +384,7 @@ export default function RelationshipsAdminPage() {
 
   return (
     <main className="ad-page">
-      <AdminStyles />
-      <style>{REL_STYLES}</style>
+      <style dangerouslySetInnerHTML={{ __html: REL_STYLES }} />
 
       <div className="ad-header">
         <div>
@@ -628,11 +626,11 @@ export default function RelationshipsAdminPage() {
         </div>
 
         <div className="ad-table-wrap">
-          <table className="ad-table">
+          <table className="ad-table is-stack is-3up">
             <thead>
               <tr>
-                <SortTh column="gift" label="Gift" sort={ruleSort.sort} order={ruleSort.order} onSort={onRuleSort} defaultOrder="asc" />
-                <SortTh column="name" label="Name" sort={ruleSort.sort} order={ruleSort.order} onSort={onRuleSort} defaultOrder="asc" />
+                <SortTh column="gift" label="#" sort={ruleSort.sort} order={ruleSort.order} onSort={onRuleSort} defaultOrder="asc" />
+                <SortTh column="name" label="Gift" sort={ruleSort.sort} order={ruleSort.order} onSort={onRuleSort} defaultOrder="asc" />
                 <SortTh column="cost" label="Gift price" sort={ruleSort.sort} order={ruleSort.order} onSort={onRuleSort} align="right" />
                 <th className="ad-th">Type</th>
                 <SortTh column="points" label="Points" sort={ruleSort.sort} order={ruleSort.order} onSort={onRuleSort} align="right" />
@@ -655,8 +653,9 @@ export default function RelationshipsAdminPage() {
                   const editing = editingPoints[r.id];
                   return (
                     <tr key={r.id} className={`ad-row ${busyRule === r.id ? 'is-busy' : ''} ${r.enabled ? '' : 'is-muted'}`}>
-                      <td className="ad-td">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <td className="ad-td ad-id is-hide-sm">#{r.gift_id}</td>
+                      <td className="ad-td is-main">
+                        <div className="ad-user">
                           <div className="rel-gift-img">
                             {r.gift_image_url ? (
                               // eslint-disable-next-line @next/next/no-img-element
@@ -665,21 +664,22 @@ export default function RelationshipsAdminPage() {
                               <span>🎁</span>
                             )}
                           </div>
-                          <span className="ad-id">#{r.gift_id}</span>
+                          <div>
+                            <div className="ad-name">{r.gift_name ?? <span className="ad-hint">Unknown gift</span>}</div>
+                            <div className="ad-sub">
+                              <span className="ad-mobile-only">#{r.gift_id} · </span>
+                              {r.gift_category ?? '—'}
+                              {r.gift_active === false && <span className="ad-badge gray" style={{ marginLeft: 6, padding: '1px 6px', fontSize: '0.62rem' }}>Gift inactive</span>}
+                            </div>
+                          </div>
                         </div>
+                        <span className="ad-mobile-only"><span className="ad-badge" style={{ background: `${color}1f`, color }}>{r.type_code.toUpperCase()}</span></span>
                       </td>
-                      <td className="ad-td">
-                        <div className="ad-name">{r.gift_name ?? <span className="ad-hint">Unknown gift</span>}</div>
-                        <div className="ad-sub">
-                          {r.gift_category ?? '—'}
-                          {r.gift_active === false && <span className="ad-badge gray" style={{ marginLeft: 6, padding: '1px 6px', fontSize: '0.62rem' }}>Gift inactive</span>}
-                        </div>
-                      </td>
-                      <td className="ad-td ad-num">{r.gift_coin_cost != null ? <>🪙 {fmt(r.gift_coin_cost)}</> : '—'}</td>
-                      <td className="ad-td">
+                      <td className="ad-td ad-num" data-label="Gift price">{r.gift_coin_cost != null ? <>🪙 {fmt(r.gift_coin_cost)}</> : '—'}</td>
+                      <td className="ad-td is-hide-sm">
                         <span className="ad-badge" style={{ background: `${color}1f`, color }}>{r.type_code.toUpperCase()}</span>
                       </td>
-                      <td className="ad-td ad-num">
+                      <td className="ad-td ad-num" data-label="Points">
                         <input
                           className={`rel-points ${editing !== undefined && Number(editing) !== r.point_value ? 'is-dirty' : ''}`}
                           type="number"
@@ -694,7 +694,7 @@ export default function RelationshipsAdminPage() {
                           aria-label={`Points for gift ${r.gift_id}`}
                         />
                       </td>
-                      <td className="ad-td" style={{ textAlign: 'center' }}>
+                      <td className="ad-td" data-label="Enabled" style={{ textAlign: 'center' }}>
                         <label className="rel-switch" style={{ justifyContent: 'center' }} title={r.enabled ? 'Disable this rule' : 'Enable this rule'}>
                           <input type="checkbox" checked={r.enabled} onChange={() => void toggleRule(r)} />
                           <span className="rel-switch-track" />
@@ -774,4 +774,12 @@ const REL_STYLES = `
 .rel-gift-img img { width: 100%; height: 100%; object-fit: contain; }
 .rel-points { width: 96px !important; text-align: right; padding: 6px 8px !important; margin: 0; font-variant-numeric: tabular-nums; }
 .rel-points.is-dirty { border-color: #f59e0b; background: #fffbeb; }
+@media (max-width: 640px) {
+  .rel-types { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .rel-grid, .rel-grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .rel-add { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 12px 14px; gap: 8px; }
+  .rel-add-title, .rel-add .ad-btn { grid-column: 1 / -1; }
+  .ad-page .rel-add-input, .ad-page .rel-add select { width: 100% !important; min-width: 0; }
+  .ad-page .rel-points { width: 100% !important; text-align: left; }
+}
 `;

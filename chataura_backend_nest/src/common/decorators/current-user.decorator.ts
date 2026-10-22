@@ -4,6 +4,7 @@ export type AuthUser = {
   id: bigint;
   email: string | null;
   role: string;
+  staffBadgeType: string | null;
   emailVerifiedAt: Date | null;
   accountStatus: string;
   isSuspended: boolean;

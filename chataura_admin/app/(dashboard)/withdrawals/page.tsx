@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
+import { EmptyRow, Kpi, PageHeader, SearchBox, SkeletonRows, Tabs, errorText, formatDate, useConfirm, useToasts } from '@/components/admin-ui';
 
 type Withdrawal = {
   id: number;
@@ -20,170 +20,131 @@ type Withdrawal = {
   };
 };
 
+type Filter = 'all' | 'pending' | 'approved' | 'rejected';
+const TONE: Record<string, string> = { pending: 'amber', approved: 'green', success: 'green', rejected: 'red' };
+
 export default function WithdrawalsPage() {
-  const router = useRouter();
   const { token } = useAdminAuth();
+  const { toast, toastNode } = useToasts();
+  const { confirm, confirmNode } = useConfirm();
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
-  const [processingId, setProcessingId] = useState<number | null>(null);
+  const [filter, setFilter] = useState<Filter>('pending');
+  const [q, setQ] = useState('');
 
-  async function load(tok: string) {
+  async function load() {
+    if (!token) return;
     setLoading(true);
     try {
-      const json = await api<{ success: boolean; data?: { withdrawals: Withdrawal[] } }>('/admin/withdrawals', tok);
+      const json = await api<{ success: boolean; data?: { withdrawals: Withdrawal[] } }>('/admin/withdrawals', token);
       setWithdrawals(json.data?.withdrawals ?? []);
     } catch (e) {
-      console.error(e);
+      toast('error', errorText(e, 'Could not load withdrawals'));
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (token) {
-      void load(token);
-    }
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  async function handleAction(id: number, action: 'approve' | 'reject') {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) return;
-    setProcessingId(id);
-    try {
-      await api(`/admin/withdrawals/${id}/${action}`, token, { method: 'POST' });
-      void load(token);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setProcessingId(null);
-    }
+  const count = (s: Filter) => (s === 'all' ? withdrawals.length : withdrawals.filter((w) => w.status === s).length);
+  const pending = withdrawals.filter((w) => w.status === 'pending');
+  const pendingByCurrency = pending.reduce<Record<string, number>>((m, w) => ({ ...m, [w.currency]: (m[w.currency] ?? 0) + Number(w.amount) }), {});
+
+  const filtered = useMemo(() => {
+    const term = q.trim().toLowerCase().replace(/^#/, '');
+    return withdrawals.filter((w) =>
+      (filter === 'all' || w.status === filter) &&
+      (!term || String(w.user_id) === term || String(w.id) === term || (w.user?.name ?? '').toLowerCase().includes(term)),
+    );
+  }, [withdrawals, filter, q]);
+
+  function act(w: Withdrawal, action: 'approve' | 'reject') {
+    const who = w.user?.name ?? `User #${w.user_id}`;
+    confirm({
+      title: action === 'approve' ? 'Approve this withdrawal?' : 'Reject this withdrawal?',
+      message: <><strong>{Number(w.amount).toFixed(2)} {w.currency}</strong> to {who} (#{w.user_id}) from {w.source}. This cannot be undone.</>,
+      confirmLabel: action === 'approve' ? 'Approve payout' : 'Reject',
+      tone: action === 'approve' ? 'success' : 'danger',
+      onConfirm: async () => {
+        await api(`/admin/withdrawals/${w.id}/${action}`, token, { method: 'POST' });
+        toast('success', `Withdrawal #${w.id} ${action === 'approve' ? 'approved' : 'rejected'}`);
+        void load();
+      },
+    });
   }
 
-  const filtered = withdrawals.filter((w) => {
-    if (filter === 'all') return true;
-    return w.status === filter;
-  });
-
   return (
-    <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Withdrawal Requests</h1>
-        <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>Review, approve, and process coin cashout requests from users.</p>
+    <main className="ad-page">
+      <PageHeader title="Withdrawals (legacy)" subtitle="Review and process cash-out requests from users. Shows the latest 50 requests." />
+
+      <div className="ad-kpis">
+        <Kpi label="Pending requests" value={pending.length} tone={pending.length ? 'amber' : undefined} onClick={() => setFilter('pending')} active={filter === 'pending'} />
+        <Kpi
+          label="Pending amount"
+          value={Object.keys(pendingByCurrency).length ? Object.entries(pendingByCurrency).map(([c, v]) => `${v.toFixed(2)} ${c}`).join(' · ') : '—'}
+          sub="Awaiting review"
+        />
+        <Kpi label="Approved" value={count('approved')} tone="green" onClick={() => setFilter('approved')} active={filter === 'approved'} />
+        <Kpi label="Rejected" value={count('rejected')} tone="red" onClick={() => setFilter('rejected')} active={filter === 'rejected'} />
       </div>
 
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
-        {(['all', 'pending', 'approved', 'rejected'] as const).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setFilter(tab)}
-            style={{
-              padding: '8px 16px',
-              fontSize: '0.85rem',
-              fontWeight: 600,
-              borderRadius: '8px',
-              border: filter === tab ? '1px solid #3b82f6' : '1px solid #e5e7eb',
-              background: filter === tab ? '#eff6ff' : '#fff',
-              color: filter === tab ? '#1d4ed8' : '#4b5563',
-              cursor: 'pointer',
-              textTransform: 'capitalize',
-            }}
-          >
-            {tab} ({tab === 'all' ? withdrawals.length : withdrawals.filter((w) => w.status === tab).length})
-          </button>
-        ))}
-      </div>
-
-      <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb' }}>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+      <section className="ad-card">
+        <Tabs
+          value={filter}
+          onChange={setFilter}
+          tabs={[
+            { value: 'pending', label: 'Pending', count: count('pending'), tone: 'amber' },
+            { value: 'approved', label: 'Approved', count: count('approved'), tone: 'green' },
+            { value: 'rejected', label: 'Rejected', count: count('rejected'), tone: 'red' },
+            { value: 'all', label: 'All', count: count('all') },
+          ]}
+        />
+        <div className="ad-toolbar">
+          <SearchBox value={q} onChange={setQ} placeholder="Search user name, user ID or request ID" />
+        </div>
+        <div className="ad-table-wrap">
+          <table className="ad-table is-stack">
             <thead>
               <tr>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb' }}>Date</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb' }}>User</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'right' }}>Amount</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb' }}>Source</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'center' }}>Status</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'right' }}>Actions</th>
+                <th className="ad-th">User</th>
+                <th className="ad-th ad-num">Amount</th>
+                <th className="ad-th">Source</th>
+                <th className="ad-th">Requested</th>
+                <th className="ad-th">Status</th>
+                <th className="ad-th ad-num">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {loading ? (
-                <tr><td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#6b7280' }}>Loading requests...</td></tr>
+              {loading && withdrawals.length === 0 ? (
+                <SkeletonRows cols={6} />
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: '#6b7280' }}>No withdrawal requests found.</td></tr>
+                <EmptyRow cols={6} title={filter === 'pending' ? 'Nothing waiting for review' : 'No withdrawal requests'} hint={q ? 'Try a different search.' : 'New requests appear here.'} />
               ) : (
                 filtered.map((w) => (
-                  <tr key={w.id}>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', color: '#4b5563', fontSize: '0.9rem' }}>
-                      {new Date(w.created_at).toLocaleDateString()}
+                  <tr key={w.id} className="ad-row">
+                    <td className="ad-td is-main">
+                      <div>
+                        <div className="ad-name">{w.user?.name ?? `User #${w.user_id}`}</div>
+                        <div className="ad-sub">User #{w.user_id} · request #{w.id}</div>
+                      </div>
+                      <span className="ad-mobile-only"><span className={`ad-badge ${TONE[w.status] ?? 'gray'}`}>{w.status}</span></span>
                     </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6' }}>
-                      <div style={{ fontWeight: 600, color: '#111827' }}>{w.user?.name ?? `User #${w.user_id}`}</div>
-                      <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>ID: #{w.user_id}</div>
-                    </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'right', fontWeight: 700, color: '#10b981', fontSize: '1.05rem' }}>
-                      {Number(w.amount).toFixed(2)} {w.currency}
-                    </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6' }}>
-                      <span style={{ padding: '4px 8px', borderRadius: '4px', background: '#f3f4f6', color: '#374151', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>
-                        {w.source}
-                      </span>
-                    </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'center' }}>
-                      <span style={{
-                        padding: '4px 10px',
-                        borderRadius: '6px',
-                        background: w.status === 'pending' ? '#fef3c7' : w.status === 'approved' || w.status === 'success' ? '#d1fae5' : '#fee2e2',
-                        color: w.status === 'pending' ? '#92400e' : w.status === 'approved' || w.status === 'success' ? '#065f46' : '#991b1b',
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        textTransform: 'uppercase'
-                      }}>
-                        {w.status}
-                      </span>
-                    </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'right' }}>
+                    <td className="ad-td ad-num tone-green" data-label="Amount" style={{ fontWeight: 700, fontSize: '1rem' }}>{Number(w.amount).toFixed(2)} {w.currency}</td>
+                    <td className="ad-td" data-label="Source"><span className="ad-tag">{w.source}</span></td>
+                    <td className="ad-td" data-label="Requested">{formatDate(w.created_at)}</td>
+                    <td className="ad-td is-hide-sm"><span className={`ad-badge ${TONE[w.status] ?? 'gray'}`}>{w.status}</span></td>
+                    <td className="ad-td ad-num is-actions is-fill">
                       {w.status === 'pending' ? (
-                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                          <button
-                            type="button"
-                            disabled={processingId === w.id}
-                            onClick={() => void handleAction(w.id, 'approve')}
-                            style={{
-                              padding: '6px 12px',
-                              fontSize: '0.8rem',
-                              background: '#10b981',
-                              color: '#fff',
-                              border: 'none',
-                              borderRadius: '6px',
-                              cursor: 'pointer',
-                              width: 'auto',
-                            }}
-                          >
-                            Approve
-                          </button>
-                          <button
-                            type="button"
-                            disabled={processingId === w.id}
-                            onClick={() => void handleAction(w.id, 'reject')}
-                            style={{
-                              padding: '6px 12px',
-                              fontSize: '0.8rem',
-                              background: '#fee2e2',
-                              color: '#b91c1c',
-                              border: '1px solid #fca5a5',
-                              borderRadius: '6px',
-                              cursor: 'pointer',
-                              width: 'auto',
-                            }}
-                          >
-                            Reject
-                          </button>
+                        <div className="ad-actions">
+                          <button type="button" className="ad-btn ad-btn-solid tone-success" onClick={() => act(w, 'approve')}>Approve</button>
+                          <button type="button" className="ad-btn ad-btn-danger-soft" onClick={() => act(w, 'reject')}>Reject</button>
                         </div>
                       ) : (
-                        <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>Processed</span>
+                        <span className="ad-hint" style={{ fontSize: '0.8rem' }}>Processed</span>
                       )}
                     </td>
                   </tr>
@@ -192,7 +153,9 @@ export default function WithdrawalsPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
+      {confirmNode}
+      {toastNode}
     </main>
   );
 }

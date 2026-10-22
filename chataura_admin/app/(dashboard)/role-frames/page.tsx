@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import FileUploadInput from '@/app/components/FileUploadInput';
 import MediaThumb, { compositeForAnimation } from '@/app/components/MediaThumb';
+import { Field, MediaCard, MediaSkeleton, Modal, PageHeader, SearchBox, Switch, Tabs, errorText, useConfirm, useToasts } from '@/components/admin-ui';
 
 const ANIMATION_ACCEPT =
   '.svga,.json,.gif,.webp,.mp4,.webm,video/mp4,video/webm,image/gif,image/webp';
@@ -26,539 +26,265 @@ type Frame = {
   avatar_offset_y?: number | null;
 };
 
+const ROLE_KEYS: { value: string; label: string }[] = [
+  { value: 'admin', label: 'Admin' },
+  { value: 'ceo', label: 'CEO' },
+  { value: 'manager', label: 'Manager' },
+  { value: 'superadmin', label: 'Superadmin' },
+  { value: 'coin_seller', label: 'Coin Seller' },
+];
+const roleLabel = (k: string | null) => ROLE_KEYS.find((r) => r.value === (k || 'admin'))?.label ?? k ?? 'Admin';
+
+type Draft = { id?: number; name: string; roleKey: string; imageUrl: string; animationUrl: string; composite: 'alpha' | 'screen'; avatarScale: string; avatarOffsetY: string; isActive: boolean };
+const NEW_DRAFT: Draft = { name: '', roleKey: 'admin', imageUrl: '', animationUrl: '', composite: 'alpha', avatarScale: '', avatarOffsetY: '', isActive: true };
+
 export default function RoleFramesPage() {
-  const router = useRouter();
   const { token } = useAdminAuth();
+  const { toast, toastNode } = useToasts();
+  const { confirm, confirmNode } = useConfirm();
   const [frames, setFrames] = useState<Frame[]>([]);
   const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [role, setRole] = useState('');
+  const [q, setQ] = useState('');
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
 
-  // Form states
-  const [name, setName] = useState('');
-  const [roleType, setRoleType] = useState('admin');
-  const ROLE_KEYS: { value: string; label: string }[] = [
-    { value: 'admin', label: 'Admin' },
-    { value: 'ceo', label: 'CEO' },
-    { value: 'manager', label: 'Manager' },
-    { value: 'superadmin', label: 'Superadmin' },
-    { value: 'coin_seller', label: 'Coin Seller' },
-  ];
-  const [imageUrl, setImageUrl] = useState('');
-  const [animationUrl, setAnimationUrl] = useState('');
-  const [composite, setComposite] = useState<'alpha' | 'screen'>('alpha');
-  const [error, setError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  // Edit Modal states
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editingFrame, setEditingFrame] = useState<Frame | null>(null);
-  const [editName, setEditName] = useState('');
-  const [editRoleKey, setEditRoleKey] = useState('admin');
-  const [editImageUrl, setEditImageUrl] = useState('');
-  const [editAnimationUrl, setEditAnimationUrl] = useState('');
-  const [editComposite, setEditComposite] = useState<'alpha' | 'screen'>('alpha');
-  const [editAvatarScale, setEditAvatarScale] = useState('');
-  const [editAvatarOffsetY, setEditAvatarOffsetY] = useState('');
-  const [editIsActive, setEditIsActive] = useState(true);
-  const [editError, setEditError] = useState('');
-  const [editSubmitting, setEditSubmitting] = useState(false);
-
-  async function load(tok: string) {
+  async function load() {
+    if (!token) return;
     setLoading(true);
     try {
-      const json = await api<{ success: boolean; data?: { frames: Frame[] } }>('/admin/frames?category=role', tok);
+      const json = await api<{ success: boolean; data?: { frames: Frame[] } }>('/admin/frames?category=role', token);
       setFrames(json.data?.frames ?? []);
     } catch (e) {
-      console.error(e);
+      toast('error', errorText(e, 'Could not load role frames'));
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (token) {
-      void load(token);
-    }
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  async function create() {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) return;
-    if (!name.trim()) {
-      setError('Role frame name is required');
+  const counts = useMemo(() => {
+    const c: Record<string, number> = {};
+    frames.forEach((f) => { const k = f.animation_key || 'admin'; c[k] = (c[k] ?? 0) + 1; });
+    return c;
+  }, [frames]);
+  const visible = useMemo(() => {
+    const term = q.trim().toLowerCase().replace(/^#/, '');
+    return frames.filter((f) => (!role || (f.animation_key || 'admin') === role) && (!term || f.name.toLowerCase().includes(term) || String(f.id) === term));
+  }, [frames, role, q]);
+
+  async function save() {
+    if (!token || !draft) return;
+    if (!draft.name.trim()) {
+      setFormError('Role frame name is required');
       return;
     }
-    setSubmitting(true);
-    setError('');
+    setSaving(true);
+    setFormError('');
     try {
-      const json = await api<{ success: boolean; error?: { message?: string } }>('/admin/frames', token, {
-        method: 'POST',
-        body: JSON.stringify({
-          name: name.trim(),
-          category: 'role',
-          level_required: 1,
-          is_premium: true,
-          animation_key: roleType,
-          slug: `role_${roleType}_${Date.now()}`,
-          image_url: imageUrl.trim(),
-          animation_url: animationUrl.trim(),
-          composite_mode: composite,
-        }),
-      });
-      if (!json.success) {
-        setError(json.error?.message ?? 'Create failed');
-        return;
+      if (draft.id) {
+        await api(`/admin/frames/${draft.id}`, token, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            name: draft.name.trim(),
+            animation_key: draft.roleKey,
+            image_url: draft.imageUrl.trim(),
+            animation_url: draft.animationUrl.trim(),
+            composite_mode: draft.composite,
+            // Empty = null = app default fit.
+            avatar_scale: draft.avatarScale.trim() ? Number(draft.avatarScale) : null,
+            avatar_offset_y: draft.avatarOffsetY.trim() ? Number(draft.avatarOffsetY) : null,
+            is_active: draft.isActive,
+          }),
+        });
+        toast('success', `${draft.name.trim()} updated`);
+      } else {
+        const json = await api<{ success: boolean; error?: { message?: string } }>('/admin/frames', token, {
+          method: 'POST',
+          body: JSON.stringify({
+            name: draft.name.trim(),
+            category: 'role',
+            level_required: 1,
+            is_premium: true,
+            animation_key: draft.roleKey,
+            slug: `role_${draft.roleKey}_${Date.now()}`,
+            image_url: draft.imageUrl.trim(),
+            animation_url: draft.animationUrl.trim(),
+            composite_mode: draft.composite,
+          }),
+        });
+        if (!json.success) throw new Error(json.error?.message ?? 'Create failed');
+        toast('success', `${draft.name.trim()} created`);
       }
-      setName('');
-      setImageUrl('');
-      setAnimationUrl('');
-      setComposite('alpha');
-      void load(token);
-    } catch (e: any) {
-      setError(e?.message ?? 'Network Error');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  function openEdit(frame: Frame) {
-    setEditingFrame(frame);
-    setEditName(frame.name);
-    setEditRoleKey(frame.animation_key || 'admin');
-    setEditImageUrl(frame.image_url ?? '');
-    setEditAnimationUrl(frame.animation_url ?? '');
-    setEditComposite(frame.composite_mode === 'screen' ? 'screen' : 'alpha');
-    setEditAvatarScale(frame.avatar_scale != null ? String(frame.avatar_scale) : '');
-    setEditAvatarOffsetY(frame.avatar_offset_y != null ? String(frame.avatar_offset_y) : '');
-    setEditIsActive(frame.is_active);
-    setEditError('');
-    setEditModalOpen(true);
-  }
-
-  async function saveEdit() {
-    if (!editingFrame) return;
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) return;
-    if (!editName.trim()) {
-      setEditError('Role frame name is required');
-      return;
-    }
-    setEditSubmitting(true);
-    setEditError('');
-    try {
-      await api(`/admin/frames/${editingFrame.id}`, token, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          name: editName.trim(),
-          animation_key: editRoleKey,
-          image_url: editImageUrl.trim(),
-          animation_url: editAnimationUrl.trim(),
-          composite_mode: editComposite,
-          // Empty = null = app default fit.
-          avatar_scale: editAvatarScale.trim() ? Number(editAvatarScale) : null,
-          avatar_offset_y: editAvatarOffsetY.trim() ? Number(editAvatarOffsetY) : null,
-          is_active: editIsActive,
-        }),
-      });
-      setEditModalOpen(false);
-      setEditingFrame(null);
-      void load(token);
-    } catch (e: any) {
-      setEditError(e?.message ?? 'Failed to update role frame');
-    } finally {
-      setEditSubmitting(false);
-    }
-  }
-
-  async function toggleActive(id: number, current: boolean) {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) return;
-    try {
-      await api(`/admin/frames/${id}`, token, {
-        method: 'PATCH',
-        body: JSON.stringify({ is_active: !current }),
-      });
-      void load(token);
+      setDraft(null);
+      void load();
     } catch (e) {
-      console.error(e);
+      setFormError(errorText(e, 'Failed to save role frame'));
+    } finally {
+      setSaving(false);
     }
   }
 
-  async function deleteFrame(id: number) {
-    const token = localStorage.getItem('ca_admin_token');
+  async function toggleActive(f: Frame) {
     if (!token) return;
-    if (!confirm('Are you sure you want to delete this role frame?')) return;
+    setBusyId(f.id);
     try {
-      await api(`/admin/frames/${id}`, token, { method: 'DELETE' });
-      void load(token);
+      await api(`/admin/frames/${f.id}`, token, { method: 'PATCH', body: JSON.stringify({ is_active: !f.is_active }) });
+      setFrames((fs) => fs.map((x) => (x.id === f.id ? { ...x, is_active: !f.is_active } : x)));
     } catch (e) {
-      console.error(e);
+      toast('error', errorText(e, 'Could not update role frame'));
+    } finally {
+      setBusyId(null);
     }
   }
+
+  function remove(f: Frame) {
+    confirm({
+      title: `Delete “${f.name}”?`,
+      message: 'Staff using this frame fall back to the default. This cannot be undone.',
+      confirmLabel: 'Delete frame',
+      tone: 'danger',
+      onConfirm: async () => {
+        await api(`/admin/frames/${f.id}`, token, { method: 'DELETE' });
+        toast('success', `${f.name} deleted`);
+        void load();
+      },
+    });
+  }
+
+  const set = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
 
   return (
-    <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Staff & Role Frames</h1>
-        <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>Special prestige frames exclusive to Admins, CEOs, Managers, and Coin Sellers.</p>
-      </div>
+    <main className="ad-page">
+      <PageHeader
+        title="Role Frames"
+        subtitle="Prestige frames reserved for Admins, CEOs, Managers and Coin Sellers."
+        actions={<button type="button" className="ad-btn ad-btn-accent ad-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New role frame</button>}
+      />
 
-      {/* Creation Box */}
-      <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', marginBottom: '28px' }}>
-        <h2 style={{ fontSize: '1.15rem', fontWeight: 600, margin: '0 0 16px 0', color: '#111827' }}>Add New Role Frame</h2>
-        
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '16px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Role Frame Name *</label>
-            <input
-              type="text"
-              placeholder="e.g. Commander Frame"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
-            />
+      <section className="ad-card">
+        <Tabs value={role} onChange={setRole} tabs={[{ value: '', label: 'All', count: frames.length }, ...ROLE_KEYS.map((r) => ({ value: r.value, label: r.label, count: counts[r.value] ?? 0 }))]} />
+        <div className="ad-toolbar">
+          <SearchBox value={q} onChange={setQ} placeholder="Search name or ID" />
+        </div>
+        <div className="ad-summary">Showing <strong>{visible.length}</strong> of <strong>{frames.length}</strong></div>
+        {loading && frames.length === 0 ? (
+          <MediaSkeleton count={4} />
+        ) : visible.length === 0 ? (
+          <div className="ad-empty">
+            <div className="ad-empty-title">{frames.length ? 'No role frames match' : 'No role frames yet'}</div>
+            {frames.length ? 'Try another role or search.' : 'Add the first staff frame.'}
           </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Assigned Role</label>
-            <select
-              value={roleType}
-              onChange={(e) => setRoleType(e.target.value)}
-              style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem', backgroundColor: '#fff' }}
-            >
-              {ROLE_KEYS.map((r) => (
-                <option key={r.value} value={r.value}>{r.label}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', marginBottom: '16px' }}>
-          <FileUploadInput
-            label="Role Frame Poster (.png, .webp)"
-            value={imageUrl}
-            onChange={(url) => setImageUrl(url)}
-            accept="image/*"
-            placeholder="https://.../role_frame_poster.png or upload image"
-            helpText="Still preview. Leave empty when uploading a video and a poster is generated."
-          />
-          <FileUploadInput
-            label="Role Frame Animation (.svga, .gif, .webp, .mp4, .webm)"
-            value={animationUrl}
-            onChange={(url) => {
-              setAnimationUrl(url);
-              setComposite(compositeForAnimation(url));
-            }}
-            accept={ANIMATION_ACCEPT}
-            placeholder="https://.../role_frame.mp4 or upload file"
-            helpText="Looping staff frame. MP4 glow clips on black use Screen composite."
-          />
-        </div>
-
-        <div style={{ marginBottom: '16px' }}>
-          <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Composite</label>
-          <select
-            value={composite}
-            onChange={(e) => setComposite(e.target.value === 'screen' ? 'screen' : 'alpha')}
-            style={{ width: '100%', maxWidth: '360px', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem', backgroundColor: '#fff' }}
-          >
-            <option value="alpha">Alpha (transparent PNG, WebM, SVGA)</option>
-            <option value="screen">Screen (black background glow video)</option>
-          </select>
-        </div>
-
-        {error && <p style={{ color: '#b91c1c', fontSize: '0.85rem', marginBottom: '16px' }}>⚠️ {error}</p>}
-
-        <button
-          type="button"
-          onClick={() => void create()}
-          disabled={submitting}
-          style={{
-            padding: '10px 24px',
-            backgroundColor: '#4f46e5',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '6px',
-            fontWeight: 600,
-            fontSize: '0.9rem',
-            cursor: submitting ? 'not-allowed' : 'pointer',
-          }}
-        >
-          {submitting ? 'Creating...' : '+ Create Role Frame'}
-        </button>
-      </div>
-
-      {/* Grid */}
-      {loading ? (
-        <p style={{ color: '#6b7280' }}>Loading role frames...</p>
-      ) : frames.length === 0 ? (
-        <p style={{ color: '#6b7280' }}>No role frames found. Create one above.</p>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '20px' }}>
-          {frames.map((f) => (
-            <div key={f.id} style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <div style={{ width: '92px', height: '92px', borderRadius: '50%', background: '#0f172a', marginBottom: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', position: 'relative' }}>
-                <MediaThumb
-                  imageUrl={f.image_url}
-                  animationUrl={f.animation_url}
-                  composite={f.composite_mode}
-                  alt={f.name}
-                  fallback="🛡️"
-                  rounded
-                />
-              </div>
-
-              <div style={{ fontWeight: 600, color: '#111827', fontSize: '1.05rem', marginBottom: '4px', textAlign: 'center' }}>{f.name}</div>
-              
-              <div style={{ margin: '4px 0 8px 0' }}>
-                <span style={{ fontSize: '0.72rem', backgroundColor: '#e0e7ff', color: '#3730a3', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>
-                  Prestige Role Frame
-                </span>
-              </div>
-
-              <div style={{ width: '100%', marginTop: '8px' }}>
-                <span style={{ display: 'block', textAlign: 'center', padding: '4px 0', borderRadius: '6px', background: f.is_active ? '#d1fae5' : '#fee2e2', color: f.is_active ? '#065f46' : '#991b1b', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>
-                  {f.is_active ? 'Active' : 'Disabled'}
-                </span>
-              </div>
-
-              {/* Actions */}
-              <div style={{ display: 'flex', gap: '6px', marginTop: '12px', width: '100%' }}>
-                <button
-                  type="button"
-                  onClick={() => void toggleActive(f.id, f.is_active)}
-                  style={{
-                    flex: 1,
-                    padding: '6px 0',
-                    fontSize: '0.75rem',
-                    background: '#f3f4f6',
-                    color: '#374151',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontWeight: 500,
-                  }}
-                >
-                  {f.is_active ? 'Disable' : 'Enable'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => openEdit(f)}
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: '0.75rem',
-                    background: '#e0e7ff',
-                    color: '#3730a3',
-                    border: '1px solid #c7d2fe',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                  }}
-                >
-                  ✏️ Edit
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => void deleteFrame(f.id)}
-                  style={{
-                    padding: '6px 10px',
-                    fontSize: '0.75rem',
-                    background: '#fee2e2',
-                    color: '#b91c1c',
-                    border: '1px solid #fca5a5',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                  }}
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Edit Modal */}
-      {editModalOpen && editingFrame && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: '20px',
-          }}
-        >
-          <div
-            style={{
-              backgroundColor: '#fff',
-              borderRadius: '12px',
-              padding: '28px',
-              maxWidth: '560px',
-              width: '100%',
-              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, color: '#111827' }}>
-                Edit Role Frame #{editingFrame.id}
-              </h2>
-              <button
-                type="button"
-                onClick={() => setEditModalOpen(false)}
-                style={{ background: 'none', border: 'none', fontSize: '1.25rem', color: '#6b7280', cursor: 'pointer' }}
-              >
-                ✕
-              </button>
-            </div>
-
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Role Frame Name *</label>
-              <input
-                type="text"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
+        ) : (
+          <div className="ad-media-grid">
+            {visible.map((f) => (
+              <MediaCard
+                key={f.id}
+                thumbClass={f.composite_mode === 'screen' ? 'is-dark' : ''}
+                thumb={<MediaThumb imageUrl={f.image_url} animationUrl={f.animation_url} composite={f.composite_mode} alt={f.name} fallback="🛡️" rounded />}
+                flags={<><span className="ad-badge indigo">{roleLabel(f.animation_key)}</span><span /></>}
+                title={f.name}
+                meta={`#${f.id}${f.avatar_scale != null ? ` · hole ${Math.round(f.avatar_scale * 100)}%` : ''}`}
+                active={f.is_active}
+                busy={busyId === f.id}
+                onToggle={() => void toggleActive(f)}
+                onEdit={() => {
+                  setFormError('');
+                  setDraft({
+                    id: f.id,
+                    name: f.name,
+                    roleKey: f.animation_key || 'admin',
+                    imageUrl: f.image_url ?? '',
+                    animationUrl: f.animation_url ?? '',
+                    composite: f.composite_mode === 'screen' ? 'screen' : 'alpha',
+                    avatarScale: f.avatar_scale != null ? String(f.avatar_scale) : '',
+                    avatarOffsetY: f.avatar_offset_y != null ? String(f.avatar_offset_y) : '',
+                    isActive: f.is_active,
+                  });
+                }}
+                onDelete={() => remove(f)}
               />
-            </div>
+            ))}
+          </div>
+        )}
+      </section>
 
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Role Key</label>
-              <select
-                value={editRoleKey}
-                onChange={(e) => setEditRoleKey(e.target.value)}
-                style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem', backgroundColor: '#fff' }}
-              >
+      {draft && (
+        <Modal
+          size="wide"
+          title={draft.id ? `Edit role frame #${draft.id}` : 'New role frame'}
+          busy={saving}
+          onClose={() => setDraft(null)}
+          onSubmit={() => void save()}
+          footer={
+            <>
+              <button type="button" className="ad-btn ad-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
+              <button type="submit" className="ad-btn ad-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create frame'}</button>
+            </>
+          }
+        >
+          <div className="ad-form-grid is-2up">
+            <Field label="Frame name *">
+              <input autoFocus placeholder="e.g. Commander Frame" value={draft.name} onChange={(e) => set({ name: e.target.value })} />
+            </Field>
+            <Field label="Role">
+              <select value={draft.roleKey} onChange={(e) => set({ roleKey: e.target.value })}>
                 {ROLE_KEYS.map((r) => (
                   <option key={r.value} value={r.value}>{r.label}</option>
                 ))}
               </select>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
-              <FileUploadInput
-                label="Role Frame Poster (.png, .webp)"
-                value={editImageUrl}
-                onChange={(url) => setEditImageUrl(url)}
-                accept="image/*"
-                placeholder="https://.../role_frame_poster.png"
-              />
-              <FileUploadInput
-                label="Role Frame Animation (.svga, .gif, .webp, .mp4, .webm)"
-                value={editAnimationUrl}
-                onChange={(url) => {
-                  setEditAnimationUrl(url);
-                  setEditComposite(compositeForAnimation(url));
-                }}
-                accept={ANIMATION_ACCEPT}
-                placeholder="https://.../role_frame.mp4"
-              />
-            </div>
-
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Composite</label>
-              <select
-                value={editComposite}
-                onChange={(e) => setEditComposite(e.target.value === 'screen' ? 'screen' : 'alpha')}
-                style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem', backgroundColor: '#fff' }}
-              >
-                <option value="alpha">Alpha (transparent PNG, WebM, SVGA)</option>
-                <option value="screen">Screen (black background glow video)</option>
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
-              <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Photo Size (0.2–1)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0.2"
-                  max="1"
-                  value={editAvatarScale}
-                  onChange={(e) => setEditAvatarScale(e.target.value)}
-                  placeholder="Default"
-                  style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
-                />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Photo Move Down (-0.5–0.5)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="-0.5"
-                  max="0.5"
-                  value={editAvatarOffsetY}
-                  onChange={(e) => setEditAvatarOffsetY(e.target.value)}
-                  placeholder="0"
-                  style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
-                />
-              </div>
-            </div>
-            <p style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '-8px', marginBottom: '16px' }}>
-              Photo Size = hole width ÷ frame width. Move Down = how far the hole centre is below the frame centre, as a part of frame height. Leave empty for default.
-            </p>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
-              <input
-                type="checkbox"
-                id="editRoleFrameActive"
-                checked={editIsActive}
-                onChange={(e) => setEditIsActive(e.target.checked)}
-                style={{ width: '16px', height: '16px' }}
-              />
-              <label htmlFor="editRoleFrameActive" style={{ fontSize: '0.9rem', color: '#374151', cursor: 'pointer', fontWeight: 500 }}>
-                Active & Enabled for Privileged Staff
-              </label>
-            </div>
-
-            {editError && <p style={{ color: '#b91c1c', fontSize: '0.85rem', marginBottom: '16px' }}>⚠️ {editError}</p>}
-
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                onClick={() => setEditModalOpen(false)}
-                style={{
-                  padding: '9px 18px',
-                  backgroundColor: '#f3f4f6',
-                  color: '#374151',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '6px',
-                  fontWeight: 600,
-                  fontSize: '0.9rem',
-                  cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveEdit()}
-                disabled={editSubmitting}
-                style={{
-                  padding: '9px 22px',
-                  backgroundColor: '#4f46e5',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontWeight: 600,
-                  fontSize: '0.9rem',
-                  cursor: editSubmitting ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {editSubmitting ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
+            </Field>
           </div>
-        </div>
+          <FileUploadInput
+            label="Poster (.png, .webp)"
+            value={draft.imageUrl}
+            onChange={(url) => set({ imageUrl: url })}
+            accept="image/*"
+            placeholder="https://.../role_frame_poster.png"
+            helpText="Still preview. Leave empty when uploading a video and a poster is generated."
+          />
+          <FileUploadInput
+            label="Animation (.svga, .gif, .webp, .mp4, .webm)"
+            value={draft.animationUrl}
+            onChange={(url) => set({ animationUrl: url, composite: compositeForAnimation(url) })}
+            accept={ANIMATION_ACCEPT}
+            placeholder="https://.../role_frame.mp4"
+            helpText="Looping staff frame. MP4 glow clips on black use Screen composite."
+          />
+          <Field label="Composite mode">
+            <select value={draft.composite} onChange={(e) => set({ composite: e.target.value === 'screen' ? 'screen' : 'alpha' })}>
+              <option value="alpha">Alpha (transparent PNG, WebM, SVGA)</option>
+              <option value="screen">Screen (black background glow video)</option>
+            </select>
+          </Field>
+          {draft.id ? (
+            <>
+              <div className="ad-form-grid is-2up">
+                <Field label="Photo size (0.2–1)">
+                  <input type="number" step="0.01" min="0.2" max="1" placeholder="Default" value={draft.avatarScale} onChange={(e) => set({ avatarScale: e.target.value })} />
+                </Field>
+                <Field label="Photo move down (−0.5–0.5)">
+                  <input type="number" step="0.01" min="-0.5" max="0.5" placeholder="0" value={draft.avatarOffsetY} onChange={(e) => set({ avatarOffsetY: e.target.value })} />
+                </Field>
+              </div>
+              <div className="ad-field-hint">Photo size = hole width ÷ frame width. Move down = how far the hole centre sits below the frame centre, as a share of frame height. Leave empty for the default.</div>
+              <div className="ad-toggle-row">
+                <div className="ad-toggle-title">Active for privileged staff</div>
+                <Switch label="Active" checked={draft.isActive} onChange={(v) => set({ isActive: v })} />
+              </div>
+            </>
+          ) : null}
+          {formError && <div className="ad-alert">{formError}</div>}
+        </Modal>
       )}
+      {confirmNode}
+      {toastNode}
     </main>
   );
 }

@@ -5,7 +5,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import {
-  AdminStyles,
   applyRange,
   Avatar,
   DateRangeChips,
@@ -313,7 +312,6 @@ export default function PartyRoomAnalyticsPage() {
 
   return (
     <main className="ad-page">
-      <AdminStyles />
 
       <div className="ad-header">
         <div>
@@ -472,7 +470,7 @@ export default function PartyRoomAnalyticsPage() {
         )}
 
         <div className="ad-table-wrap">
-          <table className="ad-table">
+          <table className="ad-table is-stack is-3up">
             <thead>
               <tr>
                 <SortTh column="id" label="Session" sort={filters.sort} order={filters.order} onSort={onSort} />
@@ -497,8 +495,8 @@ export default function PartyRoomAnalyticsPage() {
                   const name = s.user_name || `User #${s.user_id}`;
                   return (
                     <tr key={s.id} className={`ad-row ${busyId === s.id ? 'is-busy' : ''}`}>
-                      <td className="ad-td ad-id">#{s.id}</td>
-                      <td className="ad-td">
+                      <td className="ad-td ad-id is-hide-sm">#{s.id}</td>
+                      <td className="ad-td is-main">
                         <div className="ad-user">
                           <Avatar name={name} url={s.avatar_url} dot={s.status === 'active'} />
                           <div style={{ minWidth: 0 }}>
@@ -511,8 +509,9 @@ export default function PartyRoomAnalyticsPage() {
                             </div>
                           </div>
                         </div>
+                        <span className="ad-mobile-only"><span className={`ad-badge ${badge.cls}`}>{badge.label}</span></span>
                       </td>
-                      <td className="ad-td">
+                      <td className="ad-td is-full" data-label="Room">
                         <div className="ad-name" style={{ maxWidth: 200 }} title={s.room_title}>{s.room_title}</div>
                         <div className="ad-sub">
                           <button
@@ -529,16 +528,16 @@ export default function PartyRoomAnalyticsPage() {
                           {s.room_is_live ? <span className="ad-badge green" style={{ marginLeft: 6, padding: '1px 6px', fontSize: '0.65rem' }}>Live</span> : null}
                         </div>
                       </td>
-                      <td className="ad-td ad-num" style={{ fontWeight: 700, color: '#4f46e5' }}>{formatDuration(s.accumulated_seconds)}</td>
-                      <td className="ad-td"><span className={`ad-badge ${badge.cls}`}>{badge.label}</span></td>
-                      <td className="ad-td ad-nowrap">
+                      <td className="ad-td ad-num" data-label="Engaged" style={{ fontWeight: 700, color: '#4f46e5' }}>{formatDuration(s.accumulated_seconds)}</td>
+                      <td className="ad-td is-hide-sm"><span className={`ad-badge ${badge.cls}`}>{badge.label}</span></td>
+                      <td className="ad-td ad-nowrap" data-label="Joined">
                         <div>{formatDate(s.joined_at)}</div>
                         <div className="ad-sub">{formatTime(s.joined_at)}</div>
                       </td>
-                      <td className="ad-td ad-nowrap" title={s.last_heartbeat_at ? new Date(s.last_heartbeat_at).toLocaleString() : undefined}>
+                      <td className="ad-td ad-nowrap" data-label="Heartbeat" title={s.last_heartbeat_at ? new Date(s.last_heartbeat_at).toLocaleString() : undefined}>
                         {relativeTime(s.last_heartbeat_at)}
                       </td>
-                      <td className="ad-td ad-nowrap">
+                      <td className="ad-td ad-nowrap is-hide-sm">
                         {s.closed_at ? (
                           <>
                             <div>{formatTime(s.closed_at)}</div>
@@ -548,7 +547,7 @@ export default function PartyRoomAnalyticsPage() {
                           <span className="ad-hint">—</span>
                         )}
                       </td>
-                      <td className="ad-td" style={{ textAlign: 'right' }}>
+                      <td className="ad-td is-actions" style={{ textAlign: 'right' }}>
                         <div className="ad-actions">
                           <button type="button" className="ad-btn ad-btn-soft" onClick={() => void openHistory(s)}>History</button>
                           {s.status !== 'ended' && (

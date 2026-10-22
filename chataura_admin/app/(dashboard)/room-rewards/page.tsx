@@ -1,8 +1,9 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
+import { EmptyRow, Field, Kpi, PageHeader, SearchBox, Section, SkeletonRows, Switch, Tabs, useConfirm, useDebouncedCommit } from '@/components/admin-ui';
 
 /**
  * Room Reward Levels — lifetime room gifting milestones (no reset). Admins edit the level table
@@ -88,25 +89,6 @@ type Payout = {
   }[];
 };
 
-const card: React.CSSProperties = {
-  background: '#fff',
-  borderRadius: 12,
-  padding: 24,
-  border: '1px solid #e5e7eb',
-  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-};
-const th: React.CSSProperties = {
-  textAlign: 'left',
-  padding: '10px 8px',
-  fontSize: 12,
-  fontWeight: 600,
-  color: '#6b7280',
-  borderBottom: '1px solid #e5e7eb',
-  whiteSpace: 'nowrap',
-};
-const td: React.CSSProperties = { padding: '8px', borderBottom: '1px solid #f3f4f6', fontSize: 14 };
-const cellInput: React.CSSProperties = { padding: '6px 8px', fontSize: 13, minWidth: 70 };
-
 function fmt(n: number | null | undefined): string {
   if (n == null) return '—';
   if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toLocaleString('en-US', { maximumFractionDigits: 2 })}M`;
@@ -145,11 +127,14 @@ function payload(rows: LevelRow[]) {
 }
 
 type Tab = 'overview' | 'levels' | 'rooms' | 'payouts';
+type Flash = (ok: boolean, t: string) => void;
+type Confirm = ReturnType<typeof useConfirm>['confirm'];
 
 export default function RoomRewardsPage() {
   const { token } = useAdminAuth();
   const [tab, setTab] = useState<Tab>('overview');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const { confirm, confirmNode } = useConfirm();
 
   // Stable identity: tabs list it as an effect dependency.
   const flash = useCallback((ok: boolean, text: string) => {
@@ -158,59 +143,39 @@ export default function RoomRewardsPage() {
   }, []);
 
   return (
-    <main style={{ padding: '32px 40px', maxWidth: 1400, margin: '0 auto' }}>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, margin: '0 0 8px' }}>Room Reward Levels</h1>
-        <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>
-          Lifetime room gifting milestones (never reset). Each level pays the room owner and the top partners once
-          per room. Partners are ranked by gifting toward the level, then by time in the room.
-        </p>
+    <main className="ad-page">
+      <style dangerouslySetInnerHTML={{ __html: RR_STYLES }} />
+      <PageHeader
+        title="Room Reward Levels"
+        subtitle="Lifetime room gifting milestones (never reset). Each level pays the room owner and the top partners once per room; partners rank by gifting toward the level, then time in the room."
+      />
+      <div className="ad-card rr-nav">
+        <Tabs
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            { value: 'overview', label: 'Overview' },
+            { value: 'levels', label: 'Levels' },
+            { value: 'rooms', label: 'Rooms' },
+            { value: 'payouts', label: 'Payouts' },
+          ]}
+        />
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        {(['overview', 'levels', 'rooms', 'payouts'] as Tab[]).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            style={{
-              background: tab === t ? '#1c2536' : '#fff',
-              color: tab === t ? '#fff' : '#374151',
-              border: '1px solid #e5e7eb',
-              textTransform: 'capitalize',
-            }}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      {msg && <div className={`ad-alert is-flush ${msg.ok ? 'is-success' : ''}`} style={{ marginBottom: 14 }}>{msg.text}</div>}
 
-      {msg && (
-        <div
-          style={{
-            padding: '12px 16px',
-            background: msg.ok ? '#d1fae5' : '#fee2e2',
-            color: msg.ok ? '#065f46' : '#991b1b',
-            borderRadius: 8,
-            marginBottom: 20,
-            fontWeight: 600,
-          }}
-        >
-          {msg.text}
-        </div>
-      )}
-
-      {token && tab === 'overview' && <OverviewTab token={token} flash={flash} />}
-      {token && tab === 'levels' && <LevelsTab token={token} flash={flash} />}
+      {token && tab === 'overview' && <OverviewTab token={token} flash={flash} confirm={confirm} />}
+      {token && tab === 'levels' && <LevelsTab token={token} flash={flash} confirm={confirm} />}
       {token && tab === 'rooms' && <RoomsTab token={token} />}
       {token && tab === 'payouts' && <PayoutsTab token={token} />}
+      {confirmNode}
     </main>
   );
 }
 
 // ------------------------------------------------------------------ overview + settings
 
-function OverviewTab({ token, flash }: { token: string; flash: (ok: boolean, t: string) => void }) {
+function OverviewTab({ token, flash, confirm }: { token: string; flash: Flash; confirm: Confirm }) {
   const [data, setData] = useState<Overview | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [presence, setPresence] = useState('10');
@@ -229,13 +194,7 @@ function OverviewTab({ token, flash }: { token: string; flash: (ok: boolean, t: 
     void load().catch((e) => flash(false, String(e?.message ?? e)));
   }, [load, flash]);
 
-  async function save() {
-    if (enabled && !data?.settings.room_reward_enabled) {
-      const ok = window.confirm(
-        'Turn Room Reward Levels ON? Rooms start counting from 0 now and payouts are credited automatically.',
-      );
-      if (!ok) return;
-    }
+  async function doSave() {
     setSaving(true);
     try {
       await api('/admin/room-rewards/settings', token, {
@@ -255,68 +214,66 @@ function OverviewTab({ token, flash }: { token: string; flash: (ok: boolean, t: 
     }
   }
 
-  if (!data) return <p style={{ color: '#6b7280' }}>Loading…</p>;
+  function save() {
+    if (enabled && !data?.settings.room_reward_enabled) {
+      confirm({
+        title: 'Turn Room Reward Levels on?',
+        message: 'Rooms start counting from 0 now and payouts are credited automatically.',
+        confirmLabel: 'Turn on',
+        onConfirm: doSave,
+      });
+      return;
+    }
+    void doSave();
+  }
 
-  const stats = [
-    { label: 'Coins paid (all time)', value: fmt(data.total_paid) },
-    { label: 'Levels completed', value: fmt(data.payouts) },
-    { label: 'People paid', value: fmt(data.recipients) },
-    { label: 'Rooms with progress', value: fmt(data.rooms_with_progress) },
-    { label: 'Rooms waiting on visitors', value: fmt(data.rooms_pending) },
-  ];
+  if (!data) {
+    return <div className="ad-kpis">{[0, 1, 2, 3, 4].map((i) => <div key={i} className="ad-skeleton" style={{ height: 84 }} />)}</div>;
+  }
 
   return (
-    <div style={{ display: 'grid', gap: 24 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
-        {stats.map((s) => (
-          <div key={s.label} style={card}>
-            <div style={{ fontSize: 13, color: '#6b7280' }}>{s.label}</div>
-            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 6 }}>{s.value}</div>
-          </div>
-        ))}
+    <>
+      <div className="ad-kpis rr-kpis">
+        <Kpi label="Coins paid" value={fmt(data.total_paid)} sub="All time" tone="amber" />
+        <Kpi label="Levels completed" value={fmt(data.payouts)} />
+        <Kpi label="People paid" value={fmt(data.recipients)} />
+        <Kpi label="Rooms with progress" value={fmt(data.rooms_with_progress)} />
+        <Kpi label="Waiting on visitors" value={fmt(data.rooms_pending)} sub="Rooms" tone={data.rooms_pending ? 'indigo' : undefined} />
       </div>
 
-      <div style={{ ...card, maxWidth: 560 }}>
-        <h2 style={{ margin: '0 0 16px', fontSize: '1.1rem' }}>Settings</h2>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <input
-              type="checkbox"
-              checked={enabled}
-              onChange={(e) => setEnabled(e.target.checked)}
-              style={{ width: 18, height: 18 }}
-            />
-            <span style={{ fontWeight: 600 }}>Room Reward Levels enabled</span>
-            <span style={{ fontSize: 13, color: enabled ? '#065f46' : '#991b1b' }}>
-              {enabled ? 'ON — counting gifts and paying levels' : 'OFF — nothing is counted or paid'}
-            </span>
-          </label>
-          <label>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>Presence required (minutes)</span>
-            <input type="number" min={0} max={240} value={presence} onChange={(e) => setPresence(e.target.value)} />
-            <span style={{ fontSize: 12, color: '#6b7280' }}>
-              A visitor counts toward a level after staying this long continuously (owner never counts).
-            </span>
-          </label>
-          <label>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>Allowed drop (minutes)</span>
-            <input type="number" min={0} max={30} value={gap} onChange={(e) => setGap(e.target.value)} />
-            <span style={{ fontSize: 12, color: '#6b7280' }}>
-              Leaving / losing connection for less than this keeps the visitor&apos;s continuous stay.
-            </span>
-          </label>
-          <button type="button" onClick={() => void save()} disabled={saving}>
+      <Section title="Settings" className="rr-settings">
+        <div style={{ display: 'grid', gap: 16 }}>
+          <div className="ad-toggle-row">
+            <div>
+              <div className="ad-toggle-title">Room Reward Levels</div>
+              <div className={`ad-toggle-hint ${enabled ? 'tone-green' : 'tone-red'}`}>
+                {enabled ? 'On — counting gifts and paying levels' : 'Off — nothing is counted or paid'}
+              </div>
+            </div>
+            <Switch label="Room Reward Levels enabled" checked={enabled} onChange={setEnabled} />
+          </div>
+          <div className="ad-form-grid is-2up">
+            <Field label="Presence required" hint="Continuous stay before a visitor counts (owner never counts).">
+              <div className="ad-unit"><input type="number" min={0} max={240} value={presence} onChange={(e) => setPresence(e.target.value)} /><span>min</span></div>
+            </Field>
+            <Field label="Allowed drop" hint="Shorter disconnects keep the stay continuous.">
+              <div className="ad-unit"><input type="number" min={0} max={30} value={gap} onChange={(e) => setGap(e.target.value)} /><span>min</span></div>
+            </Field>
+          </div>
+        </div>
+        <div className="ad-form-actions">
+          <button type="button" className="ad-btn ad-btn-primary ad-btn-lg" onClick={save} disabled={saving}>
             {saving ? 'Saving…' : 'Save settings'}
           </button>
         </div>
-      </div>
-    </div>
+      </Section>
+    </>
   );
 }
 
 // ------------------------------------------------------------------ level editor
 
-function LevelsTab({ token, flash }: { token: string; flash: (ok: boolean, t: string) => void }) {
+function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; confirm: Confirm }) {
   const [rows, setRows] = useState<LevelRow[] | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -368,17 +325,25 @@ function LevelsTab({ token, flash }: { token: string; flash: (ok: boolean, t: st
     setDirty(true);
   }
 
-  function removeLevel(i: number) {
-    const r = rows![i];
-    if (r.rooms_paid > 0) {
-      const ok = window.confirm(
-        `Level ${r.level} was already paid to ${r.rooms_paid} room(s). It will be DEACTIVATED (history kept), not deleted. Continue?`,
-      );
-      if (!ok) return;
-    }
+  function dropRow(i: number) {
     setRows((rs) => rs!.filter((_, j) => j !== i));
     setPreview(null);
     setDirty(true);
+  }
+
+  function removeLevel(i: number) {
+    const r = rows![i];
+    if (r.rooms_paid > 0) {
+      confirm({
+        title: `Remove level ${r.level}?`,
+        message: `It was already paid to ${r.rooms_paid} room(s), so it will be deactivated (history kept), not deleted.`,
+        confirmLabel: 'Remove',
+        tone: 'danger',
+        onConfirm: async () => dropRow(i),
+      });
+      return;
+    }
+    dropRow(i);
   }
 
   async function runPreview(): Promise<Preview | null> {
@@ -398,19 +363,7 @@ function LevelsTab({ token, flash }: { token: string; flash: (ok: boolean, t: st
     }
   }
 
-  async function save() {
-    const p = await runPreview();
-    if (!p) return;
-    if (p.issues.length > 0) {
-      flash(false, `Fix ${p.issues.length} problem(s) highlighted in the table before saving.`);
-      return;
-    }
-    const impactText = p.impact.length
-      ? `\n\nRooms that already reached a level will complete it as soon as their visitor target is met:\n` +
-        p.impact.map((i) => `• Level ${i.level}: ${i.rooms_due} room(s), up to ${fmt(i.max_coins)} coins`).join('\n') +
-        `\n\nUp to ${fmt(p.max_immediate_coins)} coins could be paid right away.`
-      : '';
-    if (!window.confirm(`Save ${rows!.length} level(s)?${impactText}`)) return;
+  async function doSave() {
     setBusy(true);
     try {
       const res = await api<{ data: { levels: ApiLevel[] } }>('/admin/room-rewards/levels', token, {
@@ -428,111 +381,139 @@ function LevelsTab({ token, flash }: { token: string; flash: (ok: boolean, t: st
     }
   }
 
-  if (!rows) return <p style={{ color: '#6b7280' }}>Loading…</p>;
+  async function save() {
+    const p = await runPreview();
+    if (!p) return;
+    if (p.issues.length > 0) {
+      flash(false, `Fix ${p.issues.length} problem(s) highlighted in the table before saving.`);
+      return;
+    }
+    confirm({
+      title: `Save ${rows!.length} level(s)?`,
+      message: p.impact.length ? (
+        <>
+          Rooms that already reached a level complete it as soon as their visitor target is met:
+          <ul style={{ margin: '8px 0', paddingLeft: 18 }}>
+            {p.impact.map((i) => (
+              <li key={i.level}>Level {i.level}: {i.rooms_due} room(s), up to {fmt(i.max_coins)} coins</li>
+            ))}
+          </ul>
+          Up to <strong>{fmt(p.max_immediate_coins)}</strong> coins could be paid right away.
+        </>
+      ) : (
+        'No room would complete a level immediately.'
+      ),
+      confirmLabel: 'Save levels',
+      onConfirm: doSave,
+    });
+  }
 
-  const cell = (i: number, field: keyof LevelRow, r: LevelRow) => {
+  const cell = (i: number, field: keyof LevelRow, r: LevelRow, label: string, cls = '') => {
     const err = issuesByCell.get(`${r.level}:${field}`);
     return (
-      <td style={td}>
+      <td className={`ad-td ${cls}`} data-label={label}>
         <input
-          style={{ ...cellInput, borderColor: err ? '#dc2626' : undefined }}
+          className={`rr-cell ${err ? 'has-error' : ''}`}
           value={r[field] as string}
           inputMode="numeric"
+          aria-label={label}
           title={err}
           onChange={(e) => update(i, { [field]: e.target.value.replace(/[^\d]/g, '') } as Partial<LevelRow>)}
         />
-        {err && <div style={{ color: '#dc2626', fontSize: 11, marginTop: 2 }}>{err}</div>}
+        {err && <div className="rr-err">{err}</div>}
       </td>
     );
   };
 
   return (
-    <div style={card}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+    <section className="ad-card">
+      <div className="ad-card-head">
         <div>
-          <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Levels ({rows.length})</h2>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#6b7280' }}>
-            Partner reward is paid to EACH partner. Total = owner + partner × partners. Coin targets must increase
-            level by level. Paid levels are final — edits affect only rooms that haven&apos;t completed them.
-          </p>
+          <h2>Levels {rows ? `(${rows.length})` : ''}</h2>
+          <p>Partner reward is paid to each partner: total = owner + partner × partners. Coin targets must rise level by level; paid levels are final.</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button type="button" onClick={addLevel} style={{ background: '#fff', color: '#1c2536', border: '1px solid #d1d5db' }}>
-            + Add level
-          </button>
-          <button type="button" onClick={() => void runPreview()} disabled={busy} style={{ background: '#fff', color: '#1c2536', border: '1px solid #d1d5db' }}>
-            Check
-          </button>
-          <button type="button" onClick={() => void save()} disabled={busy || !dirty}>
+        <div className="ad-actions">
+          <button type="button" className="ad-btn ad-btn-soft" onClick={addLevel} disabled={!rows}>+ Add level</button>
+          <button type="button" className="ad-btn ad-btn-ghost" onClick={() => void runPreview()} disabled={busy || !rows}>Check</button>
+          <button type="button" className="ad-btn ad-btn-primary" onClick={() => void save()} disabled={busy || !dirty}>
             {busy ? 'Working…' : 'Save levels'}
           </button>
         </div>
       </div>
 
       {preview && preview.issues.length === 0 && (
-        <div style={{ padding: '10px 14px', background: '#eff6ff', color: '#1e3a8a', borderRadius: 8, marginBottom: 12, fontSize: 14 }}>
+        <div className="ad-alert is-success" style={{ marginTop: 12 }}>
           ✓ Table is valid.
           {preview.impact.length > 0
-            ? ` ${preview.impact.reduce((s, i) => s + i.rooms_due, 0)} room-level(s) already reached — up to ${fmt(preview.max_immediate_coins)} coins could be paid right after saving.`
+            ? ` ${preview.impact.reduce((s2, i) => s2 + i.rooms_due, 0)} room-level(s) already reached — up to ${fmt(preview.max_immediate_coins)} coins could be paid right after saving.`
             : ' No room would complete a level immediately.'}
         </div>
       )}
 
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div className="ad-table-wrap">
+        <table className="ad-table is-stack is-3up rr-levels">
           <thead>
             <tr>
-              <th style={th}>Level</th>
-              <th style={th}>Room visitors ≥</th>
-              <th style={th}>Room coins ≥</th>
-              <th style={th}>Owner coins</th>
-              <th style={th}>Partner coins (each)</th>
-              <th style={th}>Partners</th>
-              <th style={th}>Total</th>
-              <th style={th}>Active</th>
-              <th style={th}>Rooms paid</th>
-              <th style={th} />
+              <th className="ad-th">Level</th>
+              <th className="ad-th">Visitors ≥</th>
+              <th className="ad-th">Room coins ≥</th>
+              <th className="ad-th">Owner coins</th>
+              <th className="ad-th">Partner coins each</th>
+              <th className="ad-th">Partners</th>
+              <th className="ad-th ad-num">Total</th>
+              <th className="ad-th ad-num">Rooms paid</th>
+              <th className="ad-th">Active</th>
+              <th className="ad-th"></th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, i) => (
-              <tr key={i} style={{ opacity: r.is_active ? 1 : 0.55 }}>
-                {cell(i, 'level', r)}
-                {cell(i, 'min_visitors', r)}
-                {cell(i, 'min_room_coins', r)}
-                {cell(i, 'owner_reward', r)}
-                {cell(i, 'partner_reward', r)}
-                {cell(i, 'partner_count', r)}
-                <td style={{ ...td, fontWeight: 600 }}>{fmt(rowTotal(r))}</td>
-                <td style={td}>
-                  <input type="checkbox" checked={r.is_active} onChange={(e) => update(i, { is_active: e.target.checked })} style={{ width: 18 }} />
-                </td>
-                <td style={td}>{r.rooms_paid}</td>
-                <td style={td}>
-                  <button
-                    type="button"
-                    onClick={() => removeLevel(i)}
-                    style={{ background: '#fff', color: '#991b1b', border: '1px solid #fecaca', padding: '6px 10px' }}
-                  >
-                    Remove
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {!rows ? (
+              <SkeletonRows cols={10} rows={4} />
+            ) : rows.length === 0 ? (
+              <EmptyRow cols={10} title="No levels yet" hint="Add the first level to start paying rooms." />
+            ) : (
+              rows.map((r, i) => (
+                <tr key={i} className={`ad-row ${r.is_active ? '' : 'is-off'}`}>
+                  {cell(i, 'level', r, 'Level', 'rr-level-cell')}
+                  {cell(i, 'min_visitors', r, 'Visitors ≥')}
+                  {cell(i, 'min_room_coins', r, 'Room coins ≥', 'rr-wide')}
+                  {cell(i, 'owner_reward', r, 'Owner coins', 'rr-wide')}
+                  {cell(i, 'partner_reward', r, 'Partner each', 'rr-wide')}
+                  {cell(i, 'partner_count', r, 'Partners')}
+                  <td className="ad-td ad-num" data-label="Total" style={{ fontWeight: 700 }}>{fmt(rowTotal(r))}</td>
+                  <td className="ad-td ad-num" data-label="Rooms paid">{r.rooms_paid}</td>
+                  <td className="ad-td" data-label="Active">
+                    <Switch label={`Level ${r.level} active`} checked={r.is_active} onChange={(v) => update(i, { is_active: v })} />
+                  </td>
+                  <td className="ad-td ad-num is-actions">
+                    <div className="ad-actions">
+                      <button type="button" className="ad-btn ad-btn-danger-soft ad-icon-btn" title={`Remove level ${r.level}`} aria-label={`Remove level ${r.level}`} onClick={() => removeLevel(i)}>✕<span className="ad-mobile-only">&nbsp;Remove</span></button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
   );
 }
 
 // ------------------------------------------------------------------ live rooms
 
 function RoomsTab({ token }: { token: string }) {
+  const [q, setQ] = useState('');
   const [search, setSearch] = useState('');
   const [pending, setPending] = useState(false);
   const [page, setPage] = useState(1);
   const [data, setData] = useState<{ total: number; rooms: RoomRow[] } | null>(null);
+  useDebouncedCommit(q, (v) => {
+    if (v !== search) {
+      setSearch(v);
+      setPage(1);
+    }
+  });
 
   const load = useCallback(async () => {
     const qs = new URLSearchParams({ page: String(page), limit: '25', ...(search ? { search } : {}), ...(pending ? { pending: 'true' } : {}) });
@@ -545,82 +526,85 @@ function RoomsTab({ token }: { token: string }) {
   }, [load]);
 
   return (
-    <div style={card}>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center' }}>
-        <input placeholder="Room ID, room UUID or title" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} style={{ maxWidth: 320 }} />
-        <label style={{ display: 'flex', gap: 6, alignItems: 'center', whiteSpace: 'nowrap' }}>
-          <input type="checkbox" checked={pending} onChange={(e) => { setPending(e.target.checked); setPage(1); }} style={{ width: 16 }} />
+    <section className="ad-card">
+      <div className="ad-toolbar">
+        <SearchBox value={q} onChange={setQ} placeholder="Room ID, room UUID or title" />
+        <label className="ad-check is-wide">
+          <input type="checkbox" checked={pending} onChange={(e) => { setPending(e.target.checked); setPage(1); }} />
           Waiting on visitors only
         </label>
-        <button type="button" onClick={() => void load()} style={{ background: '#fff', color: '#1c2536', border: '1px solid #d1d5db' }}>
-          Refresh
-        </button>
+        <button type="button" className="ad-btn ad-btn-ghost ad-btn-lg" onClick={() => void load()}>Refresh</button>
       </div>
-      {!data ? (
-        <p style={{ color: '#6b7280' }}>Loading…</p>
-      ) : (
-        <>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={th}>Room</th>
-                <th style={th}>Owner</th>
-                <th style={th}>Lifetime coins</th>
-                <th style={th}>Level reached</th>
-                <th style={th}>Next level</th>
-                <th style={th}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.rooms.map((r) => (
-                <tr key={r.room_id}>
-                  <td style={td}>
-                    <div style={{ fontWeight: 600 }}>{r.room_title}</div>
-                    <div style={{ fontSize: 12, color: '#6b7280' }}>ID {r.room_display_id}</div>
+      <div className="ad-table-wrap">
+        <table className="ad-table is-stack">
+          <thead>
+            <tr>
+              <th className="ad-th">Room</th>
+              <th className="ad-th">Owner</th>
+              <th className="ad-th ad-num">Lifetime coins</th>
+              <th className="ad-th ad-num">Level reached</th>
+              <th className="ad-th">Next level</th>
+              <th className="ad-th">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {!data ? (
+              <SkeletonRows cols={6} />
+            ) : data.rooms.length === 0 ? (
+              <EmptyRow cols={6} title="No rooms found" hint={search || pending ? 'Try a different search.' : 'Rooms appear once they receive gifts.'} />
+            ) : (
+              data.rooms.map((r) => (
+                <tr key={r.room_id} className="ad-row">
+                  <td className="ad-td is-main">
+                    <div style={{ minWidth: 0 }}>
+                      <div className="ad-name">{r.room_title}</div>
+                      <div className="ad-sub">ID {r.room_display_id}</div>
+                    </div>
+                    <span className="ad-mobile-only">{statusBadge(r)}</span>
                   </td>
-                  <td style={td}>
-                    {r.owner_name ?? '—'}
-                    <div style={{ fontSize: 12, color: '#6b7280' }}>ID {r.owner_display_id ?? '—'}</div>
+                  <td className="ad-td" data-label="Owner">
+                    <div className="ad-name" style={{ fontWeight: 500 }}>{r.owner_name ?? '—'}</div>
+                    <div className="ad-sub">ID {r.owner_display_id ?? '—'}</div>
                   </td>
-                  <td style={td}>{fmt(r.lifetime_coins)}</td>
-                  <td style={td}>{r.last_level}</td>
-                  <td style={td}>
-                    {r.next_level == null ? 'All levels done' : `L${r.next_level}: ${fmt(r.next_level_coins)} coins, ${r.next_level_visitors} visitors`}
+                  <td className="ad-td ad-num" data-label="Lifetime coins" style={{ fontWeight: 600 }}>{fmt(r.lifetime_coins)}</td>
+                  <td className="ad-td ad-num" data-label="Level reached">L{r.last_level}</td>
+                  <td className="ad-td" data-label="Next level">
+                    {r.next_level == null ? <span className="ad-hint">All levels done</span> : <>L{r.next_level}: {fmt(r.next_level_coins)} coins · {r.next_level_visitors} visitors</>}
                   </td>
-                  <td style={td}>
-                    {r.pending_level != null ? (
-                      <span style={{ color: '#b45309', fontWeight: 600 }}>
-                        Level {r.pending_level} waiting on visitors
-                        {r.pending_since ? ` since ${new Date(r.pending_since).toLocaleString()}` : ''}
-                      </span>
-                    ) : (
-                      <span style={{ color: '#6b7280' }}>Progressing</span>
-                    )}
-                  </td>
+                  <td className="ad-td is-hide-sm">{statusBadge(r)}</td>
                 </tr>
-              ))}
-              {data.rooms.length === 0 && (
-                <tr>
-                  <td style={td} colSpan={6}>No rooms yet.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-          <Pager page={page} total={data.total} size={25} onPage={setPage} />
-        </>
-      )}
-    </div>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      {data && <Pager page={page} total={data.total} size={25} onPage={setPage} />}
+    </section>
+  );
+}
+
+function statusBadge(r: RoomRow): ReactNode {
+  return r.pending_level != null ? (
+    <span className="ad-badge amber" title={r.pending_since ? `Since ${new Date(r.pending_since).toLocaleString()}` : undefined}>
+      L{r.pending_level} waiting
+    </span>
+  ) : (
+    <span className="ad-badge gray">Progressing</span>
   );
 }
 
 // ------------------------------------------------------------------ payouts
 
 function PayoutsTab({ token }: { token: string }) {
+  const [roomQ, setRoomQ] = useState('');
+  const [userQ, setUserQ] = useState('');
   const [room, setRoom] = useState('');
   const [user, setUser] = useState('');
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState<number | null>(null);
   const [data, setData] = useState<{ total: number; payouts: Payout[] } | null>(null);
+  useDebouncedCommit(roomQ, (v) => { if (v !== room) { setRoom(v); setPage(1); } });
+  useDebouncedCommit(userQ, (v) => { if (v !== user) { setUser(v); setPage(1); } });
 
   const load = useCallback(async () => {
     const qs = new URLSearchParams({ page: String(page), limit: '25', ...(room ? { room } : {}), ...(user ? { user } : {}) });
@@ -633,107 +617,122 @@ function PayoutsTab({ token }: { token: string }) {
   }, [load]);
 
   return (
-    <div style={card}>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-        <input placeholder="Room ID or UUID" value={room} onChange={(e) => { setRoom(e.target.value); setPage(1); }} style={{ maxWidth: 260 }} />
-        <input placeholder="User ID (public or account)" value={user} onChange={(e) => { setUser(e.target.value); setPage(1); }} style={{ maxWidth: 260 }} />
+    <section className="ad-card">
+      <div className="ad-toolbar">
+        <SearchBox value={roomQ} onChange={setRoomQ} placeholder="Room ID or UUID" />
+        <SearchBox value={userQ} onChange={setUserQ} placeholder="User ID (public or account)" />
       </div>
-      {!data ? (
-        <p style={{ color: '#6b7280' }}>Loading…</p>
-      ) : (
-        <>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={th}>When</th>
-                <th style={th}>Room</th>
-                <th style={th}>Level</th>
-                <th style={th}>Paid</th>
-                <th style={th}>Room coins at</th>
-                <th style={th}>Qualified visitors</th>
-                <th style={th}>Partners</th>
-                <th style={th} />
-              </tr>
-            </thead>
-            <tbody>
-              {data.payouts.map((p) => (
+      <div className="ad-table-wrap">
+        <table className="ad-table is-stack is-3up">
+          <thead>
+            <tr>
+              <th className="ad-th">Room</th>
+              <th className="ad-th">When</th>
+              <th className="ad-th ad-num">Level</th>
+              <th className="ad-th ad-num">Paid</th>
+              <th className="ad-th ad-num">Room coins at</th>
+              <th className="ad-th ad-num">Visitors</th>
+              <th className="ad-th ad-num">Partners</th>
+              <th className="ad-th"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {!data ? (
+              <SkeletonRows cols={8} />
+            ) : data.payouts.length === 0 ? (
+              <EmptyRow cols={8} title="No payouts yet" hint={room || user ? 'Try a different room or user.' : 'Payouts appear when rooms complete levels.'} />
+            ) : (
+              data.payouts.map((p) => (
                 <Fragment key={p.id}>
-                  <tr>
-                    <td style={td}>{new Date(p.created_at).toLocaleString()}</td>
-                    <td style={td}>
-                      {p.room_title ?? '—'}
-                      <div style={{ fontSize: 12, color: '#6b7280' }}>ID {p.room_display_id ?? '—'}</div>
+                  <tr className="ad-row">
+                    <td className="ad-td is-main">
+                      <div style={{ minWidth: 0 }}>
+                        <div className="ad-name">{p.room_title ?? '—'}</div>
+                        <div className="ad-sub">ID {p.room_display_id ?? '—'}</div>
+                      </div>
+                      <span className="ad-badge indigo ad-mobile-only">L{p.level}</span>
                     </td>
-                    <td style={td}>{p.level}</td>
-                    <td style={{ ...td, fontWeight: 600 }}>{fmt(p.total_paid)}</td>
-                    <td style={td}>{fmt(p.room_coins_at)}</td>
-                    <td style={td}>{p.qualified_visitors}</td>
-                    <td style={td}>{p.partners_paid} / {p.partner_slots}</td>
-                    <td style={td}>
-                      <button type="button" onClick={() => setOpen(open === p.id ? null : p.id)} style={{ background: '#fff', color: '#1c2536', border: '1px solid #d1d5db', padding: '6px 10px' }}>
-                        {open === p.id ? 'Hide' : 'Recipients'}
-                      </button>
+                    <td className="ad-td" data-label="When">{new Date(p.created_at).toLocaleString()}</td>
+                    <td className="ad-td ad-num is-hide-sm">L{p.level}</td>
+                    <td className="ad-td ad-num tone-amber" data-label="Paid" style={{ fontWeight: 700 }}>{fmt(p.total_paid)}</td>
+                    <td className="ad-td ad-num" data-label="Room coins at">{fmt(p.room_coins_at)}</td>
+                    <td className="ad-td ad-num" data-label="Visitors">{p.qualified_visitors}</td>
+                    <td className="ad-td ad-num" data-label="Partners">{p.partners_paid} / {p.partner_slots}</td>
+                    <td className="ad-td ad-num is-actions">
+                      <div className="ad-actions">
+                        <button type="button" className="ad-btn ad-btn-ghost" aria-expanded={open === p.id} onClick={() => setOpen(open === p.id ? null : p.id)}>
+                          {open === p.id ? 'Hide recipients' : `Recipients (${p.recipients.length})`}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   {open === p.id && (
-                    <tr>
-                      <td style={{ ...td, background: '#f9fafb' }} colSpan={8}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                          <thead>
-                            <tr>
-                              <th style={th}>Role</th>
-                              <th style={th}>Rank</th>
-                              <th style={th}>User</th>
-                              <th style={th}>Amount</th>
-                              <th style={th}>Gifted toward level</th>
-                              <th style={th}>Continuous stay</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {p.recipients.map((r) => (
-                              <tr key={r.user_id}>
-                                <td style={td}>{r.role}</td>
-                                <td style={td}>{r.rank ?? '—'}</td>
-                                <td style={td}>{r.name ?? 'User'} <span style={{ color: '#6b7280', fontSize: 12 }}>ID {r.display_id ?? r.user_id}</span></td>
-                                <td style={td}>{fmt(r.amount)}</td>
-                                <td style={td}>{r.role === 'owner' ? '—' : fmt(r.gifted_coins)}</td>
-                                <td style={td}>{r.role === 'owner' ? '—' : `${Math.floor(r.stay_seconds / 60)} min`}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                    <tr className="rr-recipients-row">
+                      <td colSpan={8}>
+                        <div className="rr-recipients">
+                          {p.recipients.map((r) => (
+                            <div key={r.user_id} className="rr-recipient">
+                              <span className={`ad-badge ${r.role === 'owner' ? 'indigo' : 'gray'}`}>{r.role}{r.rank ? ` #${r.rank}` : ''}</span>
+                              <div className="rr-recipient-name">
+                                <div className="ad-name">{r.name ?? 'User'}</div>
+                                <div className="ad-sub">ID {r.display_id ?? r.user_id}{r.role === 'owner' ? '' : ` · gifted ${fmt(r.gifted_coins)} · stayed ${Math.floor(r.stay_seconds / 60)} min`}</div>
+                              </div>
+                              <strong className="tone-amber">{fmt(r.amount)}</strong>
+                            </div>
+                          ))}
+                        </div>
                       </td>
                     </tr>
                   )}
                 </Fragment>
-              ))}
-              {data.payouts.length === 0 && (
-                <tr>
-                  <td style={td} colSpan={8}>No payouts yet.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-          <Pager page={page} total={data.total} size={25} onPage={setPage} />
-        </>
-      )}
-    </div>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      {data && <Pager page={page} total={data.total} size={25} onPage={setPage} />}
+    </section>
   );
 }
 
 function Pager({ page, total, size, onPage }: { page: number; total: number; size: number; onPage: (p: number) => void }) {
   const pages = Math.max(1, Math.ceil(total / size));
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 16, fontSize: 14 }}>
-      <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)} style={{ background: '#fff', color: '#1c2536', border: '1px solid #d1d5db' }}>
-        ← Prev
-      </button>
-      <span>
-        Page {page} of {pages} · {total.toLocaleString('en-US')} total
-      </span>
-      <button type="button" disabled={page >= pages} onClick={() => onPage(page + 1)} style={{ background: '#fff', color: '#1c2536', border: '1px solid #d1d5db' }}>
-        Next →
-      </button>
+    <div className="ad-pager">
+      <div className="ad-pager-info">
+        <span>Page <strong>{page}</strong> of <strong>{pages}</strong> · {total.toLocaleString('en-US')} total</span>
+      </div>
+      <div className="ad-pager-controls">
+        <button type="button" className="ad-page-btn" disabled={page <= 1} onClick={() => onPage(page - 1)}>‹ Prev</button>
+        <button type="button" className="ad-page-btn" disabled={page >= pages} onClick={() => onPage(page + 1)}>Next ›</button>
+      </div>
     </div>
   );
 }
+
+const RR_STYLES = `
+.rr-nav { margin-bottom: 16px; }
+.rr-nav .ad-tabs { border-bottom: none; }
+.rr-kpis { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.rr-settings { max-width: 640px; }
+.ad-page .rr-cell { width: 100%; min-width: 56px; padding: 6px 8px; min-height: 34px; font-size: 0.86rem; }
+.rr-levels .ad-th, .rr-levels .ad-td { padding-left: 6px; padding-right: 6px; }
+.rr-levels .ad-th { white-space: normal; }
+.rr-levels .rr-wide { min-width: 108px; }
+.ad-page .rr-cell.has-error { border-color: #dc2626; }
+.rr-err { color: #dc2626; font-size: 0.7rem; margin-top: 2px; }
+.ad-row.is-off .rr-cell { color: #9ca3af; }
+.rr-recipients-row td { padding: 0 20px 14px; background: #fafafb; border-bottom: 1px solid #f3f4f6; }
+.rr-recipients { display: grid; gap: 8px; padding-top: 12px; }
+.rr-recipient { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; }
+.rr-recipient-name { flex: 1; min-width: 0; }
+@media (max-width: 1100px) { .rr-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+  .rr-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ad-page .rr-cell { width: 100%; min-width: 0; padding: 6px 8px; }
+  .ad-table.is-stack.rr-levels tr { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.3fr); }
+  .rr-recipients-row td { padding: 0 12px 12px; background: transparent; border: none; }
+  .rr-recipients { padding-top: 0; }
+  .rr-recipient { flex-wrap: wrap; gap: 8px; }
+}
+`;

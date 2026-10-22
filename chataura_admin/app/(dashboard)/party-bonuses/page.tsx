@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
+import { Field, PageHeader, Section, errorText, useToasts } from '@/components/admin-ui';
 
 type Settings = {
   id: number;
@@ -12,42 +12,35 @@ type Settings = {
 };
 
 export default function PartyBonusesPage() {
-  const router = useRouter();
   const { token } = useAdminAuth();
+  const { toast, toastNode } = useToasts();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [successMsg, setSuccessMsg] = useState('');
-
   const [spinCost, setSpinCost] = useState('50');
   const [coinToXp, setCoinToXp] = useState('0.1');
 
-  async function load(tok: string) {
-    setLoading(true);
-    try {
-      const json = await api<{ success: boolean; data?: { settings: Settings } }>('/admin/settings', tok);
-      if (json.data?.settings) {
-        const s = json.data.settings;
-        setSpinCost(String(s.spin_cost ?? 50));
-        setCoinToXp(String(s.coin_to_xp_ratio ?? 0.1));
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   useEffect(() => {
-    if (token) {
-      void load(token);
-    }
-  }, [token]);
+    if (!token) return;
+    (async () => {
+      setLoading(true);
+      try {
+        const json = await api<{ success: boolean; data?: { settings: Settings } }>('/admin/settings', token);
+        const s = json.data?.settings;
+        if (s) {
+          setSpinCost(String(s.spin_cost ?? 50));
+          setCoinToXp(String(s.coin_to_xp_ratio ?? 0.1));
+        }
+      } catch (e) {
+        toast('error', errorText(e, 'Failed to load settings'));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [token, toast]);
 
   async function save() {
-    const token = localStorage.getItem('ca_admin_token');
     if (!token) return;
     setSaving(true);
-    setSuccessMsg('');
     try {
       await api('/admin/settings', token, {
         method: 'PATCH',
@@ -56,81 +49,58 @@ export default function PartyBonusesPage() {
           coin_to_xp_ratio: Number(coinToXp),
         }),
       });
-      setSuccessMsg('Party room bonuses updated successfully!');
-      setTimeout(() => setSuccessMsg(''), 4000);
+      toast('success', 'Party room bonuses updated');
     } catch (e) {
-      console.error(e);
+      toast('error', errorText(e, 'Failed to save settings'));
     } finally {
       setSaving(false);
     }
   }
 
-  return (
-    <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Party Room Bonuses</h1>
-        <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>Control gamification costs, lucky wheel spin pricing, and XP accrual rates.</p>
-      </div>
+  const xp = Number(coinToXp);
+  const coinsPerXp = xp > 0 ? Math.round(1 / xp) : null;
 
-      {successMsg && (
-        <div style={{ padding: '14px 20px', background: '#d1fae5', color: '#065f46', borderRadius: '8px', marginBottom: '24px', fontWeight: 600 }}>
-          ✓ {successMsg}
-        </div>
-      )}
+  return (
+    <main className="ad-page">
+      <PageHeader title="Party Room Bonuses" subtitle="Lucky wheel spin pricing and how fast users earn XP from spending coins." />
 
       {loading ? (
-        <p style={{ color: '#6b7280' }}>Loading settings...</p>
+        <div className="ad-skeleton is-card" style={{ maxWidth: 560 }} />
       ) : (
-        <div style={{ maxWidth: '520px' }}>
-          <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '28px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb' }}>
-            <h2 style={{ fontSize: '1.15rem', fontWeight: 600, margin: '0 0 20px 0', color: '#111827' }}>Lucky Spin & XP Mechanics</h2>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
-                  Lucky Wheel Spin Cost (Coins)
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <input
-                    type="number"
-                    value={spinCost}
-                    onChange={(e) => setSpinCost(e.target.value)}
-                    style={{ width: '120px', margin: 0 }}
-                  />
-                  <span style={{ color: '#6b7280', fontSize: '0.9rem' }}>Coins per bonus spin</span>
+        <form
+          style={{ maxWidth: 560 }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save();
+          }}
+        >
+          <Section title="Lucky spin & XP">
+            <div style={{ display: 'grid', gap: 16 }}>
+              <Field label="Lucky wheel spin cost" hint="Coins charged per bonus spin.">
+                <div className="ad-unit">
+                  <input type="number" inputMode="numeric" value={spinCost} onChange={(e) => setSpinCost(e.target.value)} />
+                  <span>coins</span>
                 </div>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
-                  Coin Spend to User XP Ratio
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={coinToXp}
-                    onChange={(e) => setCoinToXp(e.target.value)}
-                    style={{ width: '120px', margin: 0 }}
-                  />
-                  <span style={{ color: '#6b7280', fontSize: '0.9rem' }}>XP awarded per 1 coin spent (e.g. 0.1 = 1 XP per 10 coins)</span>
+              </Field>
+              <Field
+                label="XP per coin spent"
+                hint={coinsPerXp ? `Users earn 1 XP for every ${coinsPerXp.toLocaleString()} coins spent.` : 'Set above 0 to award XP for spending.'}
+              >
+                <div className="ad-unit">
+                  <input type="number" inputMode="decimal" step="0.01" value={coinToXp} onChange={(e) => setCoinToXp(e.target.value)} />
+                  <span>XP</span>
                 </div>
-              </div>
-
-              <div style={{ paddingTop: '16px' }}>
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => void save()}
-                  style={{ width: '100%', height: '46px', fontSize: '1rem', fontWeight: 600 }}
-                >
-                  {saving ? 'Saving...' : 'Save Bonus Settings'}
-                </button>
-              </div>
+              </Field>
             </div>
-          </div>
-        </div>
+            <div className="ad-form-actions">
+              <button type="submit" className="ad-btn ad-btn-accent ad-btn-lg" disabled={saving}>
+                {saving ? 'Saving…' : 'Save bonus settings'}
+              </button>
+            </div>
+          </Section>
+        </form>
       )}
+      {toastNode}
     </main>
   );
 }

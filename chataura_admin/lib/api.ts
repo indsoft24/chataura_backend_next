@@ -44,6 +44,7 @@ export async function api<T>(
     }
     if (res.status === 401 && typeof window !== 'undefined') {
       localStorage.removeItem('ca_admin_token');
+      localStorage.removeItem('ca_admin_tier');
       const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '/nextadmin';
       const loginUrl = `${basePath.replace(/\/$/, '')}/login`;
       if (!window.location.pathname.endsWith('/login')) {

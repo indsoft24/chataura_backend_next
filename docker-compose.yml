@@ -72,6 +72,30 @@ services:
     profiles:
       - full
 
+  # Same admin code built as the ceo/manager/admin panel, served at chataura.in/staff.
+  staff-panel:
+    build:
+      context: ./chataura_admin
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api/v2}
+        NEXT_PUBLIC_BASE_PATH: /staff
+        NEXT_PUBLIC_PANEL: staff
+    container_name: chataura_staff_panel
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3101:3100"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-/api/v2}
+      - NEXT_PUBLIC_BASE_PATH=/staff
+      - NEXT_PUBLIC_PANEL=staff
+    depends_on:
+      - nestjs-api
+    networks:
+      - chataura_net
+    profiles:
+      - full
+
   postgres:
     image: postgres:16-alpine
     container_name: chataura_postgres

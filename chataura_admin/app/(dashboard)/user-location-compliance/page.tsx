@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import {
-  AdminStyles,
   applyRange,
   Avatar,
   DateRangeChips,
@@ -207,7 +206,6 @@ export default function UserLocationCompliancePage() {
 
   return (
     <main className="ad-page">
-      <AdminStyles />
 
       <div className="ad-header">
         <div>
@@ -351,7 +349,7 @@ export default function UserLocationCompliancePage() {
         )}
 
         <div className="ad-table-wrap">
-          <table className="ad-table">
+          <table className="ad-table is-stack is-3up">
             <thead>
               <tr>
                 <SortTh column="name" label="User" sort={filters.sort} order={filters.order} onSort={onSort} defaultOrder="asc" />
@@ -374,7 +372,7 @@ export default function UserLocationCompliancePage() {
                   const name = u.name || `User #${u.id}`;
                   return (
                     <tr key={u.id} className="ad-row">
-                      <td className="ad-td">
+                      <td className="ad-td is-main">
                         <div className="ad-user" style={{ maxWidth: 320 }}>
                           <Avatar name={name} url={u.avatar_url} />
                           <div style={{ minWidth: 0 }}>
@@ -386,11 +384,12 @@ export default function UserLocationCompliancePage() {
                             </div>
                           </div>
                         </div>
+                        <span className="ad-mobile-only"><span className={`ad-badge ${STATUS_BADGE[status]}`}>{status}</span></span>
                       </td>
-                      <td className="ad-td ad-nowrap" title={countryName(u.profile_country)}>
+                      <td className="ad-td ad-nowrap" data-label="Profile" title={countryName(u.profile_country)}>
                         {u.profile_country ? <>{flag(u.profile_country)} {u.profile_country}</> : <span className="ad-hint">—</span>}
                       </td>
-                      <td className="ad-td ad-nowrap" title={countryName(u.client_country)}>
+                      <td className="ad-td ad-nowrap" data-label="Client" title={countryName(u.client_country)}>
                         {u.client_country ? <>{flag(u.client_country)} {u.client_country}</> : <span className="ad-hint">—</span>}
                         {u.country_mismatch && (
                           <span className="ad-badge amber" style={{ marginLeft: 8 }} title="Profile country differs from device/network country">
@@ -398,7 +397,7 @@ export default function UserLocationCompliancePage() {
                           </span>
                         )}
                       </td>
-                      <td className="ad-td ad-nowrap">
+                      <td className="ad-td ad-nowrap" data-label="Effective">
                         <button
                           type="button"
                           className="ad-link"
@@ -411,9 +410,9 @@ export default function UserLocationCompliancePage() {
                           </span>
                         </button>
                       </td>
-                      <td className="ad-td ad-num" style={{ fontWeight: 600, color: '#b45309' }}>🪙 {fmt(u.coin_balance)}</td>
-                      <td className="ad-td"><span className={`ad-badge ${STATUS_BADGE[status]}`}>{status}</span></td>
-                      <td className="ad-td ad-nowrap">{formatDate(u.registered_at)}</td>
+                      <td className="ad-td ad-num" data-label="Coins" style={{ fontWeight: 600, color: '#b45309' }}>🪙 {fmt(u.coin_balance)}</td>
+                      <td className="ad-td is-hide-sm"><span className={`ad-badge ${STATUS_BADGE[status]}`}>{status}</span></td>
+                      <td className="ad-td ad-nowrap" data-label="Registered">{formatDate(u.registered_at)}</td>
                     </tr>
                   );
                 })

@@ -1,15 +1,39 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
+import { AdminTier, TIER_LABEL, TIER_RANK, creatableTiers, readTier } from '@/lib/tier';
+import {
+  Avatar,
+  Field,
+  Kpi,
+  PageHeader,
+  Pager,
+  useClientPager,
+  Section,
+  EmptyRow,
+  SearchBox,
+  SkeletonRows,
+  Tabs,
+  errorText,
+  fmt,
+  pick,
+  useConfirm,
+  useDebouncedCommit,
+  useToasts,
+  useUrlFilters,
+} from '@/components/admin-ui';
 
 type StaffRow = {
   id: number;
-  email?: string;
-  display_name?: string;
+  display_id?: string;
+  email?: string | null;
+  phone?: string | null;
+  display_name?: string | null;
+  avatar_url?: string | null;
   role?: string;
+  staff_badge_type?: string | null;
   account_status?: string;
   business?: {
     users_brought?: number;
@@ -20,204 +44,337 @@ type StaffRow = {
   };
 };
 
+const ROLES = ['', 'admin', 'seller', 'agency'] as const;
+const TIERS = ['', 'superadmin', 'ceo', 'manager', 'admin'] as const;
+const SORTS = ['id', 'users', 'rooms', 'gifts', 'name'] as const;
+type Role = (typeof ROLES)[number];
+
+const ROLE_META: Record<string, { label: string; tone: string }> = {
+  admin: { label: 'Administrator', tone: 'red' },
+  seller: { label: 'Coin Seller', tone: 'amber' },
+  agency: { label: 'Agency', tone: 'indigo' },
+};
+
+const SORT_LABEL: Record<(typeof SORTS)[number], string> = {
+  id: 'ID (oldest first)',
+  users: 'Most users brought',
+  rooms: 'Most rooms today',
+  gifts: 'Highest gift volume',
+  name: 'Name (A–Z)',
+};
+
+const DEFAULTS = { q: '', role: '' as Role, tier: '', sort: 'id', page: 1 };
+
+/** Admin with no/unknown badge counts as the lowest tier, same as the backend. */
+function tierOf(s: StaffRow): AdminTier | null {
+  if (s.role !== 'admin') return null;
+  const b = String(s.staff_badge_type ?? 'admin').toLowerCase();
+  return (b in TIER_RANK ? b : 'admin') as AdminTier;
+}
+
 export default function StaffPage() {
-  const router = useRouter();
   const { token } = useAdminAuth();
+  const { toast, toastNode } = useToasts();
+  const { confirm, confirmNode } = useConfirm();
   const [staff, setStaff] = useState<StaffRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
   const [userId, setUserId] = useState('');
   const [role, setRole] = useState<'admin' | 'seller'>('admin');
-  const [badgeType, setBadgeType] = useState<'admin' | 'ceo' | 'manager' | 'superadmin'>('admin');
+  const [badgeType, setBadgeType] = useState<AdminTier>('admin');
+  const [assigning, setAssigning] = useState(false);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [myTier, setMyTier] = useState<AdminTier | null>(null);
+  useEffect(() => setMyTier(readTier()), []);
+  // Tiers this user may assign (never superadmin); seller is superadmin-only.
+  const assignable = myTier ? creatableTiers(myTier) : [];
+  useEffect(() => {
+    if (assignable.length && !assignable.includes(badgeType)) setBadgeType(assignable[0]);
+  }, [myTier]);
+
+  const { filters, update, reset, isDirty, ready } = useUrlFilters(DEFAULTS, (p) => ({
+    q: p.get('q') ?? '',
+    role: pick(p.get('role'), ROLES, ''),
+    tier: pick(p.get('tier'), TIERS, ''),
+    sort: pick(p.get('sort'), SORTS, 'id'),
+    page: 1,
+  }));
+  const [search, setSearch] = useState('');
+  useEffect(() => {
+    if (ready) setSearch(filters.q);
+  }, [ready]);
+  useDebouncedCommit(search, (q) => q !== filters.q && update({ q }), 200);
 
   async function load(tok: string) {
     setLoading(true);
     try {
-      const json = await api<{ success: boolean; data?: { staff: StaffRow[] } }>(
-        '/admin/staff',
-        tok,
-      );
+      const json = await api<{ data?: { staff: StaffRow[] } }>('/admin/staff', tok);
       setStaff(json.data?.staff ?? []);
+      setLoadError('');
     } catch (e) {
-      console.error(e);
+      setLoadError(errorText(e, 'Could not load staff'));
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (token) {
-      void load(token);
-    }
+    if (token) void load(token);
   }, [token]);
 
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { '': staff.length, admin: 0, seller: 0, agency: 0 };
+    staff.forEach((s) => { if (s.role && s.role in c) c[s.role] += 1; });
+    return c;
+  }, [staff]);
+
+  const rows = useMemo(() => {
+    const q = filters.q.toLowerCase().replace(/^#/, '');
+    const out = staff.filter((s) => {
+      if (filters.role && s.role !== filters.role) return false;
+      if (filters.tier && tierOf(s) !== filters.tier) return false;
+      if (!q) return true;
+      return [String(s.id), s.display_id, s.display_name, s.email, s.phone]
+        .some((v) => v && String(v).toLowerCase().includes(q));
+    });
+    const b = (s: StaffRow) => s.business;
+    const by: Record<string, (a: StaffRow, z: StaffRow) => number> = {
+      id: (a, z) => a.id - z.id,
+      users: (a, z) => (b(z)?.users_brought ?? 0) - (b(a)?.users_brought ?? 0),
+      rooms: (a, z) => (b(z)?.rooms_hosted_today ?? 0) - (b(a)?.rooms_hosted_today ?? 0),
+      gifts: (a, z) => (b(z)?.gift_coins_today ?? 0) - (b(a)?.gift_coins_today ?? 0),
+      name: (a, z) => (a.display_name ?? '').localeCompare(z.display_name ?? ''),
+    };
+    return out.sort(by[filters.sort] ?? by.id);
+  }, [staff, filters]);
+
   async function linkExisting() {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token || !userId) return;
+    if (!token || !userId.trim()) return;
+    setAssigning(true);
     try {
-      const json = await api<{ success: boolean; error?: { message?: string } }>(
-        `/admin/users/${userId}/link`,
-        token,
-        { method: 'POST', body: JSON.stringify({
+      const json = await api<{ success?: boolean; error?: { message?: string } }>(`/admin/users/${encodeURIComponent(userId.trim())}/link`, token, {
+        method: 'POST',
+        body: JSON.stringify({
           role,
           ...(role === 'admin' ? { staff_badge_type: badgeType } : {}),
-        }) },
-      );
-      if (!json.success) {
-        setError(json.error?.message ?? 'Link failed');
-        return;
-      }
+        }),
+      });
+      if (json.success === false) throw new Error(json.error?.message ?? 'Link failed');
       setError('');
       setUserId('');
-      void load(token);
-    } catch (err: any) {
-      setError('Network error');
-    }
-  }
-
-  async function demoteStaff(id: number) {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) return;
-    if (!confirm(`Are you sure you want to demote Staff #${id} back to a regular user?`)) return;
-    try {
-      await api(`/admin/users/${id}/link`, token, {
-        method: 'POST',
-        body: JSON.stringify({ role: 'user' }),
-      });
+      toast('success', `User ${userId.trim()} is now ${role === 'admin' ? TIER_LABEL[badgeType] : 'a Coin Seller'}`);
       void load(token);
     } catch (e) {
-      console.error(e);
+      setError(errorText(e, 'Link failed'));
+    } finally {
+      setAssigning(false);
     }
   }
 
+  function demoteStaff(s: StaffRow) {
+    confirm({
+      title: 'Demote to regular user?',
+      message: <>#{s.id} <strong>{s.display_name ?? 'Staff user'}</strong> will lose all staff and seller access.</>,
+      confirmLabel: 'Demote',
+      tone: 'danger',
+      onConfirm: async () => {
+        await api(`/admin/users/${s.id}/link`, token, {
+          method: 'POST',
+          body: JSON.stringify({ role: 'user' }),
+        });
+        toast('success', `#${s.id} demoted to user`);
+        if (token) void load(token);
+      },
+    });
+  }
+
+  const roleTabs = [
+    { value: '' as Role, label: 'All', count: counts[''] },
+    { value: 'admin' as Role, label: 'Administrators', count: counts.admin, tone: 'red' as const },
+    { value: 'seller' as Role, label: 'Coin Sellers', count: counts.seller, tone: 'amber' as const },
+    ...(counts.agency ? [{ value: 'agency' as Role, label: 'Agencies', count: counts.agency }] : []),
+  ];
+
+  const totals = useMemo(() => staff.reduce(
+    (t, s) => ({
+      users: t.users + (s.business?.users_brought ?? 0),
+      gifts: t.gifts + (s.business?.gift_coins_today ?? 0),
+      rooms: t.rooms + (s.business?.rooms_hosted_today ?? 0),
+    }),
+    { users: 0, gifts: 0, rooms: 0 },
+  ), [staff]);
+  const clearAll = () => { setSearch(''); reset(); };
+  const { pageItems, pagerProps } = useClientPager(rows, `${filters.q}|${filters.role}|${filters.tier}|${filters.sort}`);
+
   return (
-    <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Staff & Seller Management</h1>
-        <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>Authorize staff administrators, designate coin sellers, and track operational metrics.</p>
+    <main className="ad-page">
+      <style dangerouslySetInnerHTML={{ __html: STAFF_STYLES }} />
+      <PageHeader
+        title="Staff & Sellers"
+        subtitle="Authorize staff administrators, designate coin sellers, and track what each one brings in."
+      />
+
+      <div className="ad-kpis">
+        <Kpi label="Total staff" value={loading && !staff.length ? '—' : fmt(staff.length)} sub={`${fmt(counts.admin)} admins · ${fmt(counts.seller)} sellers`} />
+        <Kpi label="Users brought" value={fmt(totals.users)} sub="All time, by all staff" tone="indigo" />
+        <Kpi label="Rooms today" value={fmt(totals.rooms)} sub="Hosted by staff" />
+        <Kpi label="Gift volume today" value={`🪙 ${fmt(totals.gifts)}`} sub="Sent by staff" tone="amber" />
       </div>
 
-      <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', marginBottom: '24px' }}>
-        <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 16px 0', color: '#111827' }}>Promote User to Staff / Seller</h2>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: '220px', maxWidth: '360px' }}>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 600 }}>User ID / Display ID</div>
-            <input
-              placeholder="e.g. 102 or 5575178"
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              style={{ margin: 0 }}
-            />
-          </div>
-          <div>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 600 }}>Role</div>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as 'admin' | 'seller')}
-              style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', background: '#fff', fontSize: '0.95rem', margin: 0, height: '42px' }}
-            >
-              <option value="admin">Administrator</option>
-              <option value="seller">Coin Seller</option>
-            </select>
-          </div>
-          {role === 'admin' ? (
-            <div>
-              <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 600 }}>Staff Badge</div>
-              <select
-                value={badgeType}
-                onChange={(e) => setBadgeType(e.target.value as 'admin' | 'ceo' | 'manager' | 'superadmin')}
-                style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', background: '#fff', fontSize: '0.95rem', margin: 0, height: '42px' }}
-              >
-                <option value="admin">Admin</option>
-                <option value="ceo">CEO</option>
-                <option value="manager">Manager</option>
-                <option value="superadmin">Superadmin</option>
-              </select>
+      {assignable.length > 0 ? (
+        <Section collapsible title="Promote a user" subtitle="Give an existing user a staff badge or make them a coin seller.">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void linkExisting();
+            }}
+          >
+            <div className="ad-form-grid is-2up st-promote">
+              <Field label="User ID / Display ID" wide>
+                <input placeholder="e.g. 102 or 5575178" value={userId} onChange={(e) => setUserId(e.target.value)} inputMode="numeric" />
+              </Field>
+              <Field label="Role" wide={role !== 'admin'}>
+                <select value={role} onChange={(e) => setRole(e.target.value as 'admin' | 'seller')}>
+                  <option value="admin">Administrator</option>
+                  {myTier === 'superadmin' ? <option value="seller">Coin Seller</option> : null}
+                </select>
+              </Field>
+              {role === 'admin' ? (
+                <Field label="Staff badge">
+                  <select value={badgeType} onChange={(e) => setBadgeType(e.target.value as AdminTier)}>
+                    {assignable.map((t) => (
+                      <option key={t} value={t}>{TIER_LABEL[t]}</option>
+                    ))}
+                  </select>
+                </Field>
+              ) : null}
+              <div className="st-submit">
+                <button type="submit" className="ad-btn ad-btn-primary ad-btn-lg ad-btn-block" disabled={assigning || !userId.trim()}>
+                  {assigning ? 'Assigning…' : 'Assign role'}
+                </button>
+              </div>
             </div>
-          ) : null}
-          <div style={{ display: 'flex', alignItems: 'flex-end', height: '62px' }}>
-            <button type="button" onClick={() => void linkExisting()} style={{ width: 'auto', height: '42px' }}>
-              Assign Role
-            </button>
-          </div>
-        </div>
-        {error ? <p className="err" style={{ marginTop: '12px', marginBottom: 0, maxWidth: '400px' }}>{error}</p> : null}
-      </div>
+            {error ? <div className="ad-alert is-flush" style={{ marginTop: 12 }}>{error}</div> : null}
+          </form>
+        </Section>
+      ) : null}
 
-      <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb' }}>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+      <section className="ad-card">
+        <Tabs value={filters.role} onChange={(v) => update({ role: v, tier: v === 'admin' || v === '' ? filters.tier : '' })} tabs={roleTabs} />
+        <div className="ad-toolbar">
+          <SearchBox value={search} onChange={setSearch} placeholder="Search name, email, phone or ID" />
+          {filters.role === '' || filters.role === 'admin' ? (
+            <Field label="Badge">
+              <select value={filters.tier} onChange={(e) => update({ tier: e.target.value })}>
+                <option value="">All badges</option>
+                {TIERS.filter(Boolean).map((t) => (
+                  <option key={t} value={t}>{TIER_LABEL[t as AdminTier]}</option>
+                ))}
+              </select>
+            </Field>
+          ) : null}
+          <Field label="Sort by">
+            <select value={filters.sort} onChange={(e) => update({ sort: e.target.value })}>
+              {SORTS.map((s) => (
+                <option key={s} value={s}>{SORT_LABEL[s]}</option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <div className="ad-summary">
+          Showing <strong>{rows.length}</strong> of <strong>{staff.length}</strong>
+          {isDirty ? (
+            <>
+              {' · '}
+              <button type="button" className="ad-link" onClick={clearAll}>Clear filters</button>
+            </>
+          ) : null}
+        </div>
+        {loadError ? (
+          <div className="ad-alert">
+            {loadError}
+            <button type="button" className="ad-btn ad-btn-ghost" onClick={() => token && void load(token)}>Retry</button>
+          </div>
+        ) : null}
+
+        <div className="ad-table-wrap">
+          <table className="ad-table is-stack is-3up">
             <thead>
               <tr>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb' }}>ID</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb' }}>Staff Name</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb' }}>Role</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'right' }}>Users Brought</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'right' }}>Rooms Hosted (Today)</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'right' }}>Gift Volume (Today)</th>
-                <th style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase', background: '#f9fafb', textAlign: 'right' }}>Actions</th>
+                <th className="ad-th">Staff</th>
+                <th className="ad-th">Role</th>
+                <th className="ad-th ad-num">Users brought</th>
+                <th className="ad-th ad-num">Rooms today</th>
+                <th className="ad-th ad-num">Gifts today</th>
+                <th className="ad-th ad-num">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {loading ? (
-                <tr><td colSpan={7} style={{ padding: '24px', textAlign: 'center', color: '#6b7280' }}>Loading staff...</td></tr>
-              ) : staff.length === 0 ? (
-                <tr><td colSpan={7} style={{ padding: '24px', textAlign: 'center', color: '#6b7280' }}>No administrative or seller staff found.</td></tr>
+              {loading && staff.length === 0 ? (
+                <SkeletonRows cols={6} rows={5} />
+              ) : rows.length === 0 ? (
+                <EmptyRow
+                  cols={6}
+                  title={staff.length ? 'No staff match these filters' : 'No staff yet'}
+                  hint={staff.length ? 'Try a different search or badge.' : 'Promote a user above to add staff or sellers.'}
+                  onReset={isDirty ? clearAll : undefined}
+                />
               ) : (
-                staff.map((s) => (
-                  <tr key={s.id}>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', color: '#4b5563', fontSize: '0.9rem' }}>#{s.id}</td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6' }}>
-                      <div style={{ fontWeight: 600, color: '#111827' }}>{s.display_name ?? 'Staff User'}</div>
-                      <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>{s.email ?? 'No email'}</div>
-                    </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6' }}>
-                      <span style={{
-                        padding: '4px 8px',
-                        borderRadius: '4px',
-                        background: s.role === 'admin' ? '#fee2e2' : '#fef3c7',
-                        color: s.role === 'admin' ? '#991b1b' : '#92400e',
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        textTransform: 'uppercase'
-                      }}>
-                        {s.role === 'admin' ? 'Administrator' : 'Coin Seller'}
-                      </span>
-                    </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'right', fontWeight: 600, color: '#2563eb' }}>
-                      👥 {s.business?.users_brought ?? 0}
-                    </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'right', fontWeight: 600, color: '#4b5563' }}>
-                      {s.business?.rooms_hosted_today ?? 0}
-                    </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'right', fontWeight: 600, color: '#d97706' }}>
-                      🪙 {(s.business?.gift_coins_today ?? 0).toLocaleString()}
-                    </td>
-                    <td style={{ padding: '16px', borderBottom: '1px solid #f3f4f6', textAlign: 'right' }}>
-                      <button
-                        type="button"
-                        onClick={() => void demoteStaff(s.id)}
-                        style={{
-                          padding: '6px 12px',
-                          fontSize: '0.8rem',
-                          background: '#fee2e2',
-                          color: '#b91c1c',
-                          border: '1px solid #fca5a5',
-                          borderRadius: '6px',
-                          cursor: 'pointer',
-                          width: 'auto',
-                        }}
-                      >
-                        Demote to User
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                pageItems.map((s) => {
+                  const meta = ROLE_META[s.role ?? ''] ?? { label: s.role ?? '—', tone: 'gray' };
+                  const tier = tierOf(s);
+                  const roleBadge = (
+                    <span className="st-role">
+                      <span className={`ad-badge ${meta.tone}`}>{tier ? TIER_LABEL[tier] : meta.label}</span>
+                    </span>
+                  );
+                  return (
+                    <tr key={s.id} className="ad-row">
+                      <td className="ad-td is-main">
+                        <div className="ad-user">
+                          <Avatar name={s.display_name} url={s.avatar_url} />
+                          <div>
+                            <div className="ad-name">{s.display_name ?? 'Staff User'}</div>
+                            <div className="ad-sub">{s.email ?? s.phone ?? 'No email'}</div>
+                            <div className="ad-sub">#{s.id}{s.display_id && s.display_id !== String(s.id) ? ` · ID ${s.display_id}` : ''}</div>
+                          </div>
+                        </div>
+                        <span className="ad-mobile-only">{roleBadge}</span>
+                      </td>
+                      <td className="ad-td is-hide-sm">{roleBadge}</td>
+                      <td className="ad-td ad-num tone-indigo" data-label="Users brought">{fmt(s.business?.users_brought)}</td>
+                      <td className="ad-td ad-num" data-label="Rooms today">{fmt(s.business?.rooms_hosted_today)}</td>
+                      <td className="ad-td ad-num tone-amber" data-label="Gifts today">🪙 {fmt(s.business?.gift_coins_today)}</td>
+                      <td className="ad-td ad-num is-actions">
+                        <div className="ad-actions">
+                          <button type="button" className="ad-btn ad-btn-danger-soft" onClick={() => demoteStaff(s)}>
+                            Demote to user
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
-      </div>
+        {rows.length > 25 && <Pager {...pagerProps} />}
+      </section>
+      {confirmNode}
+      {toastNode}
     </main>
   );
 }
+
+const STAFF_STYLES = `
+.st-submit { display: flex; align-items: flex-end; }
+@media (min-width: 641px) {
+  .st-promote { grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(150px, 1fr)); align-items: end; }
+  .st-promote .ad-field.is-wide { grid-column: auto; }
+}
+@media (max-width: 640px) {
+  .st-submit { grid-column: 1 / -1; }
+}
+`;

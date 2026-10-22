@@ -5,7 +5,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import {
-  AdminStyles,
   applyRange,
   Avatar,
   DateRangeChips,
@@ -314,8 +313,7 @@ export function MediaModeration({ kind }: { kind: 'post' | 'reel' }) {
 
   return (
     <main className="ad-page">
-      <AdminStyles />
-      <style>{MEDIA_STYLES}</style>
+      <style dangerouslySetInnerHTML={{ __html: MEDIA_STYLES }} />
 
       <div className="ad-header">
         <div>
@@ -436,7 +434,7 @@ export function MediaModeration({ kind }: { kind: 'post' | 'reel' }) {
 
         {filters.view === 'table' ? (
           <div className="ad-table-wrap">
-            <table className="ad-table">
+            <table className="ad-table is-stack is-3up">
               <thead>
                 <tr>
                   <th className="ad-th" style={{ width: 36 }}>
@@ -466,29 +464,32 @@ export function MediaModeration({ kind }: { kind: 'post' | 'reel' }) {
                 ) : (
                   items.map((m) => (
                     <tr key={m.id} className={`ad-row ${busyIds.has(m.id) ? 'is-busy' : ''} ${selected.has(m.id) ? 'mm-selected' : ''}`}>
-                      <td className="ad-td">
+                      <td className="ad-td is-hide-sm">
                         <input type="checkbox" className="mm-check" checked={selected.has(m.id)} onChange={() => toggleSelect(m.id)} aria-label={`Select ${noun} ${m.id}`} />
                       </td>
-                      <td className="ad-td">
+                      <td className="ad-td is-main">
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           {thumb(m, isReel ? 'mm-thumb mm-thumb-tall' : 'mm-thumb')}
                           <span className="ad-id">#{m.id}</span>
                         </div>
+                        <span className="ad-mobile-only">
+                          <input type="checkbox" className="mm-check" checked={selected.has(m.id)} onChange={() => toggleSelect(m.id)} aria-label={`Select ${noun} ${m.id}`} />
+                        </span>
                       </td>
-                      <td className="ad-td">{authorCell(m)}</td>
-                      <td className="ad-td">
+                      <td className="ad-td is-full" data-label={isReel ? 'Creator' : 'Author'}>{authorCell(m)}</td>
+                      <td className="ad-td is-full" data-label="Caption">
                         <div className="mm-caption" title={m.caption ?? ''}>
                           {m.caption || <span className="ad-hint" style={{ fontStyle: 'italic' }}>No caption</span>}
                         </div>
                       </td>
-                      {isReel && <td className="ad-td ad-num">{fmt(m.views_count)}</td>}
-                      <td className="ad-td ad-num">{fmt(m.likes_count)}</td>
-                      <td className="ad-td ad-num">{fmt(m.comments_count)}</td>
-                      <td className="ad-td ad-nowrap">
+                      {isReel && <td className="ad-td ad-num" data-label="Views">{fmt(m.views_count)}</td>}
+                      <td className="ad-td ad-num" data-label="Likes">{fmt(m.likes_count)}</td>
+                      <td className="ad-td ad-num" data-label="Comments">{fmt(m.comments_count)}</td>
+                      <td className="ad-td ad-nowrap" data-label="Posted">
                         <div>{formatDate(m.created_at)}</div>
                         <div className="ad-sub">{formatTime(m.created_at)}</div>
                       </td>
-                      <td className="ad-td" style={{ textAlign: 'right' }}>{rowActions(m)}</td>
+                      <td className="ad-td is-actions" style={{ textAlign: 'right' }}>{rowActions(m)}</td>
                     </tr>
                   ))
                 )}
@@ -638,7 +639,15 @@ const MEDIA_STYLES = `
 .mm-lightbox-side { width: 340px; flex-shrink: 0; padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; box-sizing: border-box; }
 .mm-full-caption { font-size: 0.925rem; color: #111827; white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
 @media (max-width: 800px) {
-  .mm-lightbox-inner { flex-direction: column; height: 92vh; }
+  .mm-lightbox { padding: 0; }
+  .mm-lightbox-inner { flex-direction: column; height: 100dvh; border-radius: 0; }
+  .mm-lightbox-media { min-height: 45dvh; }
   .mm-lightbox-side { width: 100%; }
+}
+@media (max-width: 640px) {
+  .mm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 4px 12px 12px; }
+  .mm-card-body { padding: 8px; gap: 6px; }
+  .mm-card-body .ad-btn { padding: 6px 8px; font-size: 0.74rem; }
+  .ad-table.is-stack .mm-caption { max-width: none; white-space: normal; }
 }
 `;

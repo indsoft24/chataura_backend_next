@@ -475,7 +475,7 @@ function LedgerView({ tabs }: { tabs: ReactNode }) {
 
   return (
     <main className="tx">
-      <style>{STYLES}</style>
+      <style dangerouslySetInnerHTML={{ __html: STYLES }} />
       {tabs}
 
       <div className="tx-header">
@@ -707,7 +707,7 @@ function LedgerView({ tabs }: { tabs: ReactNode }) {
                       }}
                     >
                       <td className="tx-td tx-id">#{t.id}</td>
-                      <td className="tx-td">
+                      <td className="tx-td tx-main">
                         <div className="tx-user">
                           <div className="tx-avatar">
                             {t.user_avatar ? (
@@ -730,23 +730,25 @@ function LedgerView({ tabs }: { tabs: ReactNode }) {
                             >
                               ID {t.user_id}
                             </button>
+                            <span className="tx-m-only tx-sub"> · #{t.id}</span>
                           </div>
                         </div>
+                        <span className={`tx-m-only tx-amount-cell ${t.amount > 0 ? 'pos' : t.amount < 0 ? 'neg' : 'zero'}`}>{signed(t.amount)}</span>
                       </td>
-                      <td className="tx-td">
+                      <td className="tx-td tx-wide" data-label="Type">
                         <span className="tx-type" style={{ color: cat.color, background: cat.bg }} title={t.type}>{typeLabel(t.type)}</span>
                         {t.title && <div className="tx-sub tx-title" title={t.title}>{t.title}</div>}
                       </td>
-                      <td className={`tx-td tx-num tx-amount-cell ${t.amount > 0 ? 'pos' : t.amount < 0 ? 'neg' : 'zero'}`}>
+                      <td className={`tx-td tx-num tx-amount-cell tx-d-only ${t.amount > 0 ? 'pos' : t.amount < 0 ? 'neg' : 'zero'}`}>
                         {signed(t.amount)}
                       </td>
-                      <td className="tx-td tx-num tx-muted">{t.commission_amount ? fmt(t.commission_amount) : '—'}</td>
-                      <td className="tx-td tx-num tx-muted">{t.net_amount !== null && t.net_amount !== undefined ? fmt(t.net_amount) : '—'}</td>
-                      <td className="tx-td tx-num tx-muted">{t.balance_after !== null && t.balance_after !== undefined ? fmt(t.balance_after) : '—'}</td>
-                      <td className="tx-td">
+                      <td className="tx-td tx-num tx-muted" data-label="Commission">{t.commission_amount ? fmt(t.commission_amount) : '—'}</td>
+                      <td className="tx-td tx-num tx-muted" data-label="Net">{t.net_amount !== null && t.net_amount !== undefined ? fmt(t.net_amount) : '—'}</td>
+                      <td className="tx-td tx-num tx-muted" data-label="Balance after">{t.balance_after !== null && t.balance_after !== undefined ? fmt(t.balance_after) : '—'}</td>
+                      <td className="tx-td" data-label="Status">
                         <span className={`tx-status status-${t.status.toLowerCase()}`}>{t.status}</span>
                       </td>
-                      <td className="tx-td tx-date">
+                      <td className="tx-td tx-date" data-label="Date">
                         <div>{new Date(t.created_at).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })}</div>
                         <div className="tx-sub">{new Date(t.created_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</div>
                       </td>
@@ -760,7 +762,7 @@ function LedgerView({ tabs }: { tabs: ReactNode }) {
 
         <div className="tx-pager">
           <div className="tx-pager-info">
-            {total > 0 ? <>Showing <strong>{from.toLocaleString()}–{to.toLocaleString()}</strong> of <strong>{total.toLocaleString()}</strong></> : '—'}
+            <span>{total > 0 ? <>Showing <strong>{from.toLocaleString()}–{to.toLocaleString()}</strong> of <strong>{total.toLocaleString()}</strong></> : '—'}</span>
             <label className="tx-page-size">
               Rows
               <select value={filters.limit} onChange={(e) => update({ limit: Number(e.target.value) })}>

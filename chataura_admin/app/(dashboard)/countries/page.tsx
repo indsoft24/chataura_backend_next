@@ -1,9 +1,23 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import FileUploadInput from '@/app/components/FileUploadInput';
+import {
+  EmptyRow,
+  Field,
+  Modal,
+  PageHeader,
+  Pager,
+  SearchBox,
+  SkeletonRows,
+  Tabs,
+  errorText,
+  useClientPager,
+  useConfirm,
+  useToasts,
+} from '@/components/admin-ui';
 
 type Country = {
   id: string;
@@ -14,20 +28,21 @@ type Country = {
   is_active: boolean;
 };
 
+type Draft = { editing: boolean; id: string; name: string; emoji: string; url: string };
+const APPROVAL_TONE: Record<string, string> = { approved: 'green', rejected: 'red', pending: 'amber' };
+
 export default function CountriesPage() {
   const { token } = useAdminAuth();
+  const { toast, toastNode } = useToasts();
+  const { confirm, confirmNode } = useConfirm();
   const [countries, setCountries] = useState<Country[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-
-  // Form states
-  const [formId, setFormId] = useState('');
-  const [formName, setFormName] = useState('');
-  const [formEmoji, setFormEmoji] = useState('');
-  const [formUrl, setFormUrl] = useState('');
-  const [editingCountry, setEditingCountry] = useState<Country | null>(null);
+  const [approval, setApproval] = useState('');
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
 
   async function load() {
     if (!token) return;
@@ -36,308 +51,207 @@ export default function CountriesPage() {
       const res = await api<any>('/admin/countries', token);
       setCountries(res.data?.countries ?? []);
     } catch (err) {
-      console.error(err);
+      toast('error', errorText(err, 'Could not load countries'));
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    load();
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  const handleOpenAdd = () => {
-    setEditingCountry(null);
-    setFormId('');
-    setFormName('');
-    setFormEmoji('');
-    setFormUrl('');
-    setShowModal(true);
-  };
+  const counts = useMemo(() => {
+    const c: Record<string, number> = {};
+    countries.forEach((x) => { c[x.approval_status] = (c[x.approval_status] ?? 0) + 1; });
+    return c;
+  }, [countries]);
 
-  const handleOpenEdit = (c: Country) => {
-    setEditingCountry(c);
-    setFormId(c.id);
-    setFormName(c.name);
-    setFormEmoji(c.flag_emoji ?? '');
-    setFormUrl(c.flag_url ?? '');
-    setShowModal(true);
-  };
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return countries.filter((c) =>
+      (!approval || c.approval_status === approval) &&
+      (!term || c.name.toLowerCase().includes(term) || c.id.toLowerCase().includes(term)),
+    );
+  }, [countries, approval, search]);
+  const { pageItems, pagerProps } = useClientPager(filtered, `${approval}|${search}`, 50);
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token) return;
+  async function save() {
+    if (!token || !draft) return;
     setSaving(true);
+    setFormError('');
     try {
-      if (editingCountry) {
-        await api(`/admin/countries/${editingCountry.id}`, token, {
+      if (draft.editing) {
+        await api(`/admin/countries/${draft.id}`, token, {
           method: 'PATCH',
-          body: JSON.stringify({
-            name: formName,
-            flag_emoji: formEmoji || undefined,
-            flag_url: formUrl || undefined,
-          }),
+          body: JSON.stringify({ name: draft.name, flag_emoji: draft.emoji || undefined, flag_url: draft.url || undefined }),
         });
       } else {
         await api('/admin/countries', token, {
           method: 'POST',
-          body: JSON.stringify({
-            id: formId,
-            name: formName,
-            flag_emoji: formEmoji || undefined,
-            flag_url: formUrl || undefined,
-          }),
+          body: JSON.stringify({ id: draft.id, name: draft.name, flag_emoji: draft.emoji || undefined, flag_url: draft.url || undefined }),
         });
       }
-      setShowModal(false);
+      toast('success', `${draft.name} saved`);
+      setDraft(null);
       await load();
-    } catch (err: any) {
-      alert(err.message || 'Error saving country');
+    } catch (err) {
+      setFormError(errorText(err, 'Error saving country'));
     } finally {
       setSaving(false);
     }
-  };
+  }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm(`Delete country ${id}?`)) return;
+  async function setStatus(c: Country, action: 'approve' | 'reject') {
     if (!token) return;
+    setBusyId(c.id);
     try {
-      await api(`/admin/countries/${id}`, token, { method: 'DELETE' });
+      await api(`/admin/countries/${c.id}/${action}`, token, { method: 'POST' });
+      toast('success', `${c.name} ${action === 'approve' ? 'approved' : 'rejected'}`);
       await load();
-    } catch (err: any) {
-      alert(err.message || 'Failed to delete');
+    } catch (err) {
+      toast('error', errorText(err, `Failed to ${action}`));
+    } finally {
+      setBusyId(null);
     }
-  };
+  }
 
-  const handleStatus = async (id: string, action: 'approve' | 'reject') => {
-    if (!token) return;
-    try {
-      await api(`/admin/countries/${id}/${action}`, token, { method: 'POST' });
-      await load();
-    } catch (err: any) {
-      alert(err.message || `Failed to ${action}`);
-    }
-  };
+  function remove(c: Country) {
+    confirm({
+      title: `Delete ${c.name} (${c.id})?`,
+      message: 'Users in this country lose their flag. This cannot be undone.',
+      confirmLabel: 'Delete country',
+      tone: 'danger',
+      onConfirm: async () => {
+        await api(`/admin/countries/${c.id}`, token, { method: 'DELETE' });
+        toast('success', `${c.name} deleted`);
+        await load();
+      },
+    });
+  }
 
-  const filtered = countries.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.id.toLowerCase().includes(search.toLowerCase()),
-  );
+  const flag = (c: Country) =>
+    c.flag_emoji ? (
+      <span style={{ fontSize: '1.6rem', lineHeight: 1 }}>{c.flag_emoji}</span>
+    ) : c.flag_url ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={c.flag_url} alt="" style={{ width: 30, height: 21, objectFit: 'cover', borderRadius: 3 }} />
+    ) : (
+      <span className="ad-hint">—</span>
+    );
 
   return (
-    <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
-        <div>
-          <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Countries</h1>
-          <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>
-            Manage regional territories, country codes, and flag icons.
-          </p>
-        </div>
-        <button
-          onClick={handleOpenAdd}
-          style={{
-            padding: '10px 20px',
-            backgroundColor: '#1f2937',
-            color: '#fff',
-            fontWeight: 600,
-            borderRadius: 8,
-            border: 'none',
-            cursor: 'pointer',
-          }}
-        >
-          Add Country
-        </button>
-      </div>
+    <main className="ad-page">
+      <PageHeader
+        title="Countries"
+        subtitle="Country codes and flags users pick on their profile."
+        actions={<button type="button" className="ad-btn ad-btn-accent ad-btn-lg" onClick={() => { setFormError(''); setDraft({ editing: false, id: '', name: '', emoji: '', url: '' }); }}>+ Add country</button>}
+      />
 
-      <div style={{ marginBottom: 16 }}>
-        <input
-          type="text"
-          placeholder="Search by country name or code..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{
-            width: 320,
-            padding: '9px 14px',
-            borderRadius: 8,
-            border: '1px solid #d1d5db',
-            fontSize: '0.9rem',
-          }}
+      <section className="ad-card">
+        <Tabs
+          value={approval}
+          onChange={setApproval}
+          tabs={[
+            { value: '', label: 'All', count: countries.length },
+            { value: 'approved', label: 'Approved', count: counts.approved ?? 0, tone: 'green' },
+            { value: 'pending', label: 'Pending', count: counts.pending ?? 0, tone: 'amber' },
+            { value: 'rejected', label: 'Rejected', count: counts.rejected ?? 0, tone: 'red' },
+          ]}
         />
-      </div>
-
-      <div style={{ backgroundColor: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
-          <thead>
-            <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb', color: '#4b5563', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>
-              <th style={{ padding: '12px 16px' }}>CODE</th>
-              <th style={{ padding: '12px 16px' }}>FLAG</th>
-              <th style={{ padding: '12px 16px' }}>NAME</th>
-              <th style={{ padding: '12px 16px' }}>APPROVAL</th>
-              <th style={{ padding: '12px 16px' }}>ACTIVE</th>
-              <th style={{ padding: '12px 16px', textAlign: 'right' }}>ACTIONS</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={6} style={{ padding: 32, textAlign: 'center', color: '#9ca3af' }}>
-                  Loading countries...
-                </td>
-              </tr>
-            ) : filtered.length === 0 ? (
-              <tr>
-                <td colSpan={6} style={{ padding: 32, textAlign: 'center', color: '#9ca3af' }}>
-                  No countries found.
-                </td>
-              </tr>
-            ) : (
-              filtered.map((c) => (
-                <tr key={c.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                  <td style={{ padding: '12px 16px', fontWeight: 600, color: '#111827' }}>{c.id}</td>
-                  <td style={{ padding: '12px 16px' }}>
-                    {c.flag_emoji ? (
-                      <span style={{ fontSize: '1.5rem' }}>{c.flag_emoji}</span>
-                    ) : c.flag_url ? (
-                      <img src={c.flag_url} alt={c.name} style={{ width: 28, height: 20, objectFit: 'cover', borderRadius: 2 }} />
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td style={{ padding: '12px 16px', fontWeight: 500, color: '#111827' }}>{c.name}</td>
-                  <td style={{ padding: '12px 16px' }}>
-                    <span
-                      style={{
-                        padding: '3px 8px',
-                        borderRadius: 9999,
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        backgroundColor: c.approval_status === 'approved' ? '#def7ec' : c.approval_status === 'rejected' ? '#fde8e8' : '#fef08a',
-                        color: c.approval_status === 'approved' ? '#03543f' : c.approval_status === 'rejected' ? '#9b1c1c' : '#713f12',
-                      }}
-                    >
-                      {c.approval_status}
-                    </span>
-                  </td>
-                  <td style={{ padding: '12px 16px', color: c.is_active ? '#059669' : '#9ca3af', fontWeight: 500 }}>
-                    {c.is_active ? 'Yes' : 'No'}
-                  </td>
-                  <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                    <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', alignItems: 'center' }}>
-                      {c.approval_status !== 'approved' && (
-                        <button
-                          onClick={() => handleStatus(c.id, 'approve')}
-                          style={{ color: '#059669', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 500, fontSize: '0.85rem' }}
-                        >
-                          Approve
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleOpenEdit(c)}
-                        style={{ color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 500, fontSize: '0.85rem' }}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDelete(c.id)}
-                        style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 500, fontSize: '0.85rem' }}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {showModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ backgroundColor: '#fff', borderRadius: 12, width: 440, padding: 24, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: '1.25rem', fontWeight: 600 }}>
-              {editingCountry ? `Edit Country (${editingCountry.id})` : 'Add New Country'}
-            </h3>
-            <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {!editingCountry && (
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 4 }}>
-                    Country Code (ISO 2-letter)
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    maxLength={10}
-                    placeholder="e.g. IN, US, AE"
-                    value={formId}
-                    onChange={(e) => setFormId(e.target.value.toUpperCase())}
-                    style={modalInputStyle}
-                  />
-                </div>
-              )}
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 4 }}>
-                  Country Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. India"
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  style={modalInputStyle}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: 4 }}>
-                  Flag Emoji (Optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. 🇮🇳"
-                  value={formEmoji}
-                  onChange={(e) => setFormEmoji(e.target.value)}
-                  style={modalInputStyle}
-                />
-              </div>
-              <FileUploadInput
-                label="Country Flag Graphic (.png, .svg, .webp)"
-                value={formUrl}
-                onChange={(url) => setFormUrl(url)}
-                accept="image/*"
-                placeholder="https://.../flag.png or upload image"
-                helpText="Upload a country flag image icon or enter a CDN flag link."
-              />
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  style={{ padding: '8px 16px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', cursor: 'pointer' }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  style={{ padding: '8px 18px', borderRadius: 8, background: '#4f46e5', color: '#fff', border: 'none', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer' }}
-                >
-                  {saving ? 'Saving...' : 'Save'}
-                </button>
-              </div>
-            </form>
-          </div>
+        <div className="ad-toolbar">
+          <SearchBox value={search} onChange={setSearch} placeholder="Search country name or code" />
         </div>
+        <div className="ad-summary">Showing <strong>{filtered.length}</strong> of <strong>{countries.length}</strong></div>
+        <div className="ad-table-wrap">
+          <table className="ad-table is-stack">
+            <thead>
+              <tr>
+                <th className="ad-th">Country</th>
+                <th className="ad-th">Approval</th>
+                <th className="ad-th">Active</th>
+                <th className="ad-th ad-num">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && countries.length === 0 ? (
+                <SkeletonRows cols={4} />
+              ) : filtered.length === 0 ? (
+                <EmptyRow cols={4} title="No countries found" hint={countries.length ? 'Try a different search or tab.' : 'Add the first country.'} />
+              ) : (
+                pageItems.map((c) => (
+                  <tr key={c.id} className={`ad-row ${busyId === c.id ? 'is-busy' : ''}`}>
+                    <td className="ad-td is-main">
+                      <div className="ad-user">
+                        <div style={{ width: 34, display: 'flex', justifyContent: 'center', flexShrink: 0 }}>{flag(c)}</div>
+                        <div>
+                          <div className="ad-name">{c.name}</div>
+                          <div className="ad-sub ad-mono">{c.id}</div>
+                        </div>
+                      </div>
+                      <span className="ad-mobile-only"><span className={`ad-badge ${APPROVAL_TONE[c.approval_status] ?? 'gray'}`}>{c.approval_status}</span></span>
+                    </td>
+                    <td className="ad-td is-hide-sm"><span className={`ad-badge ${APPROVAL_TONE[c.approval_status] ?? 'gray'}`}>{c.approval_status}</span></td>
+                    <td className="ad-td" data-label="Active">{c.is_active ? <span className="tone-green" style={{ fontWeight: 600 }}>Yes</span> : <span className="ad-hint">No</span>}</td>
+                    <td className="ad-td ad-num is-actions is-half">
+                      <div className="ad-actions">
+                        {c.approval_status !== 'approved' && (
+                          <button type="button" className="ad-btn ad-btn-success-soft" onClick={() => void setStatus(c, 'approve')}>Approve</button>
+                        )}
+                        {c.approval_status === 'pending' && (
+                          <button type="button" className="ad-btn ad-btn-ghost" onClick={() => void setStatus(c, 'reject')}>Reject</button>
+                        )}
+                        <button type="button" className="ad-btn ad-btn-ghost" onClick={() => { setFormError(''); setDraft({ editing: true, id: c.id, name: c.name, emoji: c.flag_emoji ?? '', url: c.flag_url ?? '' }); }}>Edit</button>
+                        <button type="button" className="ad-btn ad-btn-danger-soft ad-icon-btn" aria-label={`Delete ${c.name}`} title="Delete" onClick={() => remove(c)}>✕</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        {filtered.length > 50 && <Pager {...pagerProps} />}
+      </section>
+
+      {draft && (
+        <Modal
+          title={draft.editing ? `Edit ${draft.name || draft.id}` : 'Add country'}
+          busy={saving}
+          onClose={() => setDraft(null)}
+          onSubmit={() => void save()}
+          footer={
+            <>
+              <button type="button" className="ad-btn ad-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
+              <button type="submit" className="ad-btn ad-btn-primary" disabled={saving || !draft.name || !draft.id}>{saving ? 'Saving…' : 'Save'}</button>
+            </>
+          }
+        >
+          <div className="ad-form-grid is-2up">
+            <Field label="Country code" hint="ISO 2-letter, e.g. IN, US, AE.">
+              <input required maxLength={10} disabled={draft.editing} placeholder="IN" value={draft.id} onChange={(e) => setDraft({ ...draft, id: e.target.value.toUpperCase() })} />
+            </Field>
+            <Field label="Flag emoji" hint="Optional.">
+              <input placeholder="🇮🇳" value={draft.emoji} onChange={(e) => setDraft({ ...draft, emoji: e.target.value })} />
+            </Field>
+            <Field label="Country name" wide>
+              <input required placeholder="India" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+            </Field>
+          </div>
+          <FileUploadInput
+            label="Flag image (.png, .svg, .webp)"
+            value={draft.url}
+            onChange={(url) => setDraft({ ...draft, url })}
+            accept="image/*"
+            placeholder="https://.../flag.png"
+            helpText="Optional image used when there is no emoji."
+          />
+          {formError && <div className="ad-alert">{formError}</div>}
+        </Modal>
       )}
+      {confirmNode}
+      {toastNode}
     </main>
   );
 }
-
-const modalInputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '9px 12px',
-  borderRadius: 8,
-  border: '1px solid #d1d5db',
-  fontSize: '0.9rem',
-  boxSizing: 'border-box',
-};

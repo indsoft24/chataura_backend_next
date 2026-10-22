@@ -80,6 +80,7 @@ export class JwtAuthGuard implements CanActivate {
       id: user.id,
       email: user.email,
       role: user.role,
+      staffBadgeType: user.staffBadgeType,
       emailVerifiedAt: user.emailVerifiedAt,
       accountStatus: user.accountStatus,
       isSuspended: user.isSuspended,

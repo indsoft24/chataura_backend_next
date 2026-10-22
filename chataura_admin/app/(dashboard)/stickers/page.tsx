@@ -1,11 +1,25 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import FileUploadInput from '@/app/components/FileUploadInput';
 import MediaThumb from '@/app/components/MediaThumb';
+import {
+  Field,
+  MediaCard,
+  MediaSkeleton,
+  Modal,
+  PageHeader,
+  Pager,
+  SearchBox,
+  Switch,
+  Tabs,
+  errorText,
+  useClientPager,
+  useConfirm,
+  useToasts,
+} from '@/components/admin-ui';
 
 const ANIMATION_ACCEPT =
   '.svga,.json,.gif,.webp,.mp4,.webm,video/mp4,video/webm,image/gif,image/webp';
@@ -19,450 +33,247 @@ type Sticker = {
   is_active: boolean;
 };
 
+type Draft = { id?: number; name: string; coinCost: string; imageUrl: string; animationUrl: string; isActive: boolean };
+const NEW_DRAFT: Draft = { name: '', coinCost: '10', imageUrl: '', animationUrl: '', isActive: true };
+
 export default function StickersPage() {
-  const router = useRouter();
   const { token } = useAdminAuth();
+  const { toast, toastNode } = useToasts();
+  const { confirm, confirmNode } = useConfirm();
   const [stickers, setStickers] = useState<Sticker[]>([]);
   const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<number | null>(null);
 
-  // Form states
-  const [name, setName] = useState('');
-  const [coinCost, setCoinCost] = useState('10');
-  const [imageUrl, setImageUrl] = useState('');
-  const [animationUrl, setAnimationUrl] = useState('');
-  const [error, setError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [price, setPrice] = useState<'' | 'free' | 'paid'>('');
+  const [q, setQ] = useState('');
+  const [status, setStatus] = useState('');
+  const [sort, setSort] = useState('newest');
 
-  // Edit Modal states
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editingSticker, setEditingSticker] = useState<Sticker | null>(null);
-  const [editName, setEditName] = useState('');
-  const [editCoinCost, setEditCoinCost] = useState('10');
-  const [editImageUrl, setEditImageUrl] = useState('');
-  const [editAnimationUrl, setEditAnimationUrl] = useState('');
-  const [editIsActive, setEditIsActive] = useState(true);
-  const [editError, setEditError] = useState('');
-  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
 
-  async function load(tok: string) {
+  async function load() {
+    if (!token) return;
     setLoading(true);
     try {
-      const json = await api<{ success: boolean; data?: { stickers: Sticker[] } }>('/admin/stickers', tok);
+      const json = await api<{ success: boolean; data?: { stickers: Sticker[] } }>('/admin/stickers', token);
       setStickers(json.data?.stickers ?? []);
     } catch (e) {
-      console.error(e);
+      toast('error', errorText(e, 'Could not load stickers'));
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (token) {
-      void load(token);
-    }
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  async function create() {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) return;
-    if (!name.trim()) {
-      setError('Sticker name is required');
+  const free = stickers.filter((x) => x.coin_cost <= 0).length;
+  const visible = useMemo(() => {
+    const term = q.trim().toLowerCase().replace(/^#/, '');
+    const out = stickers.filter((x) =>
+      (!price || (price === 'free') === (x.coin_cost <= 0)) &&
+      (!status || (status === 'active') === x.is_active) &&
+      (!term || x.name.toLowerCase().includes(term) || String(x.id) === term),
+    );
+    const by: Record<string, (a: Sticker, b: Sticker) => number> = {
+      newest: (a, b) => b.id - a.id,
+      name: (a, b) => a.name.localeCompare(b.name),
+      price_asc: (a, b) => a.coin_cost - b.coin_cost,
+      price_desc: (a, b) => b.coin_cost - a.coin_cost,
+    };
+    return out.sort(by[sort]);
+  }, [stickers, price, status, q, sort]);
+  const { pageItems, pagerProps } = useClientPager(visible, `${price}|${status}|${q}|${sort}`, 50);
+
+  async function save() {
+    if (!token || !draft) return;
+    if (!draft.name.trim()) {
+      setFormError('Sticker name is required');
       return;
     }
-    setSubmitting(true);
-    setError('');
+    setSaving(true);
+    setFormError('');
+    const body = {
+      name: draft.name.trim(),
+      coin_cost: Number(draft.coinCost) || 0,
+      image_url: draft.imageUrl.trim() || undefined,
+      animation_url: draft.animationUrl.trim() || undefined,
+    };
     try {
-      const json = await api<{ success: boolean; error?: { message?: string } }>('/admin/stickers', token, {
-        method: 'POST',
-        body: JSON.stringify({
-          name: name.trim(),
-          coin_cost: Number(coinCost) || 0,
-          image_url: imageUrl.trim() || undefined,
-          animation_url: animationUrl.trim() || undefined,
-        }),
-      });
-      if (!json.success) {
-        setError(json.error?.message ?? 'Create failed');
-        return;
+      if (draft.id) {
+        await api(`/admin/stickers/${draft.id}`, token, { method: 'PATCH', body: JSON.stringify({ ...body, is_active: draft.isActive }) });
+        toast('success', `${body.name} updated`);
+      } else {
+        const json = await api<{ success: boolean; error?: { message?: string } }>('/admin/stickers', token, { method: 'POST', body: JSON.stringify(body) });
+        if (!json.success) throw new Error(json.error?.message ?? 'Create failed');
+        toast('success', `${body.name} created`);
       }
-      setName('');
-      setCoinCost('10');
-      setImageUrl('');
-      setAnimationUrl('');
-      void load(token);
-    } catch (e: any) {
-      setError(e?.message ?? 'Network Error');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  function openEdit(sticker: Sticker) {
-    setEditingSticker(sticker);
-    setEditName(sticker.name);
-    setEditCoinCost(String(sticker.coin_cost));
-    setEditImageUrl(sticker.image_url ?? '');
-    setEditAnimationUrl(sticker.animation_url ?? '');
-    setEditIsActive(sticker.is_active);
-    setEditError('');
-    setEditModalOpen(true);
-  }
-
-  async function saveEdit() {
-    if (!editingSticker) return;
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) return;
-    if (!editName.trim()) {
-      setEditError('Sticker name is required');
-      return;
-    }
-    setEditSubmitting(true);
-    setEditError('');
-    try {
-      await api(`/admin/stickers/${editingSticker.id}`, token, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          name: editName.trim(),
-          coin_cost: Number(editCoinCost) || 0,
-          image_url: editImageUrl.trim() || undefined,
-          animation_url: editAnimationUrl.trim() || undefined,
-          is_active: editIsActive,
-        }),
-      });
-      setEditModalOpen(false);
-      setEditingSticker(null);
-      void load(token);
-    } catch (e: any) {
-      setEditError(e?.message ?? 'Failed to update sticker');
-    } finally {
-      setEditSubmitting(false);
-    }
-  }
-
-  async function toggleActive(id: number, current: boolean) {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) return;
-    try {
-      await api(`/admin/stickers/${id}`, token, {
-        method: 'PATCH',
-        body: JSON.stringify({ is_active: !current }),
-      });
-      void load(token);
+      setDraft(null);
+      void load();
     } catch (e) {
-      console.error(e);
+      setFormError(errorText(e, 'Failed to save sticker'));
+    } finally {
+      setSaving(false);
     }
   }
 
-  async function deleteSticker(id: number) {
-    const token = localStorage.getItem('ca_admin_token');
+  async function toggleActive(x: Sticker) {
     if (!token) return;
-    if (!confirm('Are you sure you want to delete this sticker?')) return;
+    setBusyId(x.id);
     try {
-      await api(`/admin/stickers/${id}`, token, { method: 'DELETE' });
-      void load(token);
+      await api(`/admin/stickers/${x.id}`, token, { method: 'PATCH', body: JSON.stringify({ is_active: !x.is_active }) });
+      setStickers((xs) => xs.map((y) => (y.id === x.id ? { ...y, is_active: !x.is_active } : y)));
     } catch (e) {
-      console.error(e);
+      toast('error', errorText(e, 'Could not update sticker'));
+    } finally {
+      setBusyId(null);
     }
   }
+
+  function remove(x: Sticker) {
+    confirm({
+      title: `Delete “${x.name}”?`,
+      message: 'Users can no longer send this sticker. This cannot be undone.',
+      confirmLabel: 'Delete sticker',
+      tone: 'danger',
+      onConfirm: async () => {
+        await api(`/admin/stickers/${x.id}`, token, { method: 'DELETE' });
+        toast('success', `${x.name} deleted`);
+        void load();
+      },
+    });
+  }
+
+  const set = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
+  const filtered = Boolean(price || status || q);
+  const clear = () => { setPrice(''); setStatus(''); setQ(''); };
 
   return (
-    <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Chat & Room Stickers</h1>
-        <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>Manage stickers that users can send in live room chats and direct messages.</p>
-      </div>
+    <main className="ad-page">
+      <PageHeader
+        title="Stickers"
+        subtitle={`Stickers users send in room chats and direct messages · ${stickers.filter((x) => x.is_active).length} of ${stickers.length} active`}
+        actions={<button type="button" className="ad-btn ad-btn-accent ad-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New sticker</button>}
+      />
 
-      {/* Creation Form */}
-      <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', marginBottom: '28px' }}>
-        <h2 style={{ fontSize: '1.15rem', fontWeight: 600, margin: '0 0 16px 0', color: '#111827' }}>Add New Sticker</h2>
-        
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '16px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Sticker Name *</label>
-            <input
-              type="text"
-              placeholder="e.g. Laughing Emoji / Thumbs Up"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Coin Cost (0 = Free)</label>
-            <input
-              type="number"
-              placeholder="10"
-              value={coinCost}
-              onChange={(e) => setCoinCost(e.target.value)}
-              style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
-            />
-          </div>
+      <section className="ad-card">
+        <Tabs
+          value={price}
+          onChange={setPrice}
+          tabs={[
+            { value: '' as const, label: 'All', count: stickers.length },
+            { value: 'free' as const, label: 'Free', count: free },
+            { value: 'paid' as const, label: 'Paid', count: stickers.length - free },
+          ]}
+        />
+        <div className="ad-toolbar">
+          <SearchBox value={q} onChange={setQ} placeholder="Search name or ID" />
+          <Field label="Status">
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="">Any status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </Field>
+          <Field label="Sort by">
+            <select value={sort} onChange={(e) => setSort(e.target.value)}>
+              <option value="newest">Newest first</option>
+              <option value="name">Name A–Z</option>
+              <option value="price_asc">Price: low → high</option>
+              <option value="price_desc">Price: high → low</option>
+            </select>
+          </Field>
+        </div>
+        <div className="ad-summary">
+          Showing <strong>{visible.length}</strong> of <strong>{stickers.length}</strong>
+          {filtered ? <>{' · '}<button type="button" className="ad-link" onClick={clear}>Clear filters</button></> : null}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', marginBottom: '16px' }}>
+        {loading && stickers.length === 0 ? (
+          <MediaSkeleton />
+        ) : visible.length === 0 ? (
+          <div className="ad-empty">
+            <div className="ad-empty-title">{stickers.length ? 'No stickers match' : 'No stickers yet'}</div>
+            {stickers.length ? 'Try a different filter.' : 'Create the first sticker for chats.'}
+          </div>
+        ) : (
+          <div className="ad-media-grid">
+            {pageItems.map((x) => (
+              <MediaCard
+                key={x.id}
+                thumb={<MediaThumb imageUrl={x.image_url} animationUrl={x.animation_url} alt={x.name} fallback="✨" />}
+                flags={x.animation_url ? <><span /><span className="ad-badge indigo" title="Animated">✨</span></> : undefined}
+                title={x.name}
+                meta={`#${x.id}`}
+                extra={<div className={x.coin_cost > 0 ? 'ad-media-price' : 'ad-media-price tone-green'}>{x.coin_cost > 0 ? `🪙 ${x.coin_cost.toLocaleString()}` : 'Free'}</div>}
+                active={x.is_active}
+                busy={busyId === x.id}
+                onToggle={() => void toggleActive(x)}
+                onEdit={() => {
+                  setFormError('');
+                  setDraft({ id: x.id, name: x.name, coinCost: String(x.coin_cost), imageUrl: x.image_url ?? '', animationUrl: x.animation_url ?? '', isActive: x.is_active });
+                }}
+                onDelete={() => remove(x)}
+              />
+            ))}
+          </div>
+        )}
+        {visible.length > 50 && <Pager {...pagerProps} />}
+      </section>
+
+      {draft && (
+        <Modal
+          size="wide"
+          title={draft.id ? `Edit sticker #${draft.id}` : 'New sticker'}
+          busy={saving}
+          onClose={() => setDraft(null)}
+          onSubmit={() => void save()}
+          footer={
+            <>
+              <button type="button" className="ad-btn ad-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
+              <button type="submit" className="ad-btn ad-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create sticker'}</button>
+            </>
+          }
+        >
+          <div className="ad-form-grid is-2up">
+            <Field label="Sticker name *">
+              <input autoFocus placeholder="e.g. Laughing Emoji" value={draft.name} onChange={(e) => set({ name: e.target.value })} />
+            </Field>
+            <Field label="Coin cost" hint="0 = free.">
+              <div className="ad-unit"><input type="number" inputMode="numeric" value={draft.coinCost} onChange={(e) => set({ coinCost: e.target.value })} /><span>coins</span></div>
+            </Field>
+          </div>
           <FileUploadInput
-            label="Static Sticker Image (.png, .webp, .svg)"
-            value={imageUrl}
-            onChange={(url) => setImageUrl(url)}
+            label="Static image (.png, .webp, .svg)"
+            value={draft.imageUrl}
+            onChange={(url) => set({ imageUrl: url })}
             accept="image/*"
-            placeholder="https://.../sticker.png or upload image"
-            helpText="Upload a transparent PNG/WebP static sticker icon."
+            placeholder="https://.../sticker.png"
+            helpText="Transparent PNG/WebP sticker icon."
           />
-
           <FileUploadInput
-            label="Animated Sticker (.gif, .webp, .json, .svga, .mp4, .webm)"
-            value={animationUrl}
-            onChange={(url) => setAnimationUrl(url)}
+            label="Animation (.gif, .webp, .json, .svga, .mp4, .webm)"
+            value={draft.animationUrl}
+            onChange={(url) => set({ animationUrl: url })}
             accept={ANIMATION_ACCEPT}
-            placeholder="https://.../sticker_anim.mp4 or upload file"
-            helpText="Looping sticker. GIF, WebP, Lottie JSON, SVGA, MP4, or WebM."
+            placeholder="https://.../sticker_anim.mp4"
+            helpText="Looping sticker. GIF, WebP, Lottie JSON, SVGA, MP4 or WebM."
           />
-        </div>
-
-        {error && <p style={{ color: '#b91c1c', fontSize: '0.85rem', marginBottom: '16px' }}>⚠️ {error}</p>}
-
-        <button
-          type="button"
-          onClick={() => void create()}
-          disabled={submitting}
-          style={{
-            padding: '10px 24px',
-            backgroundColor: '#4f46e5',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '6px',
-            fontWeight: 600,
-            fontSize: '0.9rem',
-            cursor: submitting ? 'not-allowed' : 'pointer',
-          }}
-        >
-          {submitting ? 'Creating...' : '+ Create Sticker'}
-        </button>
-      </div>
-
-      {/* Stickers Grid */}
-      {loading ? (
-        <p style={{ color: '#6b7280' }}>Loading stickers...</p>
-      ) : stickers.length === 0 ? (
-        <p style={{ color: '#6b7280' }}>No stickers found. Create one above.</p>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '20px' }}>
-          {stickers.map((s) => (
-            <div key={s.id} style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <div style={{ width: '84px', height: '84px', borderRadius: '12px', background: '#f8fafc', marginBottom: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid #f1f5f9' }}>
-                <MediaThumb
-                  imageUrl={s.image_url}
-                  animationUrl={s.animation_url}
-                  alt={s.name}
-                  fallback="✨"
-                />
-              </div>
-
-              <div style={{ fontWeight: 600, color: '#111827', fontSize: '1.05rem', marginBottom: '4px', textAlign: 'center' }}>{s.name}</div>
-              <div style={{ color: '#d97706', fontWeight: 700, fontSize: '0.95rem' }}>
-                {s.coin_cost > 0 ? `🪙 ${s.coin_cost} Coins` : 'Free Sticker'}
-              </div>
-
-              {s.animation_url && (
-                <div style={{ marginTop: '6px', fontSize: '0.72rem', backgroundColor: '#e0e7ff', color: '#3730a3', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>
-                  ✨ Animated
-                </div>
-              )}
-
-              <div style={{ marginTop: '12px', width: '100%' }}>
-                <span style={{ display: 'block', textAlign: 'center', padding: '4px 0', borderRadius: '6px', background: s.is_active ? '#d1fae5' : '#fee2e2', color: s.is_active ? '#065f46' : '#991b1b', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>
-                  {s.is_active ? 'Active' : 'Disabled'}
-                </span>
-              </div>
-
-              {/* Actions */}
-              <div style={{ display: 'flex', gap: '6px', marginTop: '12px', width: '100%' }}>
-                <button
-                  type="button"
-                  onClick={() => void toggleActive(s.id, s.is_active)}
-                  style={{
-                    flex: 1,
-                    padding: '6px 0',
-                    fontSize: '0.75rem',
-                    background: '#f3f4f6',
-                    color: '#374151',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontWeight: 500,
-                  }}
-                >
-                  {s.is_active ? 'Disable' : 'Enable'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => openEdit(s)}
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: '0.75rem',
-                    background: '#e0e7ff',
-                    color: '#3730a3',
-                    border: '1px solid #c7d2fe',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                  }}
-                >
-                  ✏️ Edit
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => void deleteSticker(s.id)}
-                  style={{
-                    padding: '6px 10px',
-                    fontSize: '0.75rem',
-                    background: '#fee2e2',
-                    color: '#b91c1c',
-                    border: '1px solid #fca5a5',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                  }}
-                >
-                  Delete
-                </button>
-              </div>
+          {draft.id ? (
+            <div className="ad-toggle-row">
+              <div className="ad-toggle-title">Available to users</div>
+              <Switch label="Active" checked={draft.isActive} onChange={(v) => set({ isActive: v })} />
             </div>
-          ))}
-        </div>
+          ) : null}
+          {formError && <div className="ad-alert">{formError}</div>}
+        </Modal>
       )}
-
-      {/* Edit Modal */}
-      {editModalOpen && editingSticker && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: '20px',
-          }}
-        >
-          <div
-            style={{
-              backgroundColor: '#fff',
-              borderRadius: '12px',
-              padding: '28px',
-              maxWidth: '560px',
-              width: '100%',
-              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, color: '#111827' }}>
-                Edit Sticker #{editingSticker.id}
-              </h2>
-              <button
-                type="button"
-                onClick={() => setEditModalOpen(false)}
-                style={{ background: 'none', border: 'none', fontSize: '1.25rem', color: '#6b7280', cursor: 'pointer' }}
-              >
-                ✕
-              </button>
-            </div>
-
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Sticker Name *</label>
-              <input
-                type="text"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
-              />
-            </div>
-
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Coin Cost (0 = Free)</label>
-              <input
-                type="number"
-                value={editCoinCost}
-                onChange={(e) => setEditCoinCost(e.target.value)}
-                style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
-              />
-            </div>
-
-            <FileUploadInput
-              label="Static Sticker Image (.png, .webp, .svg)"
-              value={editImageUrl}
-              onChange={(url) => setEditImageUrl(url)}
-              accept="image/*"
-              placeholder="https://.../sticker.png"
-            />
-
-            <FileUploadInput
-              label="Animated Sticker (.gif, .webp, .json, .svga, .mp4, .webm)"
-              value={editAnimationUrl}
-              onChange={(url) => setEditAnimationUrl(url)}
-              accept={ANIMATION_ACCEPT}
-              placeholder="https://.../sticker_anim.mp4"
-            />
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
-              <input
-                type="checkbox"
-                id="editStickerActive"
-                checked={editIsActive}
-                onChange={(e) => setEditIsActive(e.target.checked)}
-                style={{ width: '16px', height: '16px' }}
-              />
-              <label htmlFor="editStickerActive" style={{ fontSize: '0.9rem', color: '#374151', cursor: 'pointer', fontWeight: 500 }}>
-                Active in Chat Sticker Selector
-              </label>
-            </div>
-
-            {editError && <p style={{ color: '#b91c1c', fontSize: '0.85rem', marginBottom: '16px' }}>⚠️ {editError}</p>}
-
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                onClick={() => setEditModalOpen(false)}
-                style={{
-                  padding: '9px 18px',
-                  backgroundColor: '#f3f4f6',
-                  color: '#374151',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '6px',
-                  fontWeight: 600,
-                  fontSize: '0.9rem',
-                  cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveEdit()}
-                disabled={editSubmitting}
-                style={{
-                  padding: '9px 22px',
-                  backgroundColor: '#4f46e5',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontWeight: 600,
-                  fontSize: '0.9rem',
-                  cursor: editSubmitting ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {editSubmitting ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {confirmNode}
+      {toastNode}
     </main>
   );
 }

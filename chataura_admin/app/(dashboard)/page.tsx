@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { Avatar, EmptyRow, Field, Kpi, PageHeader, Section, fmt } from '@/components/admin-ui';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 type Overview = {
@@ -120,73 +120,13 @@ type DashboardData = {
   pending_withdrawals: number;
 };
 
-function MetricCard({
-  title,
-  value,
-  subtext,
-  badge,
-  badgeType = 'neutral',
-}: {
-  title: string;
-  value: string | number;
-  subtext?: React.ReactNode;
-  badge?: string;
-  badgeType?: 'positive' | 'negative' | 'neutral' | 'indigo';
-}) {
-  const badgeStyles = {
-    positive: { bg: '#def7ec', color: '#03543f' },
-    negative: { bg: '#fde8e8', color: '#9b1c1c' },
-    neutral: { bg: '#f3f4f6', color: '#4b5563' },
-    indigo: { bg: '#e0e7ff', color: '#3730a3' },
-  }[badgeType];
-
-  return (
-    <div
-      style={{
-        backgroundColor: '#fff',
-        borderRadius: '12px',
-        padding: '22px 24px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-        border: '1px solid #e5e7eb',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'space-between',
-        gap: '8px',
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-          {title}
-        </span>
-        {badge && (
-          <span
-            style={{
-              padding: '2px 8px',
-              borderRadius: 9999,
-              fontSize: '0.72rem',
-              fontWeight: 600,
-              backgroundColor: badgeStyles.bg,
-              color: badgeStyles.color,
-            }}
-          >
-            {badge}
-          </span>
-        )}
-      </div>
-      <div style={{ fontSize: '1.85rem', fontWeight: 700, color: '#111827', letterSpacing: '-0.02em' }}>
-        {value}
-      </div>
-      {subtext && (
-        <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '2px' }}>
-          {subtext}
-        </div>
-      )}
-    </div>
-  );
-}
+const money = (n?: number) => `$${(n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const pctBadge = (n: number, suffix = '') => (
+  <span className={`ad-badge ${n >= 0 ? 'green' : 'red'}`}>{n >= 0 ? '+' : ''}{n}%{suffix}</span>
+);
+const STATUS_TONE: Record<string, string> = { success: 'green', approved: 'green', paid: 'green', pending: 'amber', failed: 'red', rejected: 'red' };
 
 export default function DashboardPage() {
-  const router = useRouter();
   const { token } = useAdminAuth();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -256,542 +196,212 @@ export default function DashboardPage() {
     ? Math.max(...data.commissionByDay.map((c) => c.commission), 1)
     : 1;
 
+  const days = data?.commissionByDay ?? [];
+  const top = data?.topUsersByCommission ?? [];
+  const fin = data?.finance;
+  const ov = data?.overview;
+
   return (
-    <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
-      {/* Top Header & Range Controls */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          flexWrap: 'wrap',
-          gap: '20px',
-          marginBottom: '32px',
-        }}
-      >
-        <div>
-          <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 6px 0' }}>
-            Production Analytics & Operations
-          </h1>
-          <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>
-            Multi-source platform analytics, live telemetry, and financial ledger audit.
-          </p>
-        </div>
+    <main className="ad-page">
+      <style dangerouslySetInnerHTML={{ __html: DASH_STYLES }} />
+      <PageHeader title="Dashboard" subtitle="Platform revenue, live activity and coin flow for the selected period." />
 
-        {/* Date Filter Bar */}
-        <form
-          onSubmit={handleApplyFilter}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            backgroundColor: '#fff',
-            padding: '8px 14px',
-            borderRadius: '10px',
-            border: '1px solid #e5e7eb',
-            boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-            flexWrap: 'wrap',
-          }}
+      <form className="ad-card db-range" onSubmit={handleApplyFilter}>
+        <div className="ad-seg" role="group" aria-label="Period">
+          {(['daily', 'weekly', 'monthly'] as const).map((p) => (
+            <button type="button" key={p} className={`ad-seg-btn ${period === p ? 'is-active' : ''}`} onClick={() => handlePeriodChange(p)}>
+              {p[0].toUpperCase() + p.slice(1)}
+            </button>
+          ))}
+        </div>
+        <div className="db-dates">
+          <Field label="From"><input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} /></Field>
+          <Field label="To"><input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} /></Field>
+        </div>
+        <div className="db-range-actions">
+          <button type="button" className="ad-btn ad-btn-ghost ad-btn-lg" onClick={handleResetFilter}>Reset</button>
+          <button type="submit" className="ad-btn ad-btn-primary ad-btn-lg" disabled={loading}>{loading ? 'Loading…' : 'Apply'}</button>
+        </div>
+      </form>
+
+      {error ? <div className="ad-alert is-flush" style={{ marginBottom: 16 }}>{error}</div> : null}
+
+      <div className="ad-kpis db-kpis">
+        <Kpi label="Revenue" value={data ? money(data.revenue?.current_period) : '—'} badge={data ? pctBadge(revGrowth) : undefined} sub={`Previous period ${money(data?.revenue?.previous_period)}`} tone="green" />
+        <Kpi label="Today" value={data ? money(data.revenue?.today) : '—'} sub={`This week ${money(data?.revenue?.this_week)}`} badge={<span className="ad-badge indigo">Live</span>} />
+        <Kpi label="Commission" value={data ? fmt(data.commission?.current_period) : '—'} badge={data ? pctBadge(data.commission?.growth_percent ?? 0) : undefined} sub="Platform coins this period" tone="indigo" />
+        <Kpi label="Users" value={data ? fmt(ov?.total_users) : '—'} sub={data ? `${fmt(ov?.new_users_in_range)} joined this period` : undefined} />
+        <Kpi label="Live rooms" value={data ? fmt(ov?.active_rooms) : '—'} badge={<span className="ad-badge indigo">Live</span>} sub="Party rooms broadcasting" />
+        <Kpi label="Content" value={data ? fmt(ov?.content_posts_in_range) : '—'} sub="Posts & reels in period" />
+      </div>
+
+      <div className="ad-grid-2-1" style={{ marginBottom: 20 }}>
+        <Section
+          title="Commission by day"
+          subtitle="Admin-retained commission per day, with transaction count and gross volume."
+          actions={<span className="ad-badge indigo">{days.length} days</span>}
         >
-          {/* Quick Period Buttons */}
-          <div style={{ display: 'flex', backgroundColor: '#f3f4f6', borderRadius: '8px', padding: '3px' }}>
-            {(['daily', 'weekly', 'monthly'] as const).map((p) => (
-              <button
-                type="button"
-                key={p}
-                onClick={() => handlePeriodChange(p)}
-                style={{
-                  padding: '5px 12px',
-                  borderRadius: '6px',
-                  border: 'none',
-                  fontSize: '0.78rem',
-                  fontWeight: 600,
-                  textTransform: 'capitalize',
-                  cursor: 'pointer',
-                  backgroundColor: period === p ? '#fff' : 'transparent',
-                  color: period === p ? '#111827' : '#6b7280',
-                  boxShadow: period === p ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 500 }}>From:</span>
-            <input
-              type="date"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-              style={{
-                padding: '4px 8px',
-                fontSize: '0.8rem',
-                borderRadius: '6px',
-                border: '1px solid #d1d5db',
-                width: '135px',
-              }}
-            />
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 500 }}>To:</span>
-            <input
-              type="date"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              style={{
-                padding: '4px 8px',
-                fontSize: '0.8rem',
-                borderRadius: '6px',
-                border: '1px solid #d1d5db',
-                width: '135px',
-              }}
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              padding: '6px 14px',
-              fontSize: '0.8rem',
-              borderRadius: '6px',
-              border: 'none',
-              backgroundColor: '#1f2937',
-              color: '#fff',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            {loading ? '...' : 'Apply'}
-          </button>
-          <button
-            type="button"
-            onClick={handleResetFilter}
-            style={{
-              padding: '6px 10px',
-              fontSize: '0.8rem',
-              borderRadius: '6px',
-              border: '1px solid #d1d5db',
-              backgroundColor: '#fff',
-              color: '#4b5563',
-              cursor: 'pointer',
-            }}
-          >
-            Reset
-          </button>
-        </form>
-      </div>
-
-      {error && (
-        <div style={{ padding: '12px 16px', backgroundColor: '#fee2e2', color: '#991b1b', borderRadius: '8px', marginBottom: '24px', fontSize: '0.9rem' }}>
-          {error}
-        </div>
-      )}
-
-      {/* 6 Top Key Performance Indicator Cards */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: '16px',
-          marginBottom: '28px',
-        }}
-      >
-        <MetricCard
-          title="Revenue (Period)"
-          value={data ? `$${(data.revenue?.current_period ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '...'}
-          badge={data ? `${revGrowth >= 0 ? '+' : ''}${revGrowth}% vs prev` : undefined}
-          badgeType={revGrowth >= 0 ? 'positive' : 'negative'}
-          subtext={`Prev: $${(data?.revenue?.previous_period ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-        />
-        <MetricCard
-          title="Revenue (Today)"
-          value={data ? `$${(data.revenue?.today ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '...'}
-          subtext={`Week: $${(data?.revenue?.this_week ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-          badge="Live"
-          badgeType="indigo"
-        />
-        <MetricCard
-          title="Commission (Period)"
-          value={data ? (data.commission?.current_period ?? 0).toLocaleString() : '...'}
-          badge={data ? `${(data.commission?.growth_percent ?? 0) >= 0 ? '+' : ''}${data.commission?.growth_percent ?? 0}%` : undefined}
-          badgeType={(data?.commission?.growth_percent ?? 0) >= 0 ? 'positive' : 'negative'}
-          subtext="Net platform earnings (coins)"
-        />
-        <MetricCard
-          title="Total Users"
-          value={data ? data.overview?.total_users?.toLocaleString() ?? 0 : '...'}
-          badge={data ? `+${data.overview?.new_users_in_range ?? 0} new` : undefined}
-          badgeType="positive"
-          subtext="Active platform accounts"
-        />
-        <MetricCard
-          title="Active Live Rooms"
-          value={data ? data.overview?.active_rooms?.toLocaleString() ?? 0 : '...'}
-          badge="Live"
-          badgeType="indigo"
-          subtext="Party rooms with audio broadcast"
-        />
-        <MetricCard
-          title="Content Created"
-          value={data ? data.overview?.content_posts_in_range?.toLocaleString() ?? 0 : '...'}
-          subtext="Posts and reels in selected range"
-          badge="Media"
-          badgeType="neutral"
-        />
-      </div>
-
-      {/* Row 2: Commission Trend & Platform Flow Snapshot */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px', marginBottom: '28px' }}>
-        {/* Commission Trend By Day */}
-        <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <div>
-              <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: 0, color: '#111827' }}>Commission Trend by Day</h2>
-              <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#6b7280' }}>
-                Daily coin volume and admin retained commission in selected date range.
-              </p>
-            </div>
-            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#4f46e5', backgroundColor: '#eef2ff', padding: '4px 10px', borderRadius: 9999 }}>
-              {data?.commissionByDay?.length ?? 0} Recorded Days
-            </span>
-          </div>
-
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.88rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '10px 0' }}>Date</th>
-                  <th style={{ padding: '10px 12px' }}>Tx Count</th>
-                  <th style={{ padding: '10px 12px' }}>Gross Volume</th>
-                  <th style={{ padding: '10px 0', textAlign: 'right' }}>Commission</th>
-                  <th style={{ padding: '10px 12px', width: '120px' }}>Share</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data?.commissionByDay && data.commissionByDay.length > 0 ? (
-                  data.commissionByDay.map((row) => {
-                    const pct = Math.round((row.commission / maxCommissionDay) * 100);
-                    return (
-                      <tr key={row.bucket} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                        <td style={{ padding: '14px 0', fontWeight: 600, color: '#111827' }}>{row.bucket}</td>
-                        <td style={{ padding: '14px 12px', color: '#4b5563' }}>{row.tx_count.toLocaleString()}</td>
-                        <td style={{ padding: '14px 12px', color: '#4b5563' }}>{row.gross_volume.toLocaleString()}</td>
-                        <td style={{ padding: '14px 0', textAlign: 'right', fontWeight: 600, color: '#4f46e5' }}>
-                          {row.commission.toLocaleString()}
-                        </td>
-                        <td style={{ padding: '14px 12px' }}>
-                          <div style={{ width: '100%', backgroundColor: '#f3f4f6', height: '6px', borderRadius: 9999, overflow: 'hidden' }}>
-                            <div style={{ width: `${pct}%`, backgroundColor: '#4f46e5', height: '100%' }} />
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                ) : (
-                  <tr>
-                    <td colSpan={5} style={{ padding: '32px 0', textAlign: 'center', color: '#9ca3af' }}>
-                      {loading ? 'Loading commission trend...' : 'No transaction activity in selected date range.'}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Platform Flow Snapshot */}
-        <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb' }}>
-          <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 6px 0', color: '#111827' }}>Platform Flow Snapshot</h2>
-          <p style={{ margin: '0 0 20px 0', fontSize: '0.82rem', color: '#6b7280' }}>Global coin movement summary.</p>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '0.88rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f3f4f6', paddingBottom: '8px' }}>
-              <span style={{ color: '#4b5563' }}>Total Coin Tx</span>
-              <strong style={{ color: '#111827' }}>{(data?.finance?.tx_count ?? 0).toLocaleString()}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f3f4f6', paddingBottom: '8px' }}>
-              <span style={{ color: '#4b5563' }}>Gross Volume</span>
-              <strong style={{ color: '#111827' }}>{(data?.finance?.gross_volume ?? 0).toLocaleString()}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f3f4f6', paddingBottom: '8px' }}>
-              <span style={{ color: '#4b5563' }}>Net User Volume</span>
-              <strong style={{ color: '#059669' }}>{(data?.finance?.net_volume ?? 0).toLocaleString()}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f3f4f6', paddingBottom: '8px' }}>
-              <span style={{ color: '#4b5563' }}>Platform Commission</span>
-              <strong style={{ color: '#4f46e5' }}>{(data?.finance?.commission ?? 0).toLocaleString()}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f3f4f6', paddingBottom: '8px' }}>
-              <span style={{ color: '#4b5563' }}>Gift Volume</span>
-              <strong style={{ color: '#e11d48' }}>{(data?.finance?.gift_volume ?? 0).toLocaleString()}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f3f4f6', paddingBottom: '8px' }}>
-              <span style={{ color: '#4b5563' }}>Mini-Games Bets</span>
-              <strong style={{ color: '#d97706' }}>{(data?.finance?.game_volume ?? 0).toLocaleString()}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f3f4f6', paddingBottom: '8px' }}>
-              <span style={{ color: '#4b5563' }}>Admin / Seller Credits</span>
-              <strong style={{ color: '#111827' }}>{(data?.finance?.admin_credit_volume ?? 0).toLocaleString()}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f3f4f6', paddingBottom: '8px' }}>
-              <span style={{ color: '#4b5563' }}>Posts & Reels Created</span>
-              <strong style={{ color: '#111827' }}>{(data?.overview?.content_posts_in_range ?? 0).toLocaleString()}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#4b5563' }}>Feedback & User Reports</span>
-              <strong style={{ color: '#dc2626' }}>
-                {((data?.overview?.feedback_in_range ?? 0) + (data?.overview?.reports_in_range ?? 0)).toLocaleString()}
-              </strong>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Row 3: System Wallet & Call Telemetry vs Recharge & Withdrawal Health */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '28px' }}>
-        {/* System Wallet Reserve */}
-        <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb' }}>
-          <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 6px 0', color: '#111827' }}>System Wallet Reserve</h2>
-          <p style={{ margin: '0 0 18px 0', fontSize: '0.82rem', color: '#6b7280' }}>
-            Platform reserve account balance used for operational credits.
-          </p>
-
-          {data?.systemUser && (
-            <div style={{ backgroundColor: '#f9fafb', borderRadius: '8px', padding: '14px 16px', border: '1px solid #e5e7eb' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontWeight: 600, color: '#111827', fontSize: '0.9rem' }}>
-                    {data.systemUser.name} <span style={{ color: '#6b7280', fontSize: '0.78rem' }}>#{data.systemUser.id}</span>
+          {days.length ? (
+            <div className="db-bars">
+              {days.map((row) => (
+                <div key={row.bucket} className="db-bar-row">
+                  <div className="db-bar-date">{row.bucket.slice(5)}</div>
+                  <div className="db-bar-main">
+                    <div className="db-bar-track"><div className="db-bar-fill" style={{ width: `${Math.max(2, Math.round((row.commission / maxCommissionDay) * 100))}%` }} /></div>
+                    <div className="db-bar-sub">{fmt(row.tx_count)} tx · gross {fmt(row.gross_volume)}</div>
                   </div>
-                  <div style={{ fontSize: '0.78rem', color: '#6b7280' }}>{data.systemUser.email}</div>
+                  <div className="db-bar-val">{fmt(row.commission)}</div>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '0.72rem', color: '#6b7280', textTransform: 'uppercase', fontWeight: 600 }}>Reserve Balance</div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#059669' }}>
-                    {data.systemUser.coin_balance.toLocaleString()} coins
-                  </div>
-                </div>
-              </div>
+              ))}
             </div>
+          ) : (
+            <div className="ad-empty">{loading ? 'Loading commission trend…' : 'No transaction activity in this range.'}</div>
           )}
-        </div>
+        </Section>
 
-        {/* Recharge & Withdrawal Health */}
-        <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb' }}>
-          <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0 0 6px 0', color: '#111827' }}>Recharge & Withdrawal Health</h2>
-          <p style={{ margin: '0 0 18px 0', fontSize: '0.82rem', color: '#6b7280' }}>
-            Payment processing success and gem cash-out requests.
-          </p>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            {/* Purchases */}
-            <div>
-              <h3 style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: '#6b7280', margin: '0 0 8px 0', fontWeight: 600 }}>
-                Coin Purchases
-              </h3>
-              <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                  <tbody>
-                    {data?.recharge?.coin_purchase && data.recharge.coin_purchase.length > 0 ? (
-                      data.recharge.coin_purchase.map((r) => (
-                        <tr key={r.status} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                          <td style={{ padding: '8px 10px', textTransform: 'uppercase', fontWeight: 600 }}>
-                            <span style={{ color: r.status === 'success' ? '#059669' : '#d97706' }}>
-                              {r.status}
-                            </span>
-                          </td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', color: '#6b7280' }}>
-                            {r.tx_count} tx
-                          </td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600 }}>
-                            {r.total_coins.toLocaleString()}
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={3} style={{ padding: '16px', textAlign: 'center', color: '#9ca3af' }}>
-                          No purchases in range
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Withdrawals */}
-            <div>
-              <h3 style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: '#6b7280', margin: '0 0 8px 0', fontWeight: 600 }}>
-                Gems Withdrawals
-              </h3>
-              <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                  <tbody>
-                    {data?.withdrawals && data.withdrawals.length > 0 ? (
-                      data.withdrawals.map((w) => (
-                        <tr key={w.status} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                          <td style={{ padding: '8px 10px', textTransform: 'uppercase', fontWeight: 600 }}>
-                            <span style={{ color: w.status === 'approved' ? '#059669' : w.status === 'pending' ? '#d97706' : '#dc2626' }}>
-                              {w.status}
-                            </span>
-                          </td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', color: '#6b7280' }}>
-                            {w.request_count} req
-                          </td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600 }}>
-                            {w.total_gems.toLocaleString()}
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={3} style={{ padding: '16px', textAlign: 'center', color: '#9ca3af' }}>
-                          No withdrawal records
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
+        <Section title="Coin flow" subtitle="Movement across the platform in this period.">
+          <dl className="ad-kv">
+            <div><dt>Coin transactions</dt><dd>{fmt(fin?.tx_count)}</dd></div>
+            <div><dt>Gross volume</dt><dd>{fmt(fin?.gross_volume)}</dd></div>
+            <div><dt>Net user volume</dt><dd className="tone-green">{fmt(fin?.net_volume)}</dd></div>
+            <div><dt>Platform commission</dt><dd className="tone-indigo">{fmt(fin?.commission)}</dd></div>
+            <div><dt>Gift volume</dt><dd className="tone-red">{fmt(fin?.gift_volume)}</dd></div>
+            <div><dt>Mini-game bets</dt><dd className="tone-amber">{fmt(fin?.game_volume)}</dd></div>
+            <div><dt>Admin / seller credits</dt><dd>{fmt(fin?.admin_credit_volume)}</dd></div>
+            <div><dt>Posts & reels</dt><dd>{fmt(ov?.content_posts_in_range)}</dd></div>
+            <div><dt>Feedback & reports</dt><dd className="tone-red">{fmt((ov?.feedback_in_range ?? 0) + (ov?.reports_in_range ?? 0))}</dd></div>
+          </dl>
+        </Section>
       </div>
 
-      {/* Row 4: Top Users by Generated Commission (Leaderboard) */}
-      <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <div>
-            <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: 0, color: '#111827' }}>
-              Top Creators & Users by Generated Commission
-            </h2>
-            <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#6b7280' }}>
-              Ranked leaderboard of users driving the highest platform revenue.
-            </p>
-          </div>
-          <Link
-            href="/users"
-            style={{
-              fontSize: '0.82rem',
-              color: '#4f46e5',
-              fontWeight: 600,
-              textDecoration: 'none',
-              padding: '6px 12px',
-              borderRadius: '6px',
-              backgroundColor: '#eef2ff',
-            }}
-          >
-            Manage All Users →
-          </Link>
-        </div>
+      <div className="ad-grid-2" style={{ marginBottom: 20 }}>
+        <Section title="System wallet" subtitle="Reserve account used for operational credits.">
+          {data?.systemUser ? (
+            <div className="db-wallet">
+              <div style={{ minWidth: 0 }}>
+                <div className="ad-name">{data.systemUser.name} <span className="ad-hint">#{data.systemUser.id}</span></div>
+                <div className="ad-sub">{data.systemUser.email}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div className="ad-kpi-label">Reserve balance</div>
+                <div className="db-wallet-val">🪙 {fmt(data.systemUser.coin_balance)}</div>
+              </div>
+            </div>
+          ) : (
+            <div className="ad-empty">{loading ? 'Loading…' : 'No system wallet configured.'}</div>
+          )}
+        </Section>
 
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
+        <Section title="Recharges & withdrawals" subtitle="Payment outcomes and gem cash-out requests in this period.">
+          <div className="db-health">
+            <div>
+              <div className="ad-kpi-label" style={{ marginBottom: 6 }}>Coin purchases</div>
+              <dl className="ad-kv">
+                {data?.recharge?.coin_purchase?.length ? data.recharge.coin_purchase.map((r) => (
+                  <div key={r.status}>
+                    <dt><span className={`ad-badge ${STATUS_TONE[r.status] ?? 'gray'}`}>{r.status}</span> <span className="ad-hint">{fmt(r.tx_count)} tx</span></dt>
+                    <dd>{fmt(r.total_coins)}</dd>
+                  </div>
+                )) : <div><dt className="ad-hint">No purchases in range</dt></div>}
+              </dl>
+            </div>
+            <div>
+              <div className="ad-kpi-label" style={{ marginBottom: 6 }}>Gem withdrawals</div>
+              <dl className="ad-kv">
+                {data?.withdrawals?.length ? data.withdrawals.map((w) => (
+                  <div key={w.status}>
+                    <dt><span className={`ad-badge ${STATUS_TONE[w.status] ?? 'gray'}`}>{w.status}</span> <span className="ad-hint">{fmt(w.request_count)} req</span></dt>
+                    <dd>{fmt(w.total_gems)}</dd>
+                  </div>
+                )) : <div><dt className="ad-hint">No withdrawal requests</dt></div>}
+              </dl>
+            </div>
+          </div>
+        </Section>
+      </div>
+
+      <Section
+        title="Top users by commission"
+        subtitle="Who generated the most platform revenue in this period."
+        actions={<Link href="/users" className="ad-btn ad-btn-soft">All users →</Link>}
+        bodyClassName=""
+      >
+        <div className="ad-table-wrap">
+          <table className="ad-table is-stack">
             <thead>
-              <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontSize: '0.75rem', textTransform: 'uppercase' }}>
-                <th style={{ padding: '12px 16px', width: '70px' }}>Rank</th>
-                <th style={{ padding: '12px 16px' }}>User</th>
-                <th style={{ padding: '12px 16px' }}>Email</th>
-                <th style={{ padding: '12px 16px', textAlign: 'center' }}>Transactions</th>
-                <th style={{ padding: '12px 16px', textAlign: 'right' }}>Commission Generated</th>
-                <th style={{ padding: '12px 16px', textAlign: 'right' }}>Action</th>
+              <tr>
+                <th className="ad-th">Rank</th>
+                <th className="ad-th">User</th>
+                <th className="ad-th ad-num">Transactions</th>
+                <th className="ad-th ad-num">Commission</th>
+                <th className="ad-th ad-num"></th>
               </tr>
             </thead>
             <tbody>
-              {data?.topUsersByCommission && data.topUsersByCommission.length > 0 ? (
-                data.topUsersByCommission.map((u) => {
-                  const rankBadgeBg = u.rank === 1 ? '#fef3c7' : u.rank === 2 ? '#f3f4f6' : u.rank === 3 ? '#fed7aa' : 'transparent';
-                  const rankBadgeColor = u.rank === 1 ? '#b45309' : u.rank === 2 ? '#4b5563' : u.rank === 3 ? '#c2410c' : '#6b7280';
-                  return (
-                    <tr key={u.user_id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                      <td style={{ padding: '14px 16px' }}>
-                        <span
-                          style={{
-                            display: 'inline-block',
-                            width: '28px',
-                            height: '28px',
-                            lineHeight: '28px',
-                            textAlign: 'center',
-                            borderRadius: '50%',
-                            fontWeight: 700,
-                            fontSize: '0.8rem',
-                            backgroundColor: rankBadgeBg,
-                            color: rankBadgeColor,
-                          }}
-                        >
-                          #{u.rank}
-                        </span>
-                      </td>
-                      <td style={{ padding: '14px 16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <div
-                            style={{
-                              width: '34px',
-                              height: '34px',
-                              borderRadius: '50%',
-                              backgroundColor: '#e0e7ff',
-                              color: '#3730a3',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontWeight: 600,
-                              fontSize: '0.85rem',
-                              overflow: 'hidden',
-                            }}
-                          >
-                            {u.avatar_url ? (
-                              <img src={u.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                            ) : (
-                              (u.user_name || 'U').charAt(0).toUpperCase()
-                            )}
-                          </div>
-                          <div>
-                            <div style={{ fontWeight: 600, color: '#111827' }}>{u.user_name}</div>
-                            <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>ID: #{u.user_id}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td style={{ padding: '14px 16px', color: '#4b5563', fontSize: '0.85rem' }}>
-                        {u.user_email ?? '—'}
-                      </td>
-                      <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: 600, color: '#111827' }}>
-                        {u.tx_count.toLocaleString()}
-                      </td>
-                      <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 700, color: '#4f46e5' }}>
-                        {u.commission_total.toLocaleString()} coins
-                      </td>
-                      <td style={{ padding: '14px 16px', textAlign: 'right' }}>
-                        <Link
-                          href={`/users?q=${encodeURIComponent(String(u.user_id))}`}
-                          style={{
-                            fontSize: '0.8rem',
-                            color: '#4f46e5',
-                            textDecoration: 'none',
-                            fontWeight: 600,
-                          }}
-                        >
-                          View Profile
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td colSpan={6} style={{ padding: '32px 0', textAlign: 'center', color: '#9ca3af' }}>
-                    {loading ? 'Calculating leaderboard...' : 'No ranking data recorded for this range.'}
+              {top.length ? top.map((u) => (
+                <tr key={u.user_id} className="ad-row">
+                  <td className="ad-td is-hide-sm"><span className={`db-rank r${u.rank}`}>{u.rank}</span></td>
+                  <td className="ad-td is-main">
+                    <div className="ad-user">
+                      <span className={`db-rank r${u.rank} ad-mobile-only`}>{u.rank}</span>
+                      <Avatar name={u.user_name} url={u.avatar_url} />
+                      <div>
+                        <Link href={`/users?q=${encodeURIComponent(String(u.user_id))}`} className="ad-name db-user-link">{u.user_name}</Link>
+                        <div className="ad-sub">#{u.user_id}{u.user_email ? ` · ${u.user_email}` : ''}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="ad-td ad-num" data-label="Transactions">{fmt(u.tx_count)}</td>
+                  <td className="ad-td ad-num tone-indigo" data-label="Commission" style={{ fontWeight: 700 }}>🪙 {fmt(u.commission_total)}</td>
+                  <td className="ad-td ad-num is-hide-sm">
+                    <div className="ad-actions">
+                      <Link href={`/users?q=${encodeURIComponent(String(u.user_id))}`} className="ad-btn ad-btn-ghost">View</Link>
+                    </div>
                   </td>
                 </tr>
+              )) : (
+                <EmptyRow cols={5} title={loading ? 'Calculating leaderboard…' : 'No ranking data'} hint={loading ? '' : 'Nobody generated commission in this range.'} />
               )}
             </tbody>
           </table>
         </div>
-      </div>
+      </Section>
     </main>
   );
 }
+
+const DASH_STYLES = `
+.db-range { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; padding: 14px 18px; }
+.db-dates { display: grid; grid-template-columns: repeat(2, minmax(150px, 180px)); gap: 10px; }
+.db-range-actions { display: flex; gap: 8px; margin-left: auto; }
+.db-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.db-user-link { display: block; color: #111827; }
+.db-user-link:hover { color: #4f46e5; }
+.db-bars { display: grid; gap: 12px; }
+.db-bar-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.db-bar-date { white-space: nowrap; font-weight: 700; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.db-bar-track { height: 10px; border-radius: 999px; background: #f1f2f6; overflow: hidden; }
+.db-bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #818cf8, #4f46e5); }
+.db-bar-sub { font-size: 0.72rem; color: #9ca3af; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.db-bar-val { font-weight: 700; color: #4f46e5; font-variant-numeric: tabular-nums; font-size: 0.9rem; min-width: 80px; text-align: right; }
+.db-wallet { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 12px; background: #f9fafb; border: 1px solid #e5e7eb; }
+.db-wallet-val { font-size: 1.15rem; font-weight: 700; color: #059669; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.db-health { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.db-health .ad-kv dt { display: flex; align-items: center; gap: 6px; }
+.db-rank { display: inline-flex; width: 28px; height: 28px; border-radius: 50%; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem; color: #6b7280; background: #f3f4f6; flex-shrink: 0; }
+.db-rank.r1 { background: #fef3c7; color: #b45309; }
+.db-rank.r2 { background: #e5e7eb; color: #374151; }
+.db-rank.r3 { background: #fed7aa; color: #c2410c; }
+@media (max-width: 640px) {
+  .db-range { padding: 12px; gap: 10px; }
+  .db-range .ad-seg { width: 100%; }
+  .db-range .ad-seg-btn { flex: 1; }
+  .db-dates { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .db-range-actions { width: 100%; margin: 0; }
+  .db-range-actions .ad-btn { flex: 1; }
+  .db-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .db-bar-row { grid-template-columns: 46px minmax(0, 1fr) auto; gap: 10px; }
+  .db-bar-val { min-width: 0; font-size: 0.84rem; }
+  .db-health { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+}
+`;

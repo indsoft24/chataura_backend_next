@@ -1,11 +1,25 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import FileUploadInput from '@/app/components/FileUploadInput';
 import MediaThumb from '@/app/components/MediaThumb';
+import {
+  Field,
+  MediaCard,
+  MediaSkeleton,
+  Modal,
+  PageHeader,
+  Pager,
+  SearchBox,
+  Switch,
+  Tabs,
+  errorText,
+  useClientPager,
+  useConfirm,
+  useToasts,
+} from '@/components/admin-ui';
 
 const ANIMATION_ACCEPT =
   '.svga,.json,.gif,.webp,.mp4,.webm,video/mp4,video/webm,image/gif,image/webp';
@@ -35,500 +49,268 @@ function categoryLabel(value: string | null | undefined) {
   return GIFT_CATEGORIES.find((c) => c.value === key)?.label ?? 'Standard';
 }
 
+type Draft = { id?: number; giftKey?: string | null; name: string; coinCost: string; category: GiftCategory; imageUrl: string; animationUrl: string; isActive: boolean };
+const NEW_DRAFT: Draft = { name: '', coinCost: '50', category: 'standard', imageUrl: '', animationUrl: '', isActive: true };
+
+function catOf(g: Gift): GiftCategory {
+  const c = (g.category ?? 'standard').toLowerCase();
+  return (GIFT_CATEGORIES.some((x) => x.value === c) ? c : 'standard') as GiftCategory;
+}
+
 export default function GiftsPage() {
-  const router = useRouter();
   const { token } = useAdminAuth();
+  const { toast, toastNode } = useToasts();
+  const { confirm, confirmNode } = useConfirm();
   const [gifts, setGifts] = useState<Gift[]>([]);
   const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<number | null>(null);
 
-  // Form states
-  const [name, setName] = useState('');
-  const [coinCost, setCoinCost] = useState('50');
-  const [category, setCategory] = useState<GiftCategory>('standard');
-  const [imageUrl, setImageUrl] = useState('');
-  const [animationUrl, setAnimationUrl] = useState('');
-  const [error, setError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [cat, setCat] = useState<'' | GiftCategory>('');
+  const [q, setQ] = useState('');
+  const [status, setStatus] = useState('');
+  const [sort, setSort] = useState('price_asc');
 
-  // Edit Modal states
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editingGift, setEditingGift] = useState<Gift | null>(null);
-  const [editName, setEditName] = useState('');
-  const [editCoinCost, setEditCoinCost] = useState('50');
-  const [editCategory, setEditCategory] = useState<GiftCategory>('standard');
-  const [editImageUrl, setEditImageUrl] = useState('');
-  const [editAnimationUrl, setEditAnimationUrl] = useState('');
-  const [editIsActive, setEditIsActive] = useState(true);
-  const [editError, setEditError] = useState('');
-  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
 
-  async function load(tok: string) {
+  async function load() {
+    if (!token) return;
     setLoading(true);
     try {
-      const json = await api<any>('/admin/gifts', tok);
-      const list = Array.isArray(json.data) ? json.data : (json.data?.gifts ?? []);
-      setGifts(list);
+      const json = await api<any>('/admin/gifts', token);
+      setGifts(Array.isArray(json.data) ? json.data : (json.data?.gifts ?? []));
     } catch (e) {
-      console.error(e);
+      toast('error', errorText(e, 'Could not load gifts'));
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (token) {
-      void load(token);
-    }
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  async function create() {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) return;
-    if (!name.trim()) {
-      setError('Gift name is required');
-      return;
-    }
-    setSubmitting(true);
-    setError('');
-    try {
-      const json = await api<{ success: boolean; error?: { message?: string } }>('/admin/gifts', token, {
-        method: 'POST',
-        body: JSON.stringify({
-          name: name.trim(),
-          coin_cost: Number(coinCost) || 0,
-          category,
-          image_url: imageUrl.trim() || undefined,
-          animation_url: animationUrl.trim() || undefined,
-        }),
-      });
-      if (!json.success) {
-        setError(json.error?.message ?? 'Create failed');
-        return;
-      }
-      setName('');
-      setCoinCost('50');
-      setCategory('standard');
-      setImageUrl('');
-      setAnimationUrl('');
-      void load(token);
-    } catch (e: any) {
-      setError(e?.message ?? 'Network Error');
-    } finally {
-      setSubmitting(false);
-    }
-  }
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { '': gifts.length };
+    gifts.forEach((g) => { c[catOf(g)] = (c[catOf(g)] ?? 0) + 1; });
+    return c;
+  }, [gifts]);
 
-  function openEdit(gift: Gift) {
-    setEditingGift(gift);
-    setEditName(gift.name);
-    setEditCoinCost(String(gift.coin_cost));
-    const cat = (gift.category ?? 'standard').toLowerCase();
-    setEditCategory(
-      (GIFT_CATEGORIES.some((c) => c.value === cat)
-        ? cat
-        : 'standard') as GiftCategory,
+  const visible = useMemo(() => {
+    const term = q.trim().toLowerCase().replace(/^#/, '');
+    const out = gifts.filter((g) =>
+      (!cat || catOf(g) === cat) &&
+      (!status || (status === 'active') === g.is_active) &&
+      (!term || [g.name, g.gift_key, String(g.id)].some((v) => v && v.toLowerCase().includes(term))),
     );
-    setEditImageUrl(gift.image_url ?? '');
-    setEditAnimationUrl(gift.animation_url ?? '');
-    setEditIsActive(gift.is_active);
-    setEditError('');
-    setEditModalOpen(true);
-  }
+    const by: Record<string, (a: Gift, b: Gift) => number> = {
+      price_asc: (a, b) => a.coin_cost - b.coin_cost,
+      price_desc: (a, b) => b.coin_cost - a.coin_cost,
+      name: (a, b) => a.name.localeCompare(b.name),
+      newest: (a, b) => b.id - a.id,
+    };
+    return out.sort(by[sort]);
+  }, [gifts, cat, status, q, sort]);
+  const { pageItems, pagerProps } = useClientPager(visible, `${cat}|${status}|${q}|${sort}`, 50);
+  const activeCount = gifts.filter((g) => g.is_active).length;
 
-  async function saveEdit() {
-    if (!editingGift) return;
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) return;
-    if (!editName.trim()) {
-      setEditError('Gift name is required');
+  async function save() {
+    if (!token || !draft) return;
+    if (!draft.name.trim()) {
+      setFormError('Gift name is required');
       return;
     }
-    setEditSubmitting(true);
-    setEditError('');
+    setSaving(true);
+    setFormError('');
+    const body = {
+      name: draft.name.trim(),
+      coin_cost: Number(draft.coinCost) || 0,
+      category: draft.category,
+      image_url: draft.imageUrl.trim() || undefined,
+      animation_url: draft.animationUrl.trim() || undefined,
+    };
     try {
-      await api(`/admin/gifts/${editingGift.id}`, token, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          name: editName.trim(),
-          coin_cost: Number(editCoinCost) || 0,
-          category: editCategory,
-          image_url: editImageUrl.trim() || undefined,
-          animation_url: editAnimationUrl.trim() || undefined,
-          is_active: editIsActive,
-        }),
-      });
-      setEditModalOpen(false);
-      setEditingGift(null);
-      void load(token);
-    } catch (e: any) {
-      setEditError(e?.message ?? 'Failed to update gift');
+      if (draft.id) {
+        await api(`/admin/gifts/${draft.id}`, token, { method: 'PATCH', body: JSON.stringify({ ...body, is_active: draft.isActive }) });
+        toast('success', `${body.name} updated`);
+      } else {
+        const json = await api<{ success: boolean; error?: { message?: string } }>('/admin/gifts', token, { method: 'POST', body: JSON.stringify(body) });
+        if (!json.success) throw new Error(json.error?.message ?? 'Create failed');
+        toast('success', `${body.name} created`);
+      }
+      setDraft(null);
+      void load();
+    } catch (e) {
+      setFormError(errorText(e, 'Failed to save gift'));
     } finally {
-      setEditSubmitting(false);
+      setSaving(false);
     }
   }
 
-  async function toggleActive(id: number, current: boolean) {
-    const token = localStorage.getItem('ca_admin_token');
+  async function toggleActive(g: Gift) {
     if (!token) return;
+    setBusyId(g.id);
     try {
-      await api(`/admin/gifts/${id}`, token, {
-        method: 'PATCH',
-        body: JSON.stringify({ is_active: !current }),
-      });
-      void load(token);
+      await api(`/admin/gifts/${g.id}`, token, { method: 'PATCH', body: JSON.stringify({ is_active: !g.is_active }) });
+      setGifts((gs) => gs.map((x) => (x.id === g.id ? { ...x, is_active: !g.is_active } : x)));
     } catch (e) {
-      console.error(e);
+      toast('error', errorText(e, 'Could not update gift'));
+    } finally {
+      setBusyId(null);
     }
   }
 
-  async function deleteGift(id: number) {
-    const token = localStorage.getItem('ca_admin_token');
-    if (!token) return;
-    if (!confirm('Are you sure you want to delete this virtual gift?')) return;
-    try {
-      await api(`/admin/gifts/${id}`, token, { method: 'DELETE' });
-      void load(token);
-    } catch (e) {
-      console.error(e);
-    }
+  function remove(g: Gift) {
+    confirm({
+      title: `Delete “${g.name}”?`,
+      message: 'The gift disappears from the catalog and live rooms. This cannot be undone.',
+      confirmLabel: 'Delete gift',
+      tone: 'danger',
+      onConfirm: async () => {
+        await api(`/admin/gifts/${g.id}`, token, { method: 'DELETE' });
+        toast('success', `${g.name} deleted`);
+        void load();
+      },
+    });
   }
+
+  const set = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
+  const filtered = Boolean(cat || status || q);
+  const clear = () => { setCat(''); setStatus(''); setQ(''); };
 
   return (
-    <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Virtual Gifts Catalog</h1>
-        <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>Create, update, toggle availability, and remove virtual gifts available in live rooms.</p>
-      </div>
+    <main className="ad-page">
+      <PageHeader
+        title="Gifts"
+        subtitle={`Virtual gifts sent in live rooms · ${activeCount} of ${gifts.length} active`}
+        actions={<button type="button" className="ad-btn ad-btn-accent ad-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New gift</button>}
+      />
 
-      {/* Creation Box */}
-      <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', marginBottom: '28px' }}>
-        <h2 style={{ fontSize: '1.15rem', fontWeight: 600, margin: '0 0 16px 0', color: '#111827' }}>Add New Gift</h2>
-        
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '16px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Gift Name *</label>
-            <input
-              type="text"
-              placeholder="e.g. Diamond Ring / Sports Car"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Coin Cost</label>
-            <input
-              type="number"
-              placeholder="50"
-              value={coinCost}
-              onChange={(e) => setCoinCost(e.target.value)}
-              style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Category</label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value as GiftCategory)}
-              style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem', background: '#fff' }}
-            >
-              {GIFT_CATEGORIES.map((c) => (
-                <option key={c.value} value={c.value}>{c.label}</option>
-              ))}
+      <section className="ad-card">
+        <Tabs
+          value={cat}
+          onChange={setCat}
+          tabs={[{ value: '' as const, label: 'All', count: counts[''] ?? 0 }, ...GIFT_CATEGORIES.map((c) => ({ value: c.value, label: c.label.split(' (')[0], count: counts[c.value] ?? 0 }))]}
+        />
+        <div className="ad-toolbar">
+          <SearchBox value={q} onChange={setQ} placeholder="Search name, key or ID" />
+          <Field label="Status">
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="">Any status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
             </select>
+          </Field>
+          <Field label="Sort by">
+            <select value={sort} onChange={(e) => setSort(e.target.value)}>
+              <option value="price_asc">Price: low → high</option>
+              <option value="price_desc">Price: high → low</option>
+              <option value="name">Name A–Z</option>
+              <option value="newest">Newest first</option>
+            </select>
+          </Field>
+        </div>
+        <div className="ad-summary">
+          Showing <strong>{visible.length}</strong> of <strong>{gifts.length}</strong>
+          {filtered ? <>{' · '}<button type="button" className="ad-link" onClick={clear}>Clear filters</button></> : null}
+        </div>
+
+        {loading && gifts.length === 0 ? (
+          <MediaSkeleton />
+        ) : visible.length === 0 ? (
+          <div className="ad-empty">
+            <div className="ad-empty-title">{gifts.length ? 'No gifts match' : 'No gifts yet'}</div>
+            {gifts.length ? 'Try a different filter.' : 'Create the first gift for live rooms.'}
+            {filtered && <div><button type="button" className="ad-btn ad-btn-ghost" style={{ marginTop: 12 }} onClick={clear}>Reset filters</button></div>}
           </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', marginBottom: '16px' }}>
-          <FileUploadInput
-            label="Gift Icon / Image (.png, .jpg, .webp)"
-            value={imageUrl}
-            onChange={(url) => setImageUrl(url)}
-            accept="image/*"
-            placeholder="https://.../gift_icon.png or upload image"
-            helpText="Upload a thumbnail or static display icon for the gift catalog."
-          />
-
-          <FileUploadInput
-            label="Gift Animation (.svga, .json, .gif, .webp, .mp4, .webm)"
-            value={animationUrl}
-            onChange={(url) => setAnimationUrl(url)}
-            accept={ANIMATION_ACCEPT}
-            placeholder="https://.../gift_anim.mp4 or upload file"
-            helpText="Looping gift sticker. SVGA, Lottie, GIF, WebP, MP4, or WebM. MP4 plays full-screen in the room."
-          />
-        </div>
-
-        {error && <p style={{ color: '#b91c1c', fontSize: '0.85rem', marginBottom: '16px' }}>⚠️ {error}</p>}
-
-        <button
-          type="button"
-          onClick={() => void create()}
-          disabled={submitting}
-          style={{
-            padding: '10px 24px',
-            backgroundColor: '#4f46e5',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '6px',
-            fontWeight: 600,
-            fontSize: '0.9rem',
-            cursor: submitting ? 'not-allowed' : 'pointer',
-          }}
-        >
-          {submitting ? 'Creating...' : '+ Create Gift'}
-        </button>
-      </div>
-
-      {/* Gifts Grid */}
-      {loading ? (
-        <p style={{ color: '#6b7280' }}>Loading gifts...</p>
-      ) : gifts.length === 0 ? (
-        <p style={{ color: '#6b7280' }}>No gifts found. Create one above.</p>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '20px' }}>
-          {gifts.map((g) => (
-            <div key={g.id} style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>
-              <div style={{ width: '96px', height: '96px', borderRadius: '12px', background: '#f8fafc', marginBottom: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid #f1f5f9' }}>
-                <MediaThumb
-                  imageUrl={g.image_url}
-                  animationUrl={g.animation_url}
-                  alt={g.name}
-                  fallback="🎁"
-                />
-              </div>
-
-              <div style={{ fontWeight: 600, color: '#111827', fontSize: '1.05rem', marginBottom: '4px', textAlign: 'center' }}>{g.name}</div>
-              <div
-                title="Unique gift key (permanent, used by the app)"
-                style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '0.7rem', color: '#6b7280', marginBottom: '6px', textAlign: 'center', wordBreak: 'break-all' }}
-              >
-                #{g.id}{g.gift_key ? ` · ${g.gift_key}` : ''}
-              </div>
-              <div style={{ color: '#d97706', fontWeight: 700, fontSize: '0.95rem' }}>🪙 {g.coin_cost.toLocaleString()} Coins</div>
-              <div style={{ marginTop: '6px', fontSize: '0.72rem', backgroundColor: '#f3f4f6', color: '#374151', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>
-                {categoryLabel(g.category)}
-              </div>
-              
-              {g.animation_url && (
-                <div style={{ marginTop: '6px', fontSize: '0.72rem', backgroundColor: '#e0e7ff', color: '#3730a3', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>
-                  ✨ Animation Attached
-                </div>
-              )}
-
-              <div style={{ marginTop: '12px', width: '100%' }}>
-                <span style={{ display: 'block', textAlign: 'center', padding: '4px 0', borderRadius: '6px', background: g.is_active ? '#d1fae5' : '#fee2e2', color: g.is_active ? '#065f46' : '#991b1b', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>
-                  {g.is_active ? 'Active' : 'Inactive'}
-                </span>
-              </div>
-
-              {/* Action Buttons: Toggle, Edit, Delete */}
-              <div style={{ display: 'flex', gap: '6px', marginTop: '12px', width: '100%' }}>
-                <button
-                  type="button"
-                  onClick={() => void toggleActive(g.id, g.is_active)}
-                  style={{
-                    flex: 1,
-                    padding: '6px 0',
-                    fontSize: '0.75rem',
-                    background: '#f3f4f6',
-                    color: '#374151',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontWeight: 500,
-                  }}
-                >
-                  {g.is_active ? 'Disable' : 'Enable'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => openEdit(g)}
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: '0.75rem',
-                    background: '#e0e7ff',
-                    color: '#3730a3',
-                    border: '1px solid #c7d2fe',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                  }}
-                >
-                  ✏️ Edit
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => void deleteGift(g.id)}
-                  style={{
-                    padding: '6px 10px',
-                    fontSize: '0.75rem',
-                    background: '#fee2e2',
-                    color: '#b91c1c',
-                    border: '1px solid #fca5a5',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                  }}
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Edit Modal */}
-      {editModalOpen && editingGift && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: '20px',
-          }}
-        >
-          <div
-            style={{
-              backgroundColor: '#fff',
-              borderRadius: '12px',
-              padding: '28px',
-              maxWidth: '560px',
-              width: '100%',
-              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, color: '#111827' }}>
-                Edit Gift #{editingGift.id}
-                {editingGift.gift_key ? (
-                  <span style={{ marginLeft: '8px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '0.8rem', fontWeight: 500, color: '#6b7280' }}>
-                    {editingGift.gift_key}
-                  </span>
-                ) : null}
-              </h2>
-              <button
-                type="button"
-                onClick={() => setEditModalOpen(false)}
-                style={{ background: 'none', border: 'none', fontSize: '1.25rem', color: '#6b7280', cursor: 'pointer' }}
-              >
-                ✕
-              </button>
-            </div>
-
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Gift Name *</label>
-              <input
-                type="text"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
+        ) : (
+          <div className="ad-media-grid">
+            {pageItems.map((g) => (
+              <MediaCard
+                key={g.id}
+                thumb={<MediaThumb imageUrl={g.image_url} animationUrl={g.animation_url} alt={g.name} fallback="🎁" />}
+                flags={
+                  <>
+                    <span className="ad-badge gray">{categoryLabel(g.category).split(' (')[0]}</span>
+                    {g.animation_url ? <span className="ad-badge indigo" title="Animation attached">✨</span> : <span />}
+                  </>
+                }
+                title={g.name}
+                meta={<span className="ad-mono" title="Unique gift key (permanent, used by the app)">#{g.id}{g.gift_key ? ` · ${g.gift_key}` : ''}</span>}
+                extra={<div className="ad-media-price">🪙 {g.coin_cost.toLocaleString()}</div>}
+                active={g.is_active}
+                busy={busyId === g.id}
+                onToggle={() => void toggleActive(g)}
+                onEdit={() => {
+                  setFormError('');
+                  setDraft({ id: g.id, giftKey: g.gift_key, name: g.name, coinCost: String(g.coin_cost), category: catOf(g), imageUrl: g.image_url ?? '', animationUrl: g.animation_url ?? '', isActive: g.is_active });
+                }}
+                onDelete={() => remove(g)}
               />
-            </div>
+            ))}
+          </div>
+        )}
+        {visible.length > 50 && <Pager {...pagerProps} />}
+      </section>
 
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Coin Cost</label>
-              <input
-                type="number"
-                value={editCoinCost}
-                onChange={(e) => setEditCoinCost(e.target.value)}
-                style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }}
-              />
-            </div>
-
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', color: '#4b5563', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 600 }}>Category</label>
-              <select
-                value={editCategory}
-                onChange={(e) => setEditCategory(e.target.value as GiftCategory)}
-                style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem', background: '#fff' }}
-              >
+      {draft && (
+        <Modal
+          size="wide"
+          title={draft.id ? <>Edit gift #{draft.id} {draft.giftKey ? <span className="ad-mono ad-hint">{draft.giftKey}</span> : null}</> : 'New gift'}
+          busy={saving}
+          onClose={() => setDraft(null)}
+          onSubmit={() => void save()}
+          footer={
+            <>
+              <button type="button" className="ad-btn ad-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
+              <button type="submit" className="ad-btn ad-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create gift'}</button>
+            </>
+          }
+        >
+          <div className="ad-form-grid is-2up">
+            <Field label="Gift name *" wide>
+              <input autoFocus placeholder="e.g. Diamond Ring / Sports Car" value={draft.name} onChange={(e) => set({ name: e.target.value })} />
+            </Field>
+            <Field label="Coin cost">
+              <div className="ad-unit"><input type="number" inputMode="numeric" value={draft.coinCost} onChange={(e) => set({ coinCost: e.target.value })} /><span>coins</span></div>
+            </Field>
+            <Field label="Category">
+              <select value={draft.category} onChange={(e) => set({ category: e.target.value as GiftCategory })}>
                 {GIFT_CATEGORIES.map((c) => (
                   <option key={c.value} value={c.value}>{c.label}</option>
                 ))}
               </select>
-            </div>
-
-            <FileUploadInput
-              label="Gift Icon / Image"
-              value={editImageUrl}
-              onChange={(url) => setEditImageUrl(url)}
-              accept="image/*"
-              placeholder="https://.../gift_icon.png"
-            />
-
-            <FileUploadInput
-              label="Gift Animation (.svga, .json, .gif, .webp, .mp4, .webm)"
-              value={editAnimationUrl}
-              onChange={(url) => setEditAnimationUrl(url)}
-              accept={ANIMATION_ACCEPT}
-              placeholder="https://.../gift_anim.mp4"
-            />
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
-              <input
-                type="checkbox"
-                id="editGiftActive"
-                checked={editIsActive}
-                onChange={(e) => setEditIsActive(e.target.checked)}
-                style={{ width: '16px', height: '16px' }}
-              />
-              <label htmlFor="editGiftActive" style={{ fontSize: '0.9rem', color: '#374151', cursor: 'pointer', fontWeight: 500 }}>
-                Active in Catalog & Live Rooms
-              </label>
-            </div>
-
-            {editError && <p style={{ color: '#b91c1c', fontSize: '0.85rem', marginBottom: '16px' }}>⚠️ {editError}</p>}
-
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                onClick={() => setEditModalOpen(false)}
-                style={{
-                  padding: '9px 18px',
-                  backgroundColor: '#f3f4f6',
-                  color: '#374151',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '6px',
-                  fontWeight: 600,
-                  fontSize: '0.9rem',
-                  cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveEdit()}
-                disabled={editSubmitting}
-                style={{
-                  padding: '9px 22px',
-                  backgroundColor: '#4f46e5',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontWeight: 600,
-                  fontSize: '0.9rem',
-                  cursor: editSubmitting ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {editSubmitting ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
+            </Field>
           </div>
-        </div>
+          <FileUploadInput
+            label="Icon / image (.png, .jpg, .webp)"
+            value={draft.imageUrl}
+            onChange={(url) => set({ imageUrl: url })}
+            accept="image/*"
+            placeholder="https://.../gift_icon.png"
+            helpText="Static icon shown in the gift catalog."
+          />
+          <FileUploadInput
+            label="Animation (.svga, .json, .gif, .webp, .mp4, .webm)"
+            value={draft.animationUrl}
+            onChange={(url) => set({ animationUrl: url })}
+            accept={ANIMATION_ACCEPT}
+            placeholder="https://.../gift_anim.mp4"
+            helpText="Looping gift sticker. MP4 plays full-screen in the room."
+          />
+          {draft.id ? (
+            <div className="ad-toggle-row">
+              <div className="ad-toggle-title">Active in catalog & live rooms</div>
+              <Switch label="Active" checked={draft.isActive} onChange={(v) => set({ isActive: v })} />
+            </div>
+          ) : null}
+          {formError && <div className="ad-alert">{formError}</div>}
+        </Modal>
       )}
+      {confirmNode}
+      {toastNode}
     </main>
   );
 }

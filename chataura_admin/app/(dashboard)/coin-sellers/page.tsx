@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
-import { AdminStyles, Avatar, errorText, useConfirm, useToasts } from '@/components/admin-ui';
+import { Avatar, errorText, useConfirm, useToasts } from '@/components/admin-ui';
 
 type SellerRow = {
   id: number;
@@ -272,8 +272,7 @@ export default function CoinSellersPage() {
 
   return (
     <main className="ad-page">
-      <AdminStyles />
-      <style>{PAGE_STYLES}</style>
+      <style dangerouslySetInnerHTML={{ __html: PAGE_STYLES }} />
       {toastNode}
       {confirmNode}
 
@@ -308,7 +307,7 @@ export default function CoinSellersPage() {
           </div>
         )}
         <div className="ad-table-wrap">
-          <table className="ad-table">
+          <table className="ad-table is-stack">
             <thead>
               <tr>
                 <th className="ad-th" style={{ width: 70 }}>Order</th>
@@ -338,7 +337,7 @@ export default function CoinSellersPage() {
               ) : (
                 rows.map((r, i) => (
                   <tr key={r.id} className={`ad-row ${busyId === r.id ? 'is-busy' : ''} ${r.visible_in_app ? '' : 'is-muted'}`}>
-                    <td className="ad-td">
+                    <td className="ad-td is-hide-sm">
                       <div className="cs-order">
                         <button aria-label="Move up" disabled={i === 0} onClick={() => void move(i, -1)}>
                           ▲
@@ -348,7 +347,7 @@ export default function CoinSellersPage() {
                         </button>
                       </div>
                     </td>
-                    <td className="ad-td">
+                    <td className="ad-td is-main">
                       <div className="ad-user">
                         <Avatar name={r.user.name} url={r.user.avatar_url} dot={r.user.is_online} />
                         <div style={{ minWidth: 0 }}>
@@ -356,13 +355,19 @@ export default function CoinSellersPage() {
                           <div className="ad-sub">ID {r.user.display_id}</div>
                         </div>
                       </div>
+                      <span className="ad-mobile-only">
+                        <span className="cs-order is-row">
+                          <button aria-label="Move up" disabled={i === 0} onClick={() => void move(i, -1)}>▲</button>
+                          <button aria-label="Move down" disabled={i === rows.length - 1} onClick={() => void move(i, 1)}>▼</button>
+                        </span>
+                      </span>
                     </td>
-                    <td className="ad-td">
+                    <td className="ad-td" data-label="WhatsApp">
                       <a className="cs-wa" href={waLink(r.whatsapp)} target="_blank" rel="noreferrer">
                         {prettyNumber(r.whatsapp)} ↗
                       </a>
                     </td>
-                    <td className="ad-td">
+                    <td className="ad-td" data-label="Countries">
                       {r.countries.length === 0 ? (
                         <span className="ad-tag">🌍 All</span>
                       ) : (
@@ -375,7 +380,7 @@ export default function CoinSellersPage() {
                         </div>
                       )}
                     </td>
-                    <td className="ad-td">
+                    <td className="ad-td is-full" data-label="Status">
                       {r.visible_in_app ? (
                         <span className="ad-badge green">Visible</span>
                       ) : !r.is_active ? (
@@ -386,7 +391,7 @@ export default function CoinSellersPage() {
                         </span>
                       )}
                     </td>
-                    <td className="ad-td" style={{ textAlign: 'right' }}>
+                    <td className="ad-td is-actions is-fill" style={{ textAlign: 'right' }}>
                       <div className="ad-actions">
                         <button
                           className={`ad-btn ${r.is_active ? 'ad-btn-ghost' : 'ad-btn-success-soft'}`}
@@ -602,6 +607,8 @@ export default function CoinSellersPage() {
 
 const PAGE_STYLES = `
 .cs-order { display: inline-flex; flex-direction: column; gap: 2px; }
+.cs-order.is-row { flex-direction: row; gap: 4px; }
+.ad-page .cs-order.is-row button { width: 34px; padding: 6px 0; font-size: 0.75rem; }
 .ad-page .cs-order button { width: 28px; padding: 1px 0; font-size: 0.65rem; border-radius: 6px; background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
 .ad-page .cs-order button:disabled { opacity: 0.35; cursor: not-allowed; }
 .cs-wa { color: #059669; font-weight: 600; text-decoration: none; white-space: nowrap; font-variant-numeric: tabular-nums; }

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, API } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
+import { EmptyRow, Field, Modal, PageHeader, Section, Switch, errorText, useConfirm } from '@/components/admin-ui';
 
 type Level = {
   level: number;
@@ -139,6 +140,9 @@ export default function RocketLevelsPage() {
   const [settings, setSettings] = useState<Campaign | null>(null);
   const [drafts, setDrafts] = useState<LevelDraft[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [open, setOpen] = useState<Set<number>>(new Set());
+  const [newName, setNewName] = useState<string | null>(null);
+  const { confirm, confirmNode } = useConfirm();
 
   const selected = campaigns.find((c) => c.id === selectedId) ?? null;
   const errors = useMemo(() => levelErrors(drafts), [drafts]);
@@ -196,7 +200,20 @@ export default function RocketLevelsPage() {
   }, [token]);
 
   function choose(c: Campaign) {
-    if (dirty && !confirm('Discard unsaved level changes?')) return;
+    if (dirty) {
+      confirm({
+        title: 'Discard unsaved changes?',
+        message: 'Your edits to this ladder have not been published.',
+        confirmLabel: 'Discard',
+        tone: 'danger',
+        onConfirm: async () => switchTo(c),
+      });
+      return;
+    }
+    switchTo(c);
+  }
+
+  function switchTo(c: Campaign) {
     setSelectedId(c.id);
     setSettings({ ...c });
     setDrafts(c.levels.map(toDraft));
@@ -235,13 +252,19 @@ export default function RocketLevelsPage() {
         saved: false,
       },
     ]);
+    setOpen((o) => new Set(o).add(n));
   }
 
   function removeLastLevel() {
     if (drafts.length <= 1) return;
     const last = drafts[drafts.length - 1];
-    if (!confirm(`Remove LV${last.level} "${last.name}"? Rooms on it keep running until their rocket ends.`)) return;
-    setDrafts(drafts.slice(0, -1));
+    confirm({
+      title: `Remove LV${last.level}?`,
+      message: <>&ldquo;{last.name}&rdquo; is removed when you publish. Rooms already on it keep running until their rocket ends.</>,
+      confirmLabel: 'Remove level',
+      tone: 'danger',
+      onConfirm: async () => setDrafts((ds) => ds.slice(0, -1)),
+    });
   }
 
   async function saveSettings() {
@@ -276,9 +299,19 @@ export default function RocketLevelsPage() {
     if (!token || !selected) return;
     if (Object.keys(errors).length) {
       flash(false, 'Fix the highlighted levels before publishing.');
+      setOpen(new Set(Object.keys(errors).map(Number)));
       return;
     }
-    if (!confirm('Publish this ladder? It applies right away, including rockets already running (their progress is kept).')) return;
+    confirm({
+      title: 'Publish this ladder?',
+      message: 'It applies right away, including rockets already running (their progress is kept).',
+      confirmLabel: 'Publish',
+      onConfirm: publishLevels,
+    });
+  }
+
+  async function publishLevels() {
+    if (!token || !selected) return;
     setBusy('levels');
     try {
       const res = await api<unknown>(`/admin/rockit/campaigns/${selected.id}/levels`, token, {
@@ -335,16 +368,15 @@ export default function RocketLevelsPage() {
     }
   }
 
-  async function createCampaign() {
-    if (!token) return;
-    const name = prompt('New campaign name', 'Rocket Season');
-    if (!name) return;
+  async function createCampaign(name: string) {
+    if (!token || !name.trim()) return;
+    setNewName(null);
     setBusy('create');
     try {
       const json = unwrap<{ campaign: Campaign }>(
         await api('/admin/rockit/campaigns', token, {
           method: 'POST',
-          body: JSON.stringify({ name, status: false }),
+          body: JSON.stringify({ name: name.trim(), status: false }),
         }),
       );
       flash(true, 'Campaign created (inactive) with the standard LV1–LV5 ladder.');
@@ -358,7 +390,16 @@ export default function RocketLevelsPage() {
 
   async function restore(entry: AuditEntry) {
     if (!token || !selected) return;
-    if (!confirm(`Restore the settings and ladder from before change #${entry.id}?`)) return;
+    confirm({
+      title: `Restore before change #${entry.id}?`,
+      message: 'The campaign settings and ladder go back to how they were before this change.',
+      confirmLabel: 'Restore',
+      onConfirm: () => doRestore(entry),
+    });
+  }
+
+  async function doRestore(entry: AuditEntry) {
+    if (!token || !selected) return;
     setBusy('restore');
     try {
       await api(`/admin/rockit/audit/${entry.id}/restore`, token, { method: 'POST' });
@@ -382,456 +423,402 @@ export default function RocketLevelsPage() {
     );
   }
 
-  const card = {
-    background: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    border: '1px solid #e5e7eb',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-  } as const;
-  const input = {
-    width: '100%',
-    padding: '7px 9px',
-    borderRadius: 8,
-    border: '1px solid #d1d5db',
-    fontSize: '0.9rem',
-    boxSizing: 'border-box',
-  } as const;
-  const label = { fontSize: 12, fontWeight: 600, color: '#374151' } as const;
-  const btn = (primary = false) =>
-    ({
-      background: primary ? '#2563eb' : '#f3f4f6',
-      color: primary ? '#fff' : '#111827',
-      border: primary ? 0 : '1px solid #d1d5db',
-      borderRadius: 8,
-      padding: '9px 14px',
-      fontWeight: 600,
-      cursor: 'pointer',
-    }) as const;
-
   const totalLadder = drafts.reduce((a, d) => a + (Number(d.threshold_coins) || 0), 0);
+  const toggleOpen = (level: number) =>
+    setOpen((o) => {
+      const n = new Set(o);
+      if (n.has(level)) n.delete(level);
+      else n.add(level);
+      return n;
+    });
+  const SLOT_LABEL = { launch: 'Launch video', station: 'Station video', badge: 'Level badge' } as const;
 
   return (
-    <main style={{ padding: '32px 40px', maxWidth: 1280, margin: '0 auto' }}>
-      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16 }}>
-        <div>
-          <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Rocket levels</h1>
-          <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem', maxWidth: 760 }}>
-            Each room climbs LV1 → LV{drafts.length || 'N'}. When a level&apos;s target is reached it launches, pays the top
-            contributors, and the next level starts. After the top level the room goes back to LV1 at zero.
-            {settings?.daily_reset_enabled &&
-              ` Every room resets to LV1 daily at ${String(settings.reset_hour).padStart(2, '0')}:00 (${settings.reset_timezone}).`}
-          </p>
-        </div>
-        <button type="button" style={btn()} onClick={() => void createCampaign()} disabled={busy !== ''}>
-          + New campaign
-        </button>
-      </div>
+    <main className="ad-page">
+      <style dangerouslySetInnerHTML={{ __html: RK_STYLES }} />
+      <PageHeader
+        title="Rocket levels"
+        subtitle={
+          <>
+            Each room climbs LV1 → LV{drafts.length || 'N'}. When a level&apos;s target is reached it launches, pays the top contributors and
+            the next level starts; after the top level the room returns to LV1.
+            {settings?.daily_reset_enabled && ` Rooms reset to LV1 daily at ${String(settings.reset_hour).padStart(2, '0')}:00 (${settings.reset_timezone}).`}
+          </>
+        }
+        actions={
+          <button type="button" className="ad-btn ad-btn-ghost ad-btn-lg" onClick={() => setNewName('Rocket Season')} disabled={busy !== ''}>
+            + New campaign
+          </button>
+        }
+      />
 
-      {msg && (
-        <div
-          style={{
-            padding: '12px 16px',
-            background: msg.ok ? '#d1fae5' : '#fee2e2',
-            color: msg.ok ? '#065f46' : '#991b1b',
-            borderRadius: 8,
-            marginBottom: 20,
-            fontWeight: 600,
-          }}
-        >
-          {msg.text}
-        </div>
-      )}
+      {msg && <div className={`ad-alert is-flush ${msg.ok ? 'is-success' : ''}`} style={{ marginBottom: 16 }}>{msg.text}</div>}
 
       {loading && !selected ? (
-        <p style={{ color: '#6b7280' }}>Loading…</p>
+        <div style={{ display: 'grid', gap: 14 }}><div className="ad-skeleton is-card" /><div className="ad-skeleton is-card" /></div>
       ) : !selected || !settings ? (
-        <p style={{ color: '#6b7280' }}>No campaigns yet. Create one to get the standard ladder.</p>
+        <section className="ad-card"><div className="ad-empty"><div className="ad-empty-title">No campaigns yet</div>Create one to get the standard LV1–LV5 ladder.</div></section>
       ) : (
         <>
           {campaigns.length > 1 && (
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+            <div className="ad-chips" style={{ marginBottom: 14 }}>
               {campaigns.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => choose(c)}
-                  style={{
-                    ...btn(c.id === selected.id),
-                    borderRadius: 999,
-                    padding: '6px 14px',
-                  }}
-                >
-                  #{c.id} {c.name} {c.status ? '● Active' : ''}
+                <button key={c.id} type="button" className={`ad-chip ${c.id === selected.id ? 'is-active' : ''}`} onClick={() => choose(c)}>
+                  #{c.id} {c.name}{c.status ? ' · Active' : ''}
                 </button>
               ))}
             </div>
           )}
 
-          {/* Campaign settings */}
-          <section style={{ ...card, marginBottom: 20 }}>
-            <h2 style={{ margin: '0 0 14px', fontSize: '1.05rem' }}>Campaign settings</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 14 }}>
-              <label>
-                <span style={label}>Name</span>
-                <input style={input} value={settings.name} onChange={(e) => setSettings({ ...settings, name: e.target.value })} />
-              </label>
-              <label>
-                <span style={label}>Eligible rooms</span>
+          <Section collapsible title="Campaign settings" subtitle={`${settings.name} · ${settings.status ? 'Active' : 'Inactive'} · min contribution ${short(settings.minimum_contribution_required)} coins`}>
+            <div className="ad-form-grid rk-settings">
+              <Field label="Name">
+                <input value={settings.name} onChange={(e) => setSettings({ ...settings, name: e.target.value })} />
+              </Field>
+              <Field label="Eligible rooms" hint="“all”, or a list like public, vip, permanent.">
                 <input
-                  style={input}
                   value={settings.eligible_room_types.join(', ')}
                   placeholder="all or public, vip, permanent"
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      eligible_room_types: e.target.value.split(',').map((s) => s.trim()).filter(Boolean),
-                    })
-                  }
+                  onChange={(e) => setSettings({ ...settings, eligible_room_types: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })}
                 />
-              </label>
-              <label>
-                <span style={label}>Minimum contribution (coins)</span>
-                <input
-                  style={input}
-                  type="number"
-                  min={1}
-                  value={settings.minimum_contribution_required}
-                  onChange={(e) => setSettings({ ...settings, minimum_contribution_required: Number(e.target.value) })}
-                />
-              </label>
-              <label>
-                <span style={label}>When a level&apos;s time runs out</span>
-                <select
-                  style={input}
-                  value={settings.expiry_mode}
-                  onChange={(e) => setSettings({ ...settings, expiry_mode: e.target.value as Campaign['expiry_mode'] })}
-                >
+              </Field>
+              <Field label="Minimum contribution">
+                <div className="ad-unit">
+                  <input type="number" min={1} value={settings.minimum_contribution_required} onChange={(e) => setSettings({ ...settings, minimum_contribution_required: Number(e.target.value) })} />
+                  <span>coins</span>
+                </div>
+              </Field>
+              <Field label="When a level's time runs out">
+                <select value={settings.expiry_mode} onChange={(e) => setSettings({ ...settings, expiry_mode: e.target.value as Campaign['expiry_mode'] })}>
                   <option value="RESET_PROGRESS">Stay on level, progress back to 0</option>
                   <option value="RESET_CYCLE">Go back to LV1</option>
                 </select>
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 18 }}>
-                <input
-                  type="checkbox"
-                  checked={settings.daily_reset_enabled}
-                  onChange={(e) => setSettings({ ...settings, daily_reset_enabled: e.target.checked })}
-                />
-                <span style={{ fontSize: 14, fontWeight: 600 }}>Daily reset to LV1</span>
-              </label>
-              <label>
-                <span style={label}>Reset time</span>
-                <select
-                  style={input}
-                  value={settings.reset_hour}
-                  disabled={!settings.daily_reset_enabled}
-                  onChange={(e) => setSettings({ ...settings, reset_hour: Number(e.target.value) })}
-                >
+              </Field>
+              <Field label="Daily reset time">
+                <select value={settings.reset_hour} disabled={!settings.daily_reset_enabled} onChange={(e) => setSettings({ ...settings, reset_hour: Number(e.target.value) })}>
                   {Array.from({ length: 24 }, (_, h) => (
-                    <option key={h} value={h}>
-                      {String(h).padStart(2, '0')}:00
-                    </option>
+                    <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
                   ))}
                 </select>
-              </label>
-              <label>
-                <span style={label}>Timezone</span>
-                <input
-                  style={input}
-                  value={settings.reset_timezone}
-                  disabled={!settings.daily_reset_enabled}
-                  placeholder="Asia/Kolkata"
-                  onChange={(e) => setSettings({ ...settings, reset_timezone: e.target.value })}
-                />
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 18 }}>
-                <input
-                  type="checkbox"
-                  checked={settings.carry_overflow}
-                  onChange={(e) => setSettings({ ...settings, carry_overflow: e.target.checked })}
-                />
-                <span style={{ fontSize: 14, fontWeight: 600 }}>Carry extra coins into next level</span>
-              </label>
+              </Field>
+              <Field label="Timezone">
+                <input value={settings.reset_timezone} disabled={!settings.daily_reset_enabled} placeholder="Asia/Kolkata" onChange={(e) => setSettings({ ...settings, reset_timezone: e.target.value })} />
+              </Field>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 16 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input type="checkbox" checked={settings.status} onChange={(e) => setSettings({ ...settings, status: e.target.checked })} />
-                <span style={{ fontSize: 14, fontWeight: 600 }}>Active (deactivates other campaigns)</span>
-              </label>
-              <button type="button" style={btn(true)} disabled={busy !== ''} onClick={() => void saveSettings()}>
+            <div className="rk-toggles">
+              {([
+                ['status', 'Active campaign', 'Activating this deactivates every other campaign.'],
+                ['daily_reset_enabled', 'Daily reset to LV1', 'Every room goes back to LV1 at the reset time.'],
+                ['carry_overflow', 'Carry extra coins', 'Coins above a level’s target count toward the next level.'],
+              ] as const).map(([k, title, hint]) => (
+                <div key={k} className="ad-toggle-row">
+                  <div>
+                    <div className="ad-toggle-title">{title}</div>
+                    <div className="ad-toggle-hint">{hint}</div>
+                  </div>
+                  <Switch label={title} checked={Boolean(settings[k])} onChange={(v) => setSettings({ ...settings, [k]: v })} />
+                </div>
+              ))}
+            </div>
+            <div className="ad-form-actions">
+              <button type="button" className="ad-btn ad-btn-primary ad-btn-lg" disabled={busy !== ''} onClick={() => void saveSettings()}>
                 {busy === 'settings' ? 'Saving…' : 'Save settings'}
               </button>
             </div>
-          </section>
+          </Section>
 
-          {/* Ladder */}
-          <section style={{ marginBottom: 20 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h2 style={{ margin: 0, fontSize: '1.05rem' }}>
-                Ladder · {drafts.length} levels · full climb {short(totalLadder)} coins
-              </h2>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button type="button" style={btn()} onClick={addLevel} disabled={drafts.length >= 50}>
-                  + Add level
+          <section className="ad-card">
+            <div className="ad-card-head">
+              <div>
+                <h2>Ladder</h2>
+                <p>{drafts.length} levels · full climb {short(totalLadder)} coins</p>
+              </div>
+              <div className="ad-actions">
+                <button type="button" className="ad-btn ad-btn-ghost" onClick={() => setOpen(open.size ? new Set() : new Set(drafts.map((d) => d.level)))}>
+                  {open.size ? 'Collapse all' : 'Expand all'}
                 </button>
-                <button type="button" style={btn()} onClick={removeLastLevel} disabled={drafts.length <= 1}>
-                  Remove last
-                </button>
-                <button
-                  type="button"
-                  style={{ ...btn(true), opacity: dirty ? 1 : 0.6 }}
-                  disabled={busy !== '' || !dirty}
-                  onClick={() => void saveLevels()}
-                >
-                  {busy === 'levels' ? 'Publishing…' : dirty ? 'Publish ladder' : 'Published'}
-                </button>
+                <button type="button" className="ad-btn ad-btn-ghost" onClick={removeLastLevel} disabled={drafts.length <= 1}>Remove last</button>
+                <button type="button" className="ad-btn ad-btn-soft" onClick={addLevel} disabled={drafts.length >= 50}>+ Add level</button>
               </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="rk-levels">
               {drafts.map((d) => {
                 const target = Number(d.threshold_coins) || 0;
                 const pct = Number(d.reward_pool_percentage) || 0;
                 const rules = parseRules(d.reward_distribution_rules);
-                const sum = rules.reduce((a, b) => a + b, 0) || 1;
+                const ruleSum = rules.reduce((a, b) => a + b, 0);
+                const sum = ruleSum || 1;
                 const pool = Math.floor((target * pct) / 100);
                 const luckyPct = Number(d.lucky_pool_percentage) || 0;
                 const luckyAudience = Number(d.lucky_audience_percent) || 0;
                 const luckyPool = luckyAudience > 0 ? Math.floor((target * luckyPct) / 100) : 0;
                 const errs = errors[d.level];
-                const launchUrl = urlFor(d, 'launch');
-                const stationUrl = urlFor(d, 'station');
-                const badgeUrl = urlFor(d, 'badge');
+                const isOpen = open.has(d.level) || Boolean(errs);
                 return (
-                  <div
-                    key={d.level}
-                    style={{
-                      ...card,
-                      borderLeft: `6px solid ${d.theme_color}`,
-                      borderColor: errs ? '#fca5a5' : '#e5e7eb',
-                      opacity: d.is_active ? 1 : 0.6,
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-                      <span
-                        style={{
-                          background: d.theme_color,
-                          color: '#fff',
-                          fontWeight: 800,
-                          borderRadius: 8,
-                          padding: '4px 10px',
-                          fontSize: 14,
-                        }}
-                      >
-                        LV{d.level}
-                      </span>
-                      <input
-                        style={{ ...input, width: 220, fontWeight: 700 }}
-                        value={d.name}
-                        onChange={(e) => patch(d.level, { name: e.target.value })}
-                      />
-                      <span style={{ color: '#6b7280', fontSize: 13 }}>
-                        Target <strong style={{ color: '#111827' }}>{short(target)}</strong> · Pool{' '}
-                        <strong style={{ color: '#111827' }}>{short(pool)}</strong> · #1 gets{' '}
-                        <strong style={{ color: '#111827' }}>{short(Math.floor((pool * (rules[0] ?? 0)) / sum))}</strong>
-                        {luckyPool > 0 && (
-                          <>
-                            {' '}· Lucky {luckyAudience}% of room shares <strong style={{ color: '#111827' }}>{short(luckyPool)}</strong>
-                          </>
-                        )}{' '}
-                        · Platform keeps {short(target - pool - luckyPool)} ({(100 - pct - (luckyPool > 0 ? luckyPct : 0)).toFixed(1)}%)
-                      </span>
-                      <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <input type="checkbox" checked={d.is_active} onChange={(e) => patch(d.level, { is_active: e.target.checked })} />
-                        <span style={{ fontSize: 13, fontWeight: 600 }}>Active</span>
-                      </label>
-                      {!d.saved && <span style={{ fontSize: 12, color: '#b45309', fontWeight: 700 }}>NEW</span>}
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: 12 }}>
-                      <label>
-                        <span style={label}>Target (coins)</span>
-                        <input style={input} type="number" min={1} value={d.threshold_coins} onChange={(e) => patch(d.level, { threshold_coins: e.target.value })} />
-                      </label>
-                      <label>
-                        <span style={label}>Reward pool %</span>
-                        <input style={input} type="number" min={0} max={100} step={0.5} value={d.reward_pool_percentage} onChange={(e) => patch(d.level, { reward_pool_percentage: e.target.value })} />
-                      </label>
-                      <label style={{ gridColumn: 'span 2' }}>
-                        <span style={label}>
-                          Prize split % ({rules.length} winners, sum{' '}
-                          <span style={{ color: Math.abs(sum - 100) > 0.5 ? '#b91c1c' : '#047857' }}>
-                            {rules.reduce((a, b) => a + b, 0)}%
+                  <div key={d.level} className={`rk-level ${errs ? 'has-error' : ''} ${d.is_active ? '' : 'is-off'}`} style={{ borderLeftColor: d.theme_color }}>
+                    <div className="rk-level-head">
+                      <button type="button" className="rk-level-toggle" aria-expanded={isOpen} onClick={() => toggleOpen(d.level)}>
+                        <span className="rk-lv" style={{ background: d.theme_color }}>LV{d.level}</span>
+                        <span className="rk-level-title">
+                          <strong>{d.name || `Level ${d.level}`}</strong>
+                          <span>
+                            {short(target)} target · {short(pool)} pool · #1 wins {short(Math.floor((pool * (rules[0] ?? 0)) / sum))}
+                            {luckyPool > 0 ? ` · Lucky ${short(luckyPool)}` : ''}
                           </span>
-                          )
                         </span>
-                        <input style={input} value={d.reward_distribution_rules} onChange={(e) => patch(d.level, { reward_distribution_rules: e.target.value })} />
-                      </label>
-                      <label>
-                        <span style={label}>Time limit (min, 0 = until reset)</span>
-                        <input style={input} type="number" min={0} value={d.duration_minutes} onChange={(e) => patch(d.level, { duration_minutes: e.target.value })} />
-                      </label>
-                      <label>
-                        <span style={label}>Theme colour</span>
-                        <input style={{ ...input, padding: 2, height: 34 }} type="color" value={d.theme_color} onChange={(e) => patch(d.level, { theme_color: e.target.value.toUpperCase() })} />
-                      </label>
-                      <label style={{ gridColumn: 'span 2' }}>
-                        <span style={label}>Frame reward</span>
-                        <select
-                          style={input}
-                          value={d.frame_id ?? ''}
-                          onChange={(e) => patch(d.level, { frame_id: e.target.value ? Number(e.target.value) : null })}
-                        >
-                          <option value="">Default (first active frames)</option>
-                          {frames.map((f) => (
-                            <option key={f.id} value={f.id}>
-                              {f.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        <span style={label}>Lucky audience % (0 = off)</span>
-                        <input style={input} type="number" min={0} max={100} step={1} value={d.lucky_audience_percent} onChange={(e) => patch(d.level, { lucky_audience_percent: e.target.value })} />
-                      </label>
-                      <label>
-                        <span style={label}>Lucky pool % of target</span>
-                        <input style={input} type="number" min={0} max={100} step={0.5} value={d.lucky_pool_percentage} onChange={(e) => patch(d.level, { lucky_pool_percentage: e.target.value })} />
-                      </label>
-                      <label>
-                        <span style={label}>Frame days</span>
-                        <input style={input} type="number" min={1} value={d.frame_days} onChange={(e) => patch(d.level, { frame_days: e.target.value })} />
-                      </label>
-                      <label>
-                        <span style={label}>XP per coin won</span>
-                        <input style={input} type="number" min={0} step={0.01} value={d.xp_rate} onChange={(e) => patch(d.level, { xp_rate: e.target.value })} />
-                      </label>
-                      <label>
-                        <span style={label}>Fallback jet (old apps)</span>
-                        <select style={input} value={d.visual_tier} onChange={(e) => patch(d.level, { visual_tier: Number(e.target.value) })}>
-                          {[1, 2, 3, 4, 5].map((t) => (
-                            <option key={t} value={t}>
-                              LV{t} {TIER_NAMES[t]}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                        {!d.saved && <span className="ad-badge amber">New</span>}
+                        {errs && <span className="ad-badge red">{errs.length} issue{errs.length > 1 ? 's' : ''}</span>}
+                        <span className="rk-chevron" aria-hidden>{isOpen ? '−' : '+'}</span>
+                      </button>
+                      <Switch label={`LV${d.level} active`} checked={d.is_active} onChange={(v) => patch(d.level, { is_active: v })} />
                     </div>
 
-                    {/* Media */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 14 }}>
-                      {(['launch', 'station', 'badge'] as const).map((slot) => {
-                        const url = slot === 'launch' ? launchUrl : slot === 'station' ? stationUrl : badgeUrl;
-                        const accept = slot === 'badge' ? '.png,.webp' : '.webm,.mp4';
-                        const key = `${slot}-${d.level}`;
-                        return (
-                          <div key={slot} style={{ border: '1px dashed #d1d5db', borderRadius: 10, padding: 10, background: '#f9fafb' }}>
-                            <div style={{ ...label, marginBottom: 6 }}>
-                              {slot === 'launch' ? 'Launch video' : slot === 'station' ? 'Station (sheet) video' : 'Level badge'}
-                              <span style={{ color: '#9ca3af', fontWeight: 400 }}>
-                                {' '}
-                                · {slot === 'badge' ? 'PNG/WebP ≤ 1 MB' : 'WebM/MP4 ≤ 8 MB'}
-                              </span>
-                            </div>
-                            <div
-                              style={{
-                                height: 120,
-                                background: '#0b1b4a',
-                                borderRadius: 8,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                overflow: 'hidden',
-                                marginBottom: 8,
-                              }}
-                            >
-                              {url ? (
-                                slot === 'badge' ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={url} alt="" style={{ maxHeight: 110, maxWidth: '100%' }} />
-                                ) : (
-                                  <video src={url} muted loop autoPlay playsInline style={{ maxHeight: 120, maxWidth: '100%' }} />
-                                )
-                              ) : (
-                                <span style={{ color: '#9cc4ff', fontSize: 12 }}>
-                                  {slot === 'badge' ? 'Uses the built-in badge' : 'No video yet'}
-                                </span>
-                              )}
-                            </div>
-                            <label style={{ ...btn(), display: 'inline-block', fontSize: 13, padding: '6px 10px', opacity: d.saved ? 1 : 0.5 }}>
-                              {busy === key ? 'Uploading…' : url ? 'Replace' : 'Upload'}
-                              <input
-                                type="file"
-                                accept={accept}
-                                hidden
-                                disabled={!d.saved || busy !== ''}
-                                onChange={(e) => {
-                                  const f = e.target.files?.[0];
-                                  e.target.value = '';
-                                  if (f) void upload(d.level, slot, f);
-                                }}
-                              />
-                            </label>
-                            {!d.saved && <span style={{ fontSize: 11, color: '#b45309', marginLeft: 8 }}>Publish the ladder first</span>}
-                          </div>
-                        );
-                      })}
-                    </div>
+                    {isOpen && (
+                      <div className="rk-level-body">
+                        <div className="rk-econ">
+                          Platform keeps <strong>{short(target - pool - luckyPool)}</strong> ({(100 - pct - (luckyPool > 0 ? luckyPct : 0)).toFixed(1)}%)
+                          {luckyPool > 0 && <> · {luckyAudience}% of the room shares the lucky pool</>}
+                        </div>
+                        <div className="rk-fields">
+                          <Field label="Level name" className="rk-span2">
+                            <input value={d.name} onChange={(e) => patch(d.level, { name: e.target.value })} />
+                          </Field>
+                          <Field label="Target">
+                            <div className="ad-unit"><input type="number" min={1} value={d.threshold_coins} onChange={(e) => patch(d.level, { threshold_coins: e.target.value })} /><span>coins</span></div>
+                          </Field>
+                          <Field label="Reward pool">
+                            <div className="ad-unit"><input type="number" min={0} max={100} step={0.5} value={d.reward_pool_percentage} onChange={(e) => patch(d.level, { reward_pool_percentage: e.target.value })} /><span>%</span></div>
+                          </Field>
+                          <Field
+                            label={<>Prize split · {rules.length} winners · <span className={Math.abs(ruleSum - 100) > 0.5 ? 'tone-red' : 'tone-green'}>{ruleSum}%</span></>}
+                            hint="Percent for #1, #2, … separated by commas; must total 100."
+                            className="rk-span2"
+                          >
+                            <input value={d.reward_distribution_rules} onChange={(e) => patch(d.level, { reward_distribution_rules: e.target.value })} />
+                          </Field>
+                          <Field label="Time limit" hint="0 = until the daily reset.">
+                            <div className="ad-unit"><input type="number" min={0} value={d.duration_minutes} onChange={(e) => patch(d.level, { duration_minutes: e.target.value })} /><span>min</span></div>
+                          </Field>
+                          <Field label="Theme colour">
+                            <input className="rk-color" type="color" value={d.theme_color} onChange={(e) => patch(d.level, { theme_color: e.target.value.toUpperCase() })} />
+                          </Field>
+                          <Field label="Frame reward" className="rk-span2">
+                            <select value={d.frame_id ?? ''} onChange={(e) => patch(d.level, { frame_id: e.target.value ? Number(e.target.value) : null })}>
+                              <option value="">Default (first active frames)</option>
+                              {frames.map((f) => (
+                                <option key={f.id} value={f.id}>{f.name}</option>
+                              ))}
+                            </select>
+                          </Field>
+                          <Field label="Frame days">
+                            <div className="ad-unit"><input type="number" min={1} value={d.frame_days} onChange={(e) => patch(d.level, { frame_days: e.target.value })} /><span>days</span></div>
+                          </Field>
+                          <Field label="Lucky audience" hint="0 = off.">
+                            <div className="ad-unit"><input type="number" min={0} max={100} step={1} value={d.lucky_audience_percent} onChange={(e) => patch(d.level, { lucky_audience_percent: e.target.value })} /><span>%</span></div>
+                          </Field>
+                          <Field label="Lucky pool" hint="Of the target.">
+                            <div className="ad-unit"><input type="number" min={0} max={100} step={0.5} value={d.lucky_pool_percentage} onChange={(e) => patch(d.level, { lucky_pool_percentage: e.target.value })} /><span>%</span></div>
+                          </Field>
+                          <Field label="XP per coin won">
+                            <input type="number" min={0} step={0.01} value={d.xp_rate} onChange={(e) => patch(d.level, { xp_rate: e.target.value })} />
+                          </Field>
+                          <Field label="Fallback jet" hint="Shown by old app versions.">
+                            <select value={d.visual_tier} onChange={(e) => patch(d.level, { visual_tier: Number(e.target.value) })}>
+                              {[1, 2, 3, 4, 5].map((t) => (
+                                <option key={t} value={t}>LV{t} {TIER_NAMES[t]}</option>
+                              ))}
+                            </select>
+                          </Field>
+                        </div>
 
-                    {errs && (
-                      <ul style={{ margin: '12px 0 0', color: '#b91c1c', fontSize: 13, paddingLeft: 18 }}>
-                        {errs.map((e) => (
-                          <li key={e}>{e}</li>
-                        ))}
-                      </ul>
+                        <div className="rk-media">
+                          {(['launch', 'station', 'badge'] as const).map((slot) => {
+                            const url = urlFor(d, slot);
+                            const key = `${slot}-${d.level}`;
+                            return (
+                              <div key={slot} className="rk-slot">
+                                <div className="rk-slot-label">
+                                  {SLOT_LABEL[slot]}
+                                  <span>{slot === 'badge' ? 'PNG/WebP ≤ 1 MB' : 'WebM/MP4 ≤ 8 MB'}</span>
+                                </div>
+                                <div className="rk-slot-preview">
+                                  {url ? (
+                                    slot === 'badge' ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={url} alt="" />
+                                    ) : (
+                                      <video src={url} muted loop autoPlay playsInline />
+                                    )
+                                  ) : (
+                                    <span>{slot === 'badge' ? 'Built-in badge' : 'No video yet'}</span>
+                                  )}
+                                </div>
+                                <label className={`ad-btn ad-btn-ghost ad-btn-block ${!d.saved || busy !== '' ? 'is-disabled' : ''}`}>
+                                  {busy === key ? 'Uploading…' : !d.saved ? 'Publish first' : url ? 'Replace' : 'Upload'}
+                                  <input
+                                    type="file"
+                                    accept={slot === 'badge' ? '.png,.webp' : '.webm,.mp4'}
+                                    hidden
+                                    disabled={!d.saved || busy !== ''}
+                                    onChange={(e) => {
+                                      const f = e.target.files?.[0];
+                                      e.target.value = '';
+                                      if (f) void upload(d.level, slot, f);
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {errs && (
+                          <ul className="rk-errs">
+                            {errs.map((e) => (
+                              <li key={e}>{e}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
                     )}
                   </div>
                 );
               })}
             </div>
+
+            <div className={`rk-publish ${dirty ? 'is-dirty' : ''}`}>
+              <span>{dirty ? 'Unpublished ladder changes' : 'Ladder is live'}</span>
+              <button type="button" className="ad-btn ad-btn-accent ad-btn-lg" disabled={busy !== '' || !dirty} onClick={() => void saveLevels()}>
+                {busy === 'levels' ? 'Publishing…' : 'Publish ladder'}
+              </button>
+            </div>
           </section>
 
-          {/* Change history */}
-          <section style={card}>
-            <h2 style={{ margin: '0 0 12px', fontSize: '1.05rem' }}>Change history</h2>
-            {audit.length === 0 ? (
-              <p style={{ color: '#6b7280', margin: 0 }}>No changes recorded yet.</p>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <Section title="Change history" subtitle="Restore the campaign to how it was before any recorded change." bodyClassName="">
+            <div className="ad-table-wrap">
+              <table className="ad-table is-stack">
                 <thead>
-                  <tr style={{ textAlign: 'left', color: '#6b7280' }}>
-                    <th style={{ padding: '6px 8px' }}>#</th>
-                    <th style={{ padding: '6px 8px' }}>When</th>
-                    <th style={{ padding: '6px 8px' }}>Change</th>
-                    <th style={{ padding: '6px 8px' }}>Admin</th>
-                    <th />
+                  <tr>
+                    <th className="ad-th">#</th>
+                    <th className="ad-th">Change</th>
+                    <th className="ad-th">When</th>
+                    <th className="ad-th">Admin</th>
+                    <th className="ad-th ad-num"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {audit.map((a) => (
-                    <tr key={a.id} style={{ borderTop: '1px solid #f3f4f6' }}>
-                      <td style={{ padding: '6px 8px' }}>{a.id}</td>
-                      <td style={{ padding: '6px 8px' }}>{new Date(a.created_at).toLocaleString()}</td>
-                      <td style={{ padding: '6px 8px' }}>{a.action.replace(/_/g, ' ').toLowerCase()}</td>
-                      <td style={{ padding: '6px 8px' }}>{a.actor_id ?? '—'}</td>
-                      <td style={{ padding: '6px 8px', textAlign: 'right' }}>
-                        {a.before != null && (
-                          <button type="button" style={{ ...btn(), padding: '4px 10px', fontSize: 12 }} disabled={busy !== ''} onClick={() => void restore(a)}>
-                            Restore before this
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {audit.length === 0 ? (
+                    <EmptyRow cols={5} title="No changes recorded yet" hint="Edits to settings and the ladder appear here." />
+                  ) : (
+                    audit.map((a) => (
+                      <tr key={a.id} className="ad-row">
+                        <td className="ad-td ad-id is-hide-sm">#{a.id}</td>
+                        <td className="ad-td is-main" style={{ textTransform: 'capitalize', fontWeight: 600 }}>
+                          {a.action.replace(/_/g, ' ').toLowerCase()}
+                          <span className="ad-mobile-only ad-hint">#{a.id}</span>
+                        </td>
+                        <td className="ad-td" data-label="When">{new Date(a.created_at).toLocaleString()}</td>
+                        <td className="ad-td" data-label="Admin">{a.actor_id ?? '—'}</td>
+                        <td className="ad-td ad-num is-actions">
+                          {a.before != null && (
+                            <div className="ad-actions">
+                              <button type="button" className="ad-btn ad-btn-ghost" disabled={busy !== ''} onClick={() => void restore(a)}>
+                                Restore before this
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
-            )}
-            <p style={{ color: '#9ca3af', fontSize: 12, margin: '10px 0 0' }}>
-              API: {API}/admin/rockit · Uploaded media is stored on Google Cloud Storage under fx/v1/rocket/lv&lt;N&gt;/.
+            </div>
+            <p className="ad-hint" style={{ fontSize: 12, margin: 0, padding: '10px 20px 14px' }}>
+              API: {API}/admin/rockit · Media is stored on Google Cloud Storage under fx/v1/rocket/lv&lt;N&gt;/.
             </p>
-          </section>
+          </Section>
         </>
       )}
+
+      {newName !== null && (
+        <Modal
+          title="New campaign"
+          onClose={() => setNewName(null)}
+          onSubmit={() => void createCampaign(newName)}
+          footer={
+            <>
+              <button type="button" className="ad-btn ad-btn-ghost" onClick={() => setNewName(null)}>Cancel</button>
+              <button type="submit" className="ad-btn ad-btn-primary" disabled={!newName.trim()}>Create</button>
+            </>
+          }
+        >
+          <p className="ad-modal-text">Created inactive with the standard LV1–LV5 ladder.</p>
+          <Field label="Campaign name">
+            <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} />
+          </Field>
+        </Modal>
+      )}
+      {confirmNode}
     </main>
   );
 }
+
+const RK_STYLES = `
+.rk-settings { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.rk-toggles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.rk-levels { display: grid; gap: 12px; padding: 16px 20px; }
+.rk-level { border: 1px solid #e5e7eb; border-left: 5px solid #6366f1; border-radius: 12px; background: #fff; }
+.rk-level.has-error { border-color: #fca5a5; }
+.rk-level.is-off .rk-level-toggle { opacity: 0.55; }
+.rk-level-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px 10px 10px; }
+.ad-page .rk-level-toggle { all: unset; flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; cursor: pointer; padding: 2px 0; }
+.ad-page .rk-level-toggle:focus-visible { outline: 2px solid #4f46e5; outline-offset: 4px; border-radius: 6px; }
+.rk-lv { color: #fff; font-weight: 800; border-radius: 8px; padding: 5px 9px; font-size: 0.8rem; flex-shrink: 0; text-shadow: 0 1px 1px rgba(0,0,0,0.25); }
+.rk-level-title { display: grid; min-width: 0; flex: 1; }
+.rk-level-title strong { font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rk-level-title span { font-size: 0.78rem; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rk-chevron { width: 26px; height: 26px; flex-shrink: 0; border-radius: 8px; background: #f3f4f6; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #374151; }
+.rk-level-body { padding: 4px 16px 16px; border-top: 1px solid #f1f2f6; }
+.rk-econ { font-size: 0.82rem; color: #6b7280; padding: 10px 0 14px; }
+.rk-econ strong { color: #111827; }
+.rk-fields { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; }
+.rk-span2 { grid-column: span 2; }
+.ad-page .rk-color { padding: 3px; height: 40px; width: 100%; border: 1px solid #d1d5db; border-radius: 9px; background: #fff; cursor: pointer; }
+.rk-media { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.rk-slot { border: 1px dashed #d1d5db; border-radius: 12px; padding: 10px; background: #f9fafb; display: grid; gap: 8px; min-width: 0; }
+.rk-slot-label { font-size: 0.78rem; font-weight: 700; color: #374151; display: flex; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
+.rk-slot-label span { color: #9ca3af; font-weight: 400; }
+.rk-slot-preview { height: 120px; background: #0b1b4a; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.rk-slot-preview img, .rk-slot-preview video { max-height: 100%; max-width: 100%; }
+.rk-slot-preview span { color: #9cc4ff; font-size: 0.75rem; text-align: center; padding: 0 6px; }
+.ad-page .rk-slot .ad-btn { cursor: pointer; }
+.ad-page .rk-slot .ad-btn.is-disabled { opacity: 0.5; cursor: not-allowed; }
+.rk-errs { margin: 12px 0 0; color: #b91c1c; font-size: 0.82rem; padding-left: 18px; }
+.rk-publish { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 14px; padding: 12px 20px; border-top: 1px solid #e5e7eb; background: rgba(255,255,255,0.96); backdrop-filter: blur(6px); border-radius: 0 0 14px 14px; z-index: 5; }
+.rk-publish span { font-size: 0.84rem; color: #9ca3af; }
+.rk-publish.is-dirty { position: sticky; bottom: 0; box-shadow: 0 -6px 16px rgba(16,24,40,0.06); }
+.rk-publish.is-dirty span { color: #b45309; font-weight: 600; }
+@media (max-width: 1100px) {
+  .rk-fields { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .rk-settings, .rk-toggles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .rk-settings, .rk-toggles { grid-template-columns: minmax(0, 1fr); }
+  .rk-levels { padding: 12px; gap: 10px; }
+  .rk-level-head { padding: 8px 10px 8px 8px; gap: 8px; }
+  .ad-page .rk-level-toggle { gap: 8px; }
+  .rk-level-body { padding: 2px 12px 12px; }
+  .rk-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .rk-span2 { grid-column: 1 / -1; }
+  .rk-media { gap: 8px; }
+  .rk-slot { padding: 6px; }
+  .rk-slot-label span { display: none; }
+  .rk-slot-preview { height: 80px; }
+  .ad-page .rk-slot .ad-btn { padding: 7px 4px; font-size: 0.74rem; }
+  .rk-publish { padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); justify-content: space-between; }
+}
+`;

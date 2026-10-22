@@ -3,723 +3,314 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
+import { Field, PageHeader, Switch, Tabs, errorText, useToasts } from '@/components/admin-ui';
+
+type Num = { kind: 'num'; key: string; label: string; hint?: string; unit?: string; min?: number; max?: number; step?: number };
+type Toggle = { kind: 'toggle'; key: string; label: string; hint?: string; defaultOn?: boolean };
+type Note = { kind: 'note'; text: React.ReactNode };
+type Group = { title?: string; hint?: string; cols?: 2 | 3 | 4; items: (Num | Toggle | Note)[] };
+type TabId = 'commissions' | 'withdrawals' | 'streaks' | 'games' | 'staff' | 'animations' | 'rooms';
+
+const pct = (key: string, label: string, hint?: string): Num => ({ kind: 'num', key, label, hint, unit: '%', min: 0, max: 100 });
+const coins = (key: string, label: string, hint?: string, min = 0): Num => ({ kind: 'num', key, label, hint, unit: 'coins', min });
+
+const TABS: { id: TabId; label: string; groups: Group[] }[] = [
+  {
+    id: 'commissions',
+    label: 'Commissions',
+    groups: [
+      { title: 'Gifts', cols: 3, items: [
+        pct('gift_commission_percent', 'Gift platform commission'),
+        pct('lucky_rebate_min_pct', 'Lucky gift rebate — min', 'Of the gift value.'),
+        pct('lucky_rebate_max_pct', 'Lucky gift rebate — max', 'Of the gift value.'),
+      ] },
+      { title: 'Star chat', items: [
+        coins('star_chat_price_per_min', 'Price per minute'),
+        pct('star_chat_commission_percent', 'Star chat commission'),
+      ] },
+    ],
+  },
+  {
+    id: 'withdrawals',
+    label: 'Withdrawals & FX',
+    groups: [
+      { title: 'Withdrawal limits', items: [
+        { kind: 'num', key: 'min_withdrawal', label: 'Minimum withdrawal', unit: 'INR', min: 1 },
+        { kind: 'num', key: 'max_withdrawal', label: 'Maximum withdrawal', unit: 'INR', min: 1 },
+      ] },
+      { title: 'Exchange rates', cols: 4, items: [
+        { kind: 'num', key: 'inr_per_usd', label: 'INR per USD', step: 0.01 },
+        { kind: 'num', key: 'gems_per_rupee', label: 'Gems per rupee', min: 1 },
+        { kind: 'num', key: 'gems_per_dollar', label: 'Gems per dollar', min: 1 },
+        { kind: 'num', key: 'gems_per_coin', label: 'Gems per coin', min: 1 },
+      ] },
+    ],
+  },
+  {
+    id: 'streaks',
+    label: 'Streaks & Referrals',
+    groups: [
+      { title: 'Daily streak', items: [{ kind: 'toggle', key: 'streak_enabled', label: 'Daily streak bonus', hint: 'Users earn coins for opening the app on consecutive days.' }] },
+      { cols: 4, items: [1, 2, 3, 4, 5, 6, 7].map((d) => coins(`streak_day_${d}_coins`, `Day ${d}`)) },
+      { title: 'Referral rewards', items: [
+        coins('referral_reward_referrer', 'Referrer reward', 'Paid to the user who invited.'),
+        coins('referral_reward_referee', 'Referee signup reward', 'Paid to the new user.'),
+      ] },
+      { title: 'Referral milestone', items: [{ kind: 'toggle', key: 'referral_milestone_enabled', label: 'Milestone bonus', hint: 'One-time bonus after inviting a set number of friends.' }] },
+      { items: [
+        { kind: 'num', key: 'referral_milestone_required_count', label: 'Friends required', min: 1 },
+        coins('referral_milestone_coins', 'Milestone bonus'),
+      ] },
+    ],
+  },
+  {
+    id: 'games',
+    label: 'Games & Ads',
+    groups: [
+      { title: 'Mini games', items: [
+        { kind: 'toggle', key: 'game_1_enabled', label: 'Greedy Wheel', hint: 'Fruit game 1.' },
+        { kind: 'toggle', key: 'game_2_enabled', label: 'Lucky 77 Wheel', hint: 'Game 2.' },
+      ] },
+      { title: 'Rewarded ads', items: [{ kind: 'toggle', key: 'admob_enabled', label: 'AdMob rewarded video', hint: 'Users can watch an ad to earn coins.' }] },
+      { items: [
+        coins('admob_ad_coins', 'Coins per watched ad'),
+        { kind: 'num', key: 'admob_daily_ad_limit', label: 'Daily ad limit per user', unit: 'ads', min: 0 },
+      ] },
+    ],
+  },
+  {
+    id: 'staff',
+    label: 'Staff Defaults',
+    groups: [
+      { title: 'Default commission by badge', hint: 'Used when a staff member has no personal rate set.', cols: 3, items: [
+        pct('staff_commission_ceo_percent', 'CEO'),
+        pct('staff_commission_manager_percent', 'Manager'),
+        pct('staff_commission_admin_percent', 'Admin'),
+      ] },
+    ],
+  },
+  {
+    id: 'animations',
+    label: 'Gift Animations',
+    groups: [
+      { cols: 3, items: [
+        coins('room_gift_big_animation_threshold_coins', 'Big animation threshold', 'Gifts worth at least this play the full-screen animation.', 1),
+        { kind: 'num', key: 'room_gift_banner_duration_small_ms', label: 'Small gift banner', unit: 'ms', min: 500, max: 30000 },
+        { kind: 'num', key: 'room_gift_banner_duration_big_ms', label: 'Big gift banner', unit: 'ms', min: 500, max: 30000 },
+      ] },
+    ],
+  },
+  {
+    id: 'rooms',
+    label: 'Rooms & Video',
+    groups: [
+      { items: [
+        { kind: 'toggle', key: 'room_video_enabled', defaultOn: true, label: 'Party room video & camera', hint: 'Master switch. When on, seated hosts can publish camera video in party rooms; when off, video is disabled in every room instantly — no app update needed.' },
+      ] },
+      { items: [
+        { kind: 'num', key: 'room_member_timeout_seconds', label: 'Member timeout', unit: 'sec', min: 45, max: 600, hint: 'A member with no heartbeat for this long leaves and their seat is freed. 45–600 s, default 90. Lower cleans up faster; higher tolerates weak networks.' },
+      ] },
+    ],
+  },
+];
+
+const DEFAULTS: Record<string, any> = {
+  gift_commission_percent: 20,
+  audio_call_price_per_min: 20,
+  audio_call_commission_percent: 20,
+  video_call_price_per_min: 40,
+  video_call_commission_percent: 20,
+  star_chat_price_per_min: 5,
+  star_chat_commission_percent: 30,
+  min_withdrawal: 100,
+  max_withdrawal: 50000,
+  inr_per_usd: 83.5,
+  gems_per_rupee: 10,
+  gems_per_dollar: 835,
+  gems_per_coin: 10,
+  min_gems_convert: 100,
+  min_inr_withdrawal: 100,
+  max_inr_withdrawal: 50000,
+  streak_enabled: true,
+  streak_day_1_coins: 10,
+  streak_day_2_coins: 20,
+  streak_day_3_coins: 30,
+  streak_day_4_coins: 40,
+  streak_day_5_coins: 50,
+  streak_day_6_coins: 60,
+  streak_day_7_coins: 100,
+  referral_reward_referrer: 50,
+  referral_reward_referee: 50,
+  referral_milestone_enabled: true,
+  referral_milestone_required_count: 5,
+  referral_milestone_coins: 100,
+  referral_coin_conversion_rate: 1,
+  admob_enabled: false,
+  admob_ad_coins: 10,
+  admob_daily_ad_limit: 5,
+  game_1_enabled: true,
+  game_2_enabled: true,
+  game_3_enabled: true,
+  staff_commission_ceo_percent: 5,
+  staff_commission_manager_percent: 3,
+  staff_commission_admin_percent: 2,
+  room_gift_big_animation_threshold_coins: 5000,
+  room_gift_banner_duration_small_ms: 3000,
+  room_gift_banner_duration_big_ms: 6000,
+  room_video_enabled: true,
+  room_member_timeout_seconds: 90,
+  lucky_rebate_min_pct: 1,
+  lucky_rebate_max_pct: 40,
+};
 
 export default function SettingsPage() {
   const { token } = useAdminAuth();
+  const { toast, toastNode } = useToasts();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [activeTab, setActiveTab] = useState<'commissions' | 'withdrawals' | 'streaks' | 'games' | 'staff' | 'animations' | 'rooms'>('commissions');
-
-  // Form fields
-  const [form, setForm] = useState<Record<string, any>>({
-    gift_commission_percent: 20,
-    audio_call_price_per_min: 20,
-    audio_call_commission_percent: 20,
-    video_call_price_per_min: 40,
-    video_call_commission_percent: 20,
-    star_chat_price_per_min: 5,
-    star_chat_commission_percent: 30,
-    min_withdrawal: 100,
-    max_withdrawal: 50000,
-    inr_per_usd: 83.5,
-    gems_per_rupee: 10,
-    gems_per_dollar: 835,
-    gems_per_coin: 10,
-    min_gems_convert: 100,
-    min_inr_withdrawal: 100,
-    max_inr_withdrawal: 50000,
-    streak_enabled: true,
-    streak_day_1_coins: 10,
-    streak_day_2_coins: 20,
-    streak_day_3_coins: 30,
-    streak_day_4_coins: 40,
-    streak_day_5_coins: 50,
-    streak_day_6_coins: 60,
-    streak_day_7_coins: 100,
-    referral_reward_referrer: 50,
-    referral_reward_referee: 50,
-    referral_milestone_enabled: true,
-    referral_milestone_required_count: 5,
-    referral_milestone_coins: 100,
-    referral_coin_conversion_rate: 1,
-    admob_enabled: false,
-    admob_ad_coins: 10,
-    admob_daily_ad_limit: 5,
-    game_1_enabled: true,
-    game_2_enabled: true,
-    game_3_enabled: true,
-    staff_commission_ceo_percent: 5,
-    staff_commission_manager_percent: 3,
-    staff_commission_admin_percent: 2,
-    room_gift_big_animation_threshold_coins: 5000,
-    room_gift_banner_duration_small_ms: 3000,
-    room_gift_banner_duration_big_ms: 6000,
-    room_video_enabled: true,
-    room_member_timeout_seconds: 90,
-    lucky_rebate_min_pct: 1,
-    lucky_rebate_max_pct: 40,
-  });
+  const [activeTab, setActiveTab] = useState<TabId>('commissions');
+  const [form, setForm] = useState<Record<string, any>>(DEFAULTS);
+  const [saved, setSaved] = useState('');
 
   useEffect(() => {
     if (!token) return;
-    async function loadSettings() {
+    (async () => {
       setLoading(true);
       try {
-        const res = await api<any>('/admin/settings', token!);
-        if (res.data?.settings) {
-          setForm((prev) => ({ ...prev, ...res.data.settings }));
-        }
+        const res = await api<any>('/admin/settings', token);
+        const next = { ...DEFAULTS, ...(res.data?.settings ?? {}) };
+        setForm(next);
+        setSaved(JSON.stringify(next));
       } catch (err) {
-        console.error('Failed to load settings', err);
+        toast('error', errorText(err, 'Failed to load settings'));
       } finally {
         setLoading(false);
       }
-    }
-    loadSettings();
-  }, [token]);
+    })();
+  }, [token, toast]);
 
-  const handleChange = (key: string, value: any) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  };
+  const dirty = !loading && saved !== '' && JSON.stringify(form) !== saved;
+  const set = (key: string, value: unknown) => setForm((prev) => ({ ...prev, [key]: value }));
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  async function save() {
     if (!token) return;
     setSaving(true);
-    setMessage(null);
     try {
-      const res = await api<any>('/admin/settings', token, {
-        method: 'PATCH',
-        body: JSON.stringify(form),
-      });
-      if (res.data?.settings) {
-        setForm((prev) => ({ ...prev, ...res.data.settings }));
-      }
-      setMessage({ type: 'success', text: 'Settings successfully saved and applied.' });
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'Failed to update settings.' });
+      const res = await api<any>('/admin/settings', token, { method: 'PATCH', body: JSON.stringify(form) });
+      const next = { ...form, ...(res.data?.settings ?? {}) };
+      setForm(next);
+      setSaved(JSON.stringify(next));
+      toast('success', 'Settings saved and applied');
+    } catch (err) {
+      toast('error', errorText(err, 'Failed to update settings'));
     } finally {
       setSaving(false);
     }
-  };
+  }
 
-  const tabs = [
-    { id: 'commissions', label: 'Commissions & Rates' },
-    { id: 'withdrawals', label: 'Withdrawal & FX' },
-    { id: 'streaks', label: 'Streaks & Referrals' },
-    { id: 'games', label: 'Games & Ads' },
-    { id: 'staff', label: 'Staff Defaults' },
-    { id: 'animations', label: 'Gift Animations' },
-    { id: 'rooms', label: 'Rooms & Video' },
-  ] as const;
+  const tab = TABS.find((t) => t.id === activeTab) ?? TABS[0];
 
   return (
-    <main style={{ padding: '32px 40px', maxWidth: '1400px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
-        <div>
-          <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827', margin: '0 0 8px 0' }}>Platform Settings</h1>
-          <p style={{ color: '#6b7280', margin: 0, fontSize: '0.95rem' }}>
-            Configure global financial rates, daily rewards, and mini-games.
-          </p>
-        </div>
-        <button
-          onClick={handleSave}
-          disabled={saving || loading}
-          style={{
-            padding: '10px 24px',
-            backgroundColor: '#4f46e5',
-            color: '#fff',
-            fontWeight: 600,
-            borderRadius: 8,
-            border: 'none',
-            cursor: saving || loading ? 'not-allowed' : 'pointer',
-            opacity: saving || loading ? 0.7 : 1,
-            boxShadow: '0 2px 4px rgba(79, 70, 229, 0.2)',
-          }}
-        >
-          {saving ? 'Saving...' : 'Save All Settings'}
-        </button>
-      </div>
+    <main className="ad-page">
+      <style dangerouslySetInnerHTML={{ __html: SET_STYLES }} />
+      <PageHeader
+        title="Platform Settings"
+        subtitle="Global financial rates, rewards, games and room behaviour. Changes apply as soon as you save."
+      />
 
-      {message && (
-        <div
-          style={{
-            padding: '12px 16px',
-            borderRadius: 8,
-            marginBottom: 20,
-            backgroundColor: message.type === 'success' ? '#def7ec' : '#fde8e8',
-            color: message.type === 'success' ? '#03543f' : '#9b1c1c',
-            border: `1px solid ${message.type === 'success' ? '#bcf0da' : '#f8b4b4'}`,
-            fontSize: '0.9rem',
-          }}
-        >
-          {message.text}
-        </div>
-      )}
-
-      {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', marginBottom: 24, gap: 8 }}>
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setActiveTab(t.id)}
-            style={{
-              padding: '10px 18px',
-              border: 'none',
-              background: 'none',
-              fontWeight: 600,
-              fontSize: '0.9rem',
-              color: activeTab === t.id ? '#4f46e5' : '#6b7280',
-              borderBottom: activeTab === t.id ? '2px solid #4f46e5' : '2px solid transparent',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-            }}
-          >
-            {t.label}
+      <form
+        className="ad-card"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <Tabs value={activeTab} onChange={setActiveTab} tabs={TABS.map((t) => ({ value: t.id, label: t.label }))} />
+        {loading ? (
+          <div className="ad-card-body" style={{ display: 'grid', gap: 12 }}>
+            <div className="ad-skeleton" /><div className="ad-skeleton" /><div className="ad-skeleton" />
+          </div>
+        ) : (
+          <div className="ad-card-body set-body">
+            {tab.groups.map((g, gi) => (
+              <section key={gi} className="set-group">
+                {g.title ? (
+                  <div className="set-group-head">
+                    <h3>{g.title}</h3>
+                    {g.hint ? <p>{g.hint}</p> : null}
+                  </div>
+                ) : null}
+                <div className={`set-grid cols-${g.cols ?? 2}`}>
+                  {g.items.map((it, i) =>
+                    it.kind === 'toggle' ? (
+                      <div key={it.key} className="ad-toggle-row is-wide">
+                        <div>
+                          <div className="ad-toggle-title">{it.label}</div>
+                          {it.hint ? <div className="ad-toggle-hint">{it.hint}</div> : null}
+                        </div>
+                        <Switch
+                          label={it.label}
+                          checked={it.defaultOn ? form[it.key] !== false : Boolean(form[it.key])}
+                          onChange={(v) => set(it.key, v)}
+                        />
+                      </div>
+                    ) : it.kind === 'note' ? (
+                      <div key={i} className="ad-note is-wide">{it.text}</div>
+                    ) : (
+                      <Field key={it.key} label={it.label} hint={it.hint}>
+                        <div className="ad-unit">
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            min={it.min}
+                            max={it.max}
+                            step={it.step}
+                            value={form[it.key] ?? ''}
+                            onChange={(e) => set(it.key, Number(e.target.value))}
+                          />
+                          {it.unit ? <span>{it.unit}</span> : null}
+                        </div>
+                      </Field>
+                    ),
+                  )}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
+        <div className={`set-savebar ${dirty ? 'is-dirty' : ''}`}>
+          <span>{dirty ? 'You have unsaved changes' : 'All changes saved'}</span>
+          <button type="submit" className="ad-btn ad-btn-accent ad-btn-lg" disabled={saving || loading || !dirty}>
+            {saving ? 'Saving…' : 'Save changes'}
           </button>
-        ))}
-      </div>
-
-      {loading ? (
-        <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>Loading platform settings...</div>
-      ) : (
-        <form onSubmit={handleSave} style={{ backgroundColor: '#fff', padding: 28, borderRadius: 12, border: '1px solid #e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-          {activeTab === 'commissions' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Gift Platform Commission (%)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={form.gift_commission_percent ?? ''}
-                  onChange={(e) => handleChange('gift_commission_percent', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Lucky Gift Rebate Min (% of gift value)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={form.lucky_rebate_min_pct ?? ''}
-                  onChange={(e) => handleChange('lucky_rebate_min_pct', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Lucky Gift Rebate Max (% of gift value)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={form.lucky_rebate_max_pct ?? ''}
-                  onChange={(e) => handleChange('lucky_rebate_max_pct', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Star Chat Price Per Min (Coins)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={form.star_chat_price_per_min ?? ''}
-                  onChange={(e) => handleChange('star_chat_price_per_min', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Star Chat Commission (%)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={form.star_chat_commission_percent ?? ''}
-                  onChange={(e) => handleChange('star_chat_commission_percent', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'withdrawals' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Min Withdrawal (INR)
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={form.min_withdrawal ?? ''}
-                  onChange={(e) => handleChange('min_withdrawal', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Max Withdrawal (INR)
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={form.max_withdrawal ?? ''}
-                  onChange={(e) => handleChange('max_withdrawal', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  INR per USD (Exchange Rate)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={form.inr_per_usd ?? ''}
-                  onChange={(e) => handleChange('inr_per_usd', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Gems Per Rupee (INR)
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={form.gems_per_rupee ?? ''}
-                  onChange={(e) => handleChange('gems_per_rupee', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Gems Per Dollar (USD)
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={form.gems_per_dollar ?? ''}
-                  onChange={(e) => handleChange('gems_per_dollar', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Gems Per Coin
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={form.gems_per_coin ?? ''}
-                  onChange={(e) => handleChange('gems_per_coin', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'streaks' && (
-            <div>
-              <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <input
-                  type="checkbox"
-                  id="streak_enabled"
-                  checked={Boolean(form.streak_enabled)}
-                  onChange={(e) => handleChange('streak_enabled', e.target.checked)}
-                  style={{ width: 18, height: 18 }}
-                />
-                <label htmlFor="streak_enabled" style={{ fontWeight: 600, color: '#111827', fontSize: '0.95rem' }}>
-                  Enable Daily Streak Bonus
-                </label>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
-                {[1, 2, 3, 4, 5, 6, 7].map((day) => (
-                  <div key={day}>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#4b5563', marginBottom: 4 }}>
-                      Day {day} Coins
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={form[`streak_day_${day}_coins`] ?? ''}
-                      onChange={(e) => handleChange(`streak_day_${day}_coins`, Number(e.target.value))}
-                      style={inputStyle}
-                    />
-                  </div>
-                ))}
-              </div>
-
-              <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#111827', margin: '20px 0 12px' }}>
-                Referral Rewards
-              </h3>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                    Referrer Reward (Coins)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={form.referral_reward_referrer ?? ''}
-                    onChange={(e) => handleChange('referral_reward_referrer', Number(e.target.value))}
-                    style={inputStyle}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                    Referee Signup Reward (Coins)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={form.referral_reward_referee ?? ''}
-                    onChange={(e) => handleChange('referral_reward_referee', Number(e.target.value))}
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
-
-              <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#111827', margin: '24px 0 12px' }}>
-                Referral Milestone Bonus
-              </h3>
-              <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <input
-                  type="checkbox"
-                  id="referral_milestone_enabled"
-                  checked={Boolean(form.referral_milestone_enabled)}
-                  onChange={(e) => handleChange('referral_milestone_enabled', e.target.checked)}
-                  style={{ width: 18, height: 18 }}
-                />
-                <label htmlFor="referral_milestone_enabled" style={{ fontWeight: 600, color: '#111827', fontSize: '0.95rem' }}>
-                  Enable one-time bonus after inviting N friends
-                </label>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                    Friends Required
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={form.referral_milestone_required_count ?? ''}
-                    onChange={(e) => handleChange('referral_milestone_required_count', Number(e.target.value))}
-                    style={inputStyle}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                    Milestone Bonus (Coins)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={form.referral_milestone_coins ?? ''}
-                    onChange={(e) => handleChange('referral_milestone_coins', Number(e.target.value))}
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'games' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-              <div style={{ padding: 16, border: '1px solid #e5e7eb', borderRadius: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                  <input
-                    type="checkbox"
-                    id="game_1"
-                    checked={Boolean(form.game_1_enabled)}
-                    onChange={(e) => handleChange('game_1_enabled', e.target.checked)}
-                    style={{ width: 18, height: 18 }}
-                  />
-                  <label htmlFor="game_1" style={{ fontWeight: 600, color: '#111827' }}>
-                    Greedy Wheel (Fruit Game 1) Enabled
-                  </label>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <input
-                    type="checkbox"
-                    id="game_2"
-                    checked={Boolean(form.game_2_enabled)}
-                    onChange={(e) => handleChange('game_2_enabled', e.target.checked)}
-                    style={{ width: 18, height: 18 }}
-                  />
-                  <label htmlFor="game_2" style={{ fontWeight: 600, color: '#111827' }}>
-                    Lucky 77 Wheel (Game 2) Enabled
-                  </label>
-                </div>
-              </div>
-
-              <div style={{ padding: 16, border: '1px solid #e5e7eb', borderRadius: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                  <input
-                    type="checkbox"
-                    id="admob_enabled"
-                    checked={Boolean(form.admob_enabled)}
-                    onChange={(e) => handleChange('admob_enabled', e.target.checked)}
-                    style={{ width: 18, height: 18 }}
-                  />
-                  <label htmlFor="admob_enabled" style={{ fontWeight: 600, color: '#111827' }}>
-                    AdMob Rewarded Video Ads Enabled
-                  </label>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                      Coins Per Watched Ad
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={form.admob_ad_coins ?? ''}
-                      onChange={(e) => handleChange('admob_ad_coins', Number(e.target.value))}
-                      style={inputStyle}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                      Daily Ad Limit Per User
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={form.admob_daily_ad_limit ?? ''}
-                      onChange={(e) => handleChange('admob_daily_ad_limit', Number(e.target.value))}
-                      style={inputStyle}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'staff' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20 }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  CEO Default Commission (%)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={form.staff_commission_ceo_percent ?? ''}
-                  onChange={(e) => handleChange('staff_commission_ceo_percent', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Manager Default Commission (%)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={form.staff_commission_manager_percent ?? ''}
-                  onChange={(e) => handleChange('staff_commission_manager_percent', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Admin Default Commission (%)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={form.staff_commission_admin_percent ?? ''}
-                  onChange={(e) => handleChange('staff_commission_admin_percent', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'animations' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Big Animation Threshold (Coins)
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={form.room_gift_big_animation_threshold_coins ?? ''}
-                  onChange={(e) => handleChange('room_gift_big_animation_threshold_coins', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Small Gift Banner Duration (ms)
-                </label>
-                <input
-                  type="number"
-                  min="500"
-                  max="30000"
-                  value={form.room_gift_banner_duration_small_ms ?? ''}
-                  onChange={(e) => handleChange('room_gift_banner_duration_small_ms', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Big Gift Banner Duration (ms)
-                </label>
-                <input
-                  type="number"
-                  min="500"
-                  max="30000"
-                  value={form.room_gift_banner_duration_big_ms ?? ''}
-                  onChange={(e) => handleChange('room_gift_banner_duration_big_ms', Number(e.target.value))}
-                  style={inputStyle}
-                />
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'rooms' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: '720px' }}>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '20px 24px',
-                  backgroundColor: '#f9fafb',
-                  borderRadius: 12,
-                  border: '1px solid #e5e7eb',
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '1rem', fontWeight: 600, color: '#111827', marginBottom: 4 }}>
-                    Party Room Video & Camera Streaming
-                  </div>
-                  <div style={{ fontSize: '0.875rem', color: '#6b7280', maxWidth: '520px', lineHeight: 1.4 }}>
-                    Global master switch. When turned ON, seated hosts and broadcasters can publish camera video streams in party rooms. When turned OFF, video controls are disabled across all rooms platform-wide.
-                  </div>
-                </div>
-                <label style={{ position: 'relative', display: 'inline-block', width: 48, height: 26, cursor: 'pointer', flexShrink: 0 }}>
-                  <input
-                    type="checkbox"
-                    checked={form.room_video_enabled !== false}
-                    onChange={(e) => handleChange('room_video_enabled', e.target.checked)}
-                    style={{ opacity: 0, width: 0, height: 0 }}
-                  />
-                  <span
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      backgroundColor: form.room_video_enabled !== false ? '#4f46e5' : '#d1d5db',
-                      borderRadius: 26,
-                      transition: '0.2s',
-                    }}
-                  >
-                    <span
-                      style={{
-                        position: 'absolute',
-                        height: 20,
-                        width: 20,
-                        left: form.room_video_enabled !== false ? 25 : 3,
-                        bottom: 3,
-                        backgroundColor: '#fff',
-                        borderRadius: '50%',
-                        transition: '0.2s',
-                        boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
-                      }}
-                    />
-                  </span>
-                </label>
-              </div>
-
-              <div
-                style={{
-                  padding: '16px 20px',
-                  backgroundColor: '#eff6ff',
-                  borderRadius: 10,
-                  border: '1px solid #bfdbfe',
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 12,
-                }}
-              >
-                <div style={{ color: '#2563eb', fontSize: '1.2rem', lineHeight: 1 }}>ℹ️</div>
-                <div style={{ fontSize: '0.85rem', color: '#1e40af', lineHeight: 1.5 }}>
-                  <strong>Instant platform enforcement:</strong> Toggling this switch instantly enables or disables camera capability for all active and new rooms across the Android client without requiring an app update or database migration.
-                </div>
-              </div>
-
-              <div
-                style={{
-                  padding: '20px 24px',
-                  backgroundColor: '#f9fafb',
-                  borderRadius: 12,
-                  border: '1px solid #e5e7eb',
-                }}
-              >
-                <label style={{ display: 'block', fontSize: '1rem', fontWeight: 600, color: '#111827', marginBottom: 4 }}>
-                  Room member timeout (seconds)
-                </label>
-                <div style={{ fontSize: '0.875rem', color: '#6b7280', lineHeight: 1.4, marginBottom: 12 }}>
-                  A member who sends no heartbeat for this long leaves the room and their seat is freed — for
-                  everyone at once. Applies to members, hosts and the room list. Allowed 45–600 s (default 90).
-                  Lower = faster cleanup of dead connections; higher = more tolerant of weak networks.
-                </div>
-                <input
-                  type="number"
-                  min="45"
-                  max="600"
-                  value={form.room_member_timeout_seconds ?? 90}
-                  onChange={(e) => handleChange('room_member_timeout_seconds', Number(e.target.value))}
-                  style={{ ...inputStyle, maxWidth: 160 }}
-                />
-              </div>
-            </div>
-          )}
-        </form>
-      )}
+        </div>
+      </form>
+      {toastNode}
     </main>
   );
 }
 
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '10px 12px',
-  borderRadius: 8,
-  border: '1px solid #d1d5db',
-  fontSize: '0.9rem',
-  color: '#111827',
-  outline: 'none',
-  backgroundColor: '#f9fafb',
-};
+const SET_STYLES = `
+.set-body { display: grid; gap: 26px; }
+.set-group-head { margin-bottom: 12px; }
+.set-group-head h3 { margin: 0; font-size: 0.95rem; font-weight: 700; color: #111827; }
+.set-group-head p { margin: 2px 0 0; font-size: 0.82rem; color: #6b7280; }
+.set-group + .set-group:not(:has(.set-group-head)) { margin-top: -12px; }
+.set-grid { display: grid; gap: 14px 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 880px; }
+.set-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.set-grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.set-grid .is-wide { grid-column: 1 / -1; }
+.set-savebar { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 14px; padding: 12px 20px; border-top: 1px solid #e5e7eb; background: rgba(255,255,255,0.96); backdrop-filter: blur(6px); border-radius: 0 0 14px 14px; z-index: 5; }
+.set-savebar span { font-size: 0.84rem; color: #9ca3af; }
+.set-savebar.is-dirty { position: sticky; bottom: 0; box-shadow: 0 -6px 16px rgba(16,24,40,0.06); }
+.set-savebar.is-dirty span { color: #b45309; font-weight: 600; }
+@media (max-width: 900px) {
+  .set-grid.cols-3, .set-grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .set-body { gap: 22px; }
+  .set-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .set-grid.cols-3, .set-grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .set-savebar { padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); justify-content: space-between; }
+}
+`;

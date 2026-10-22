@@ -134,3 +134,60 @@ button:hover {
   border: 1px solid rgba(248, 113, 113, 0.2);
   color: #f87171;
 }
+
+/* ==================================================
+   DASHBOARD SHELL (sidebar becomes a drawer ≤ 900px)
+   ================================================== */
+.dash { display: flex; width: 100%; height: 100vh; height: 100dvh; overflow: hidden; }
+.dash-main { flex: 1; min-width: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+.sb { width: 260px; flex-shrink: 0; height: 100%; overflow-y: auto; display: flex; flex-direction: column; background: #1c2536; color: #9ca3af; box-sizing: border-box; }
+.sb-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 22px 20px 16px; color: #fff; }
+.sb-head h2 { margin: 0; font-size: 1.25rem; font-weight: 700; }
+.sb-head p { margin: 4px 0 0; font-size: 0.8rem; color: #9ca3af; }
+.sb-nav { padding: 0 12px 24px; display: flex; flex-direction: column; gap: 20px; }
+.sb-group { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 8px 12px; color: #6b7280; }
+.sb-items { display: flex; flex-direction: column; gap: 4px; }
+.sb-link { padding: 10px 12px; border-radius: 8px; color: #9ca3af; font-size: 0.9rem; font-weight: 500; transition: background 0.2s, color 0.2s; }
+.sb-link:hover { background: rgba(255,255,255,0.04); color: #fff; }
+.sb-link.is-active { background: rgba(255,255,255,0.08); color: #fff; font-weight: 600; }
+.sb-foot { margin-top: auto; padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.08); }
+.sb .sb-logout { width: 100%; padding: 10px; background: rgba(239,68,68,0.1); color: #f87171; border: 1px solid rgba(239,68,68,0.2); font-size: 0.85rem; }
+.sb .sb-logout:hover { background: rgba(239,68,68,0.2); }
+.sb .sb-close { display: none; background: rgba(255,255,255,0.08); color: #fff; padding: 2px 12px; font-size: 1.4rem; line-height: 1.3; }
+.sb-topbar, .sb-backdrop { display: none; }
+
+@media (max-width: 900px) {
+  .dash { flex-direction: column; }
+  .sb-topbar { display: flex; align-items: center; gap: 12px; flex-shrink: 0; height: 56px; padding: 0 12px; padding-top: env(safe-area-inset-top); background: #1c2536; color: #fff; z-index: 40; }
+  .sb-topbar-title { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+  .sb-topbar-title strong { font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sb-topbar-title small { font-size: 0.72rem; color: #9ca3af; }
+  .sb-topbar .sb-burger { display: flex; align-items: center; justify-content: center; width: 42px; height: 42px; padding: 0; color: #fff; background: rgba(255,255,255,0.08); flex-shrink: 0; border-radius: 10px; }
+  .sb { position: fixed; top: 0; bottom: 0; left: 0; width: min(300px, 85vw); z-index: 60; transform: translateX(-100%); visibility: hidden; transition: transform 0.22s ease, visibility 0.22s; box-shadow: 8px 0 32px rgba(0,0,0,0.3); padding-bottom: env(safe-area-inset-bottom); }
+  .sb.is-open { transform: none; visibility: visible; }
+  .sb .sb-close { display: block; }
+  .sb-link { padding: 12px; }
+  .sb-backdrop.is-open { display: block; position: fixed; inset: 0; background: rgba(17,24,39,0.5); z-index: 55; }
+
+}
+
+@media (max-width: 640px) {
+  .dash-main img, .dash-main video { max-width: 100%; }
+  /* 16px stops iOS Safari from zooming in when a field is focused. */
+  .dash-main :is(input:not([type=checkbox]):not([type=radio]), select, textarea) { font-size: 16px; }
+}
+
+/* Login on small phones */
+@media (max-width: 480px) {
+  .login-container { padding: 16px; box-sizing: border-box; }
+  .login-card h1 { font-size: 1.9rem; }
+  .login-card .card { padding: 22px; }
+}
+
+.sb-find { padding: 0 12px 16px; }
+.sb .sb-find input { width: 100%; padding: 9px 12px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.06); color: #fff; font-size: 0.86rem; }
+.sb .sb-find input::placeholder { color: #6b7280; }
+.sb .sb-find input:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.25); }
+.sb-empty { margin: 0 12px; font-size: 0.82rem; color: #6b7280; }
+@media (max-width: 900px) { .sb .sb-find input { font-size: 16px; } }

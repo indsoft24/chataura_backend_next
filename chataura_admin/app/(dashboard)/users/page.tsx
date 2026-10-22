@@ -561,7 +561,7 @@ export default function UsersPage() {
 
   return (
     <main className="um">
-      <style>{STYLES}</style>
+      <style dangerouslySetInnerHTML={{ __html: STYLES }} />
 
       <div className="um-header">
         <div>
@@ -714,7 +714,7 @@ export default function UsersPage() {
                   return (
                     <tr key={u.id} className={`um-row ${busy ? 'is-busy' : ''} ${status !== 'active' ? 'is-muted' : ''}`}>
                       <td className="um-td um-id">#{u.id}</td>
-                      <td className="um-td">
+                      <td className="um-td um-main">
                         <div className="um-user">
                           <div className="um-avatar">
                             {u.avatar_url ? (
@@ -727,19 +727,19 @@ export default function UsersPage() {
                           </div>
                           <div style={{ minWidth: 0 }}>
                             <div className="um-name" title={name}>{name}</div>
-                            <div className="um-sub" title={u.email ?? ''}>{u.email ?? 'No email'}</div>
+                            <div className="um-sub" title={u.email ?? ''}><span className="um-m-only">#{u.id} · </span>{u.email ?? 'No email'}</div>
                             {u.phone && <div className="um-sub">{u.phone}</div>}
                           </div>
                         </div>
                       </td>
-                      <td className="um-td um-balance">
+                      <td className="um-td um-balance" data-label="Balance">
                         <div>🪙 {Number(u.coins ?? u.coin_balance ?? 0).toLocaleString()}</div>
                         <div className="um-sub">💎 {Number(u.gems ?? 0).toLocaleString()}</div>
                       </td>
-                      <td className="um-td" style={{ textAlign: 'center' }}>
+                      <td className="um-td" data-label="Level" style={{ textAlign: 'center' }}>
                         <span className="um-level">Lv {u.level ?? 1}</span>
                       </td>
-                      <td className="um-td">
+                      <td className="um-td" data-label="Role">
                         <select
                           className={`um-role role-${u.role ?? 'user'}`}
                           value={u.role ?? 'user'}
@@ -752,7 +752,7 @@ export default function UsersPage() {
                           ))}
                         </select>
                       </td>
-                      <td className="um-td" style={{ textAlign: 'center' }}>
+                      <td className="um-td" data-label="Star" style={{ textAlign: 'center' }}>
                         <button
                           type="button"
                           className={`um-star ${u.is_star_account ? 'is-on' : ''}`}
@@ -763,7 +763,7 @@ export default function UsersPage() {
                           {u.is_star_account ? '★ Star' : '☆ Standard'}
                         </button>
                       </td>
-                      <td className="um-td">
+                      <td className="um-td" data-label="Status">
                         <span className={`um-badge status-${status}`} title={u.suspended_reason ? `Reason: ${u.suspended_reason}` : undefined}>
                           {status}
                         </span>
@@ -771,11 +771,11 @@ export default function UsersPage() {
                           <div className="um-sub um-reason" title={u.suspended_reason}>{u.suspended_reason}</div>
                         )}
                       </td>
-                      <td className="um-td um-activity">
+                      <td className="um-td um-activity" data-label="Activity">
                         <div>{u.is_online ? <span className="um-online-text">● Online</span> : relativeTime(u.last_seen_at)}</div>
                         <div className="um-sub">Joined {formatDate(u.created_at)}</div>
                       </td>
-                      <td className="um-td" style={{ textAlign: 'right' }}>
+                      <td className="um-td um-actions-cell" style={{ textAlign: 'right' }}>
                         <div className="um-actions">
                           <button
                             type="button"
@@ -816,7 +816,7 @@ export default function UsersPage() {
 
         <div className="um-pager">
           <div className="um-pager-info">
-            {total > 0 ? <>Showing <strong>{from.toLocaleString()}–{to.toLocaleString()}</strong> of <strong>{total.toLocaleString()}</strong></> : '—'}
+            <span>{total > 0 ? <>Showing <strong>{from.toLocaleString()}–{to.toLocaleString()}</strong> of <strong>{total.toLocaleString()}</strong></> : '—'}</span>
             <label className="um-page-size">
               Rows
               <select value={filters.limit} onChange={(e) => update({ limit: Number(e.target.value) })}>
@@ -1144,6 +1144,43 @@ tbody.is-loading { opacity: 0.6; transition: opacity 0.15s; }
 @keyframes um-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 @media (max-width: 900px) {
-  .um { padding: 20px 16px; }
+  .um { padding: 18px 16px 40px; }
+}
+.um-m-only { display: none; }
+.um-tabs { scrollbar-width: none; }
+.um-tabs::-webkit-scrollbar { display: none; }
+@media (max-width: 640px) {
+  .um { padding: 14px 12px 32px; }
+  .um-header h1 { font-size: 1.35rem; margin-bottom: 4px; }
+  .um-header p { font-size: 0.84rem; margin-bottom: 14px; }
+  .um-card { border-radius: 12px; }
+  .um-tabs { padding: 0 6px; }
+  .um-toolbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 12px 14px 6px; }
+  .um-toolbar > .um-search, .um-toolbar > .um-reset { grid-column: 1 / -1; max-width: none; }
+  .um-field { font-size: 0.66rem; min-width: 0; }
+  .um select, .um input:not([type=checkbox]) { font-size: 16px; min-width: 0; width: 100%; }
+  .um-summary { padding: 4px 14px 10px; }
+  .um-alert { margin: 0 14px 12px; }
+  .um-m-only { display: inline; }
+  .um-table thead { display: none; }
+  .um-table, .um-table tbody { display: block; }
+  .um-table tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; margin: 0 12px 10px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; }
+  .um-table tr:first-child { margin-top: 12px; }
+  .um-table tr:has(> td[colspan]) { display: block; border: none; padding: 0; }
+  .um-table .um-td { display: block; padding: 0; border: none; text-align: left !important; min-width: 0; }
+  .um-table .um-td[data-label]::before { content: attr(data-label); display: block; color: #9ca3af; font-size: 0.64rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }
+  .um-table .um-id { display: none; }
+  .um-table .um-main { grid-column: 1 / -1; padding-bottom: 8px; border-bottom: 1px solid #f1f2f6; }
+  .um-table .um-main .um-user { max-width: none; }
+  .um-table .um-role { width: 100%; min-width: 0; }
+  .um-table .um-actions-cell { grid-column: span 2; align-self: end; }
+  .um-table .um-actions { justify-content: flex-end; }
+  .um-pager { justify-content: center; padding: 12px 14px 8px; }
+  .um-pager-info { width: 100%; justify-content: space-between; }
+  .um-jump { display: none; }
+  .um-overlay { align-items: flex-end; padding: 0; }
+  .um-modal { max-width: none; border-radius: 18px 18px 0 0; padding: 20px 16px calc(16px + env(safe-area-inset-bottom)); max-height: 92dvh; overflow-y: auto; }
+  .um-modal-actions > * { flex: 1; }
+  .um-toasts { left: 12px; right: 12px; bottom: 12px; }
 }
 `;

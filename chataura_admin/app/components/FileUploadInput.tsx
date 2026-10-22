@@ -70,282 +70,53 @@ export default function FileUploadInput({
     !isVideo &&
     (value.startsWith('http') || value.startsWith('/uploads') || value.startsWith('data:image'));
 
+  const kind = isVideo ? 'Looping video' : isAnimation ? 'Lottie / SVGA animation' : value ? 'Current asset' : '';
+
   return (
-    <div style={{ marginBottom: '16px', width: '100%' }}>
-      <label
-        style={{
-          display: 'block',
-          fontSize: '0.8rem',
-          fontWeight: 600,
-          color: '#374151',
-          marginBottom: '6px',
-          textTransform: 'uppercase',
-          letterSpacing: '0.025em',
-        }}
-      >
-        {label} {required && <span style={{ color: '#ef4444' }}>*</span>}
-      </label>
-
-      {/* Upload button & File trigger row */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          backgroundColor: '#f9fafb',
-          border: '1px dashed #cbd5e1',
-          borderRadius: '8px',
-          padding: '10px 14px',
-          marginBottom: '8px',
-        }}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={accept}
-          onChange={handleFileChange}
-          style={{ display: 'none' }}
-          disabled={uploading}
-        />
-
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            backgroundColor: uploading ? '#9ca3af' : '#4f46e5',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '6px',
-            padding: '7px 14px',
-            fontSize: '0.85rem',
-            fontWeight: 600,
-            cursor: uploading ? 'not-allowed' : 'pointer',
-            transition: 'background-color 0.15s',
-            flexShrink: 0,
-          }}
-        >
-          {uploading ? (
-            <>
-              <span
-                style={{
-                  display: 'inline-block',
-                  width: '12px',
-                  height: '12px',
-                  border: '2px solid #fff',
-                  borderTopColor: 'transparent',
-                  borderRadius: '50%',
-                  animation: 'spin 1s linear infinite',
-                }}
-              />
-              Uploading...
-            </>
-          ) : (
-            <>📁 Choose File</>
-          )}
-        </button>
-
-        <span
-          style={{
-            fontSize: '0.82rem',
-            color: fileName ? '#1f2937' : '#6b7280',
-            fontWeight: fileName ? 500 : 400,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            flex: 1,
-          }}
-        >
-          {uploading
-            ? `Uploading ${fileName}...`
-            : fileName
-              ? `Selected: ${fileName}`
-              : 'No file selected yet'}
-        </span>
-
-        {value && (
-          <button
-            type="button"
-            onClick={handleClear}
-            style={{
-              background: '#fee2e2',
-              border: '1px solid #fca5a5',
-              color: '#b91c1c',
-              borderRadius: '6px',
-              padding: '4px 8px',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              flexShrink: 0,
-            }}
-          >
-            ✕ Clear
-          </button>
-        )}
-      </div>
-
-      {/* Direct / Fallback URL Input */}
-      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          style={{
-            flex: 1,
-            padding: '8px 12px',
-            fontSize: '0.85rem',
-            borderRadius: '6px',
-            border: '1px solid #d1d5db',
-            backgroundColor: '#ffffff',
-            margin: 0,
-          }}
-        />
-      </div>
-
-      {/* Help text */}
-      {helpText && (
-        <p style={{ margin: '4px 0 0 0', fontSize: '0.75rem', color: '#6b7280' }}>
-          {helpText}
-        </p>
-      )}
-
-      {/* Error alert */}
-      {error && (
-        <p
-          style={{
-            margin: '6px 0 0 0',
-            fontSize: '0.78rem',
-            color: '#b91c1c',
-            backgroundColor: '#fef2f2',
-            padding: '4px 8px',
-            borderRadius: '4px',
-            border: '1px solid #fca5a5',
-          }}
-        >
-          ⚠️ {error}
-        </p>
-      )}
-
-      {/* Live Preview */}
-      {value && (
-        <div
-          style={{
-            marginTop: '8px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            backgroundColor: '#f8fafc',
-            padding: '8px 12px',
-            borderRadius: '6px',
-            border: '1px solid #e2e8f0',
-          }}
-        >
+    <div className="ad-upload">
+      <span className="ad-upload-label">
+        {label} {required && <span className="tone-red">*</span>}
+      </span>
+      <div className={`ad-upload-box ${error ? 'has-error' : ''}`}>
+        <div className="ad-upload-thumb" aria-hidden>
           {isVideo ? (
-            <div
-              style={{
-                width: '72px',
-                height: '72px',
-                borderRadius: '6px',
-                backgroundColor: '#0f172a',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                overflow: 'hidden',
-                flexShrink: 0,
-              }}
-            >
-              <video
-                src={value}
-                muted
-                loop
-                autoPlay
-                playsInline
-                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-              />
-            </div>
+            <video src={value} muted loop autoPlay playsInline />
           ) : isImage ? (
-            <div
-              style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '6px',
-                backgroundColor: '#0f172a',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                overflow: 'hidden',
-                flexShrink: 0,
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={value}
+              alt=""
+              onError={(e) => {
+                (e.currentTarget as HTMLElement).style.display = 'none';
               }}
-            >
-              <img
-                src={value}
-                alt="Preview"
-                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                onError={(e) => {
-                  (e.currentTarget as HTMLElement).style.display = 'none';
-                }}
-              />
-            </div>
+            />
           ) : isAnimation ? (
-            <div
-              style={{
-                fontSize: '1.5rem',
-                backgroundColor: '#e0e7ff',
-                width: '48px',
-                height: '48px',
-                borderRadius: '6px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              ✨
-            </div>
+            <span>✨</span>
+          ) : value ? (
+            <span>📎</span>
           ) : (
-            <div
-              style={{
-                fontSize: '1.5rem',
-                backgroundColor: '#f1f5f9',
-                width: '48px',
-                height: '48px',
-                borderRadius: '6px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              📎
-            </div>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 16V4m0 0-4 4m4-4 4 4" /><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></svg>
           )}
-
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#334155' }}>
-              {isVideo
-                ? 'Looping video'
-                : isAnimation
-                  ? 'Lottie / SVGA Animation Asset'
-                  : 'Current Active Asset'}
-            </div>
-            <div
-              style={{
-                fontSize: '0.72rem',
-                color: '#64748b',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {value}
-            </div>
-          </div>
         </div>
-      )}
+        <div className="ad-upload-main">
+          <div className="ad-upload-row">
+            <input ref={fileInputRef} type="file" accept={accept} onChange={handleFileChange} style={{ display: 'none' }} disabled={uploading} />
+            <button type="button" className="ad-btn ad-btn-accent" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+              {uploading ? 'Uploading…' : value ? 'Replace' : 'Upload file'}
+            </button>
+            <span className="ad-upload-status">
+              {uploading ? `Uploading ${fileName}…` : fileName ? fileName : kind || 'or paste a URL below'}
+            </span>
+            {value && (
+              <button type="button" className="ad-btn ad-btn-danger-soft ad-icon-btn" onClick={handleClear} aria-label="Clear file" title="Clear">
+                ✕
+              </button>
+            )}
+          </div>
+          <input type="text" className="ad-upload-url" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+        </div>
+      </div>
+      {error ? <div className="ad-upload-error">{error}</div> : helpText ? <div className="ad-field-hint">{helpText}</div> : null}
     </div>
   );
 }

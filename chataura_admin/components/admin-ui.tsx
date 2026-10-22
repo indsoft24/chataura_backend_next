@@ -398,7 +398,9 @@ export function SearchBox({ value, onChange, onEnter, placeholder }: {
 }) {
   return (
     <div className="ad-search">
-      <span className="ad-search-icon" aria-hidden>⌕</span>
+      <span className="ad-search-icon" aria-hidden>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+      </span>
       <input
         placeholder={placeholder}
         value={value}
@@ -427,7 +429,7 @@ export function Tabs<T extends string>({ value, onChange, tabs }: {
           type="button"
           role="tab"
           aria-selected={value === t.value}
-          className={`ad-tab ${value === t.value ? 'is-active' : ''} tone-${t.tone ?? 'default'}`}
+          className={`ad-tab ${value === t.value ? 'is-active' : ''} tab-${t.tone ?? 'default'}`}
           onClick={() => onChange(t.value)}
         >
           {t.label}
@@ -479,9 +481,11 @@ export function Pager({
   return (
     <div className="ad-pager">
       <div className="ad-pager-info">
-        {total > 0 ? (
-          <>Showing <strong>{from.toLocaleString()}–{to.toLocaleString()}</strong> of <strong>{total.toLocaleString()}</strong></>
-        ) : '—'}
+        <span>
+          {total > 0 ? (
+            <>Showing <strong>{from.toLocaleString()}–{to.toLocaleString()}</strong> of <strong>{total.toLocaleString()}</strong></>
+          ) : '—'}
+        </span>
         <label className="ad-page-size">
           Rows
           <select value={limit} onChange={(e) => onLimit(Number(e.target.value))}>
@@ -493,7 +497,7 @@ export function Pager({
       </div>
       {totalPages > 1 && (
         <div className="ad-pager-controls">
-          <button type="button" className="ad-page-btn" disabled={loading || page <= 1} onClick={() => go(1)} aria-label="First page">«</button>
+          <button type="button" className="ad-page-btn is-edge" disabled={loading || page <= 1} onClick={() => go(1)} aria-label="First page">«</button>
           <button type="button" className="ad-page-btn" disabled={loading || page <= 1} onClick={() => go(page - 1)}>‹ Prev</button>
           {nums.map((p, i) =>
             p === '…' ? (
@@ -505,7 +509,7 @@ export function Pager({
             ),
           )}
           <button type="button" className="ad-page-btn" disabled={loading || page >= totalPages} onClick={() => go(page + 1)}>Next ›</button>
-          <button type="button" className="ad-page-btn" disabled={loading || page >= totalPages} onClick={() => go(totalPages)} aria-label="Last page">»</button>
+          <button type="button" className="ad-page-btn is-edge" disabled={loading || page >= totalPages} onClick={() => go(totalPages)} aria-label="Last page">»</button>
           <form
             className="ad-jump"
             onSubmit={(e) => {
@@ -535,181 +539,243 @@ export async function downloadCsv(csv: string, filename: string) {
   window.URL.revokeObjectURL(url);
 }
 
-// ─── Styles ─────────────────────────────────────────────────────────────
+// ─── Layout primitives ──────────────────────────────────────────────────
 
-export function AdminStyles() {
-  return <style>{ADMIN_STYLES}</style>;
+export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: ReactNode; actions?: ReactNode }) {
+  return (
+    <div className="ad-header">
+      <div>
+        <h1>{title}</h1>
+        {subtitle ? <p>{subtitle}</p> : null}
+      </div>
+      {actions ? <div className="ad-header-actions">{actions}</div> : null}
+    </div>
+  );
 }
 
-const ADMIN_STYLES = `
-.ad-page { padding: 32px 40px; max-width: 1480px; margin: 0 auto; width: 100%; box-sizing: border-box; color: #111827; }
-.ad-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
-.ad-header h1 { font-size: 1.875rem; font-weight: 700; color: #111827; margin: 0 0 8px; }
-.ad-header p { color: #6b7280; margin: 0; font-size: 0.95rem; max-width: 760px; }
-.ad-header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+export function Kpi({ label, value, sub, tone, badge, active, onClick }: {
+  label: string;
+  value: ReactNode;
+  sub?: ReactNode;
+  tone?: 'green' | 'red' | 'amber' | 'indigo' | 'muted';
+  badge?: ReactNode;
+  active?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <div
+      className={`ad-kpi ${onClick ? 'is-clickable' : ''} ${active ? 'is-active' : ''}`}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+    >
+      <div className="ad-kpi-top">
+        <div className="ad-kpi-label">{label}</div>
+        {badge}
+      </div>
+      <div className={`ad-kpi-value ${tone ? `tone-${tone}` : ''}`}>{value}</div>
+      {sub ? <div className="ad-kpi-sub">{sub}</div> : null}
+    </div>
+  );
+}
 
-.ad-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 20px; }
-.ad-kpi { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); min-width: 0; }
-.ad-kpi.is-clickable { cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
-.ad-kpi.is-clickable:hover { border-color: #c7d2fe; box-shadow: 0 4px 12px rgba(79,70,229,0.08); }
-.ad-kpi-label { font-size: 0.72rem; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
-.ad-kpi-value { font-size: 1.6rem; font-weight: 700; color: #111827; margin-top: 4px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ad-kpi-sub { font-size: 0.75rem; color: #9ca3af; margin-top: 2px; }
-.tone-green { color: #059669 !important; }
-.tone-red { color: #dc2626 !important; }
-.tone-amber { color: #d97706 !important; }
-.tone-indigo { color: #4f46e5 !important; }
+/** True below the phone breakpoint (matches the 640px CSS media query). */
+export function useIsPhone() {
+  const [phone, setPhone] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 640px)');
+    const on = () => setPhone(mq.matches);
+    on();
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  return phone;
+}
 
-.ad-card { background: #fff; border-radius: 12px; border: 1px solid #e5e7eb; box-shadow: 0 1px 3px rgba(0,0,0,0.05); padding-bottom: 8px; margin-bottom: 20px; }
-.ad-card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid #e5e7eb; flex-wrap: wrap; }
-.ad-card-head h2 { margin: 0; font-size: 1.05rem; font-weight: 700; color: #111827; }
-.ad-card-head p { margin: 2px 0 0; font-size: 0.85rem; color: #6b7280; }
-.ad-card-body { padding: 20px; }
+/**
+ * Card with a header. `collapsible` sections (typically "Add new …" forms) start open on
+ * desktop and closed on phones so the list they feed stays in view.
+ */
+export function Section({ title, subtitle, actions, collapsible, open: openProp, onOpenChange, className = '', bodyClassName = 'ad-card-body', children }: {
+  title: ReactNode;
+  subtitle?: ReactNode;
+  actions?: ReactNode;
+  collapsible?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  className?: string;
+  bodyClassName?: string;
+  children: ReactNode;
+}) {
+  const [innerOpen, setInnerOpen] = useState(true);
+  useEffect(() => {
+    if (collapsible && openProp === undefined && window.matchMedia('(max-width: 640px)').matches) setInnerOpen(false);
+  }, [collapsible, openProp]);
+  const open = openProp ?? innerOpen;
+  const setOpen = (v: boolean) => (onOpenChange ? onOpenChange(v) : setInnerOpen(v));
 
-.ad-tabs { display: flex; gap: 4px; padding: 0 20px; border-bottom: 1px solid #e5e7eb; overflow-x: auto; }
-.ad-page .ad-tab { background: transparent; color: #6b7280; border-radius: 0; padding: 14px 14px 12px; border-bottom: 2px solid transparent; font-weight: 600; font-size: 0.875rem; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; width: auto; }
-.ad-page .ad-tab:hover { background: transparent; color: #111827; }
-.ad-page .ad-tab.is-active { color: #111827; border-bottom-color: #4f46e5; }
-.ad-tab-count { background: #f3f4f6; color: #374151; border-radius: 999px; padding: 2px 8px; font-size: 0.72rem; }
-.ad-tab.is-active .ad-tab-count { background: #eef2ff; color: #4338ca; }
-.ad-tab.tone-green.is-active .ad-tab-count { background: #d1fae5; color: #065f46; }
-.ad-tab.tone-amber.is-active .ad-tab-count { background: #fef3c7; color: #92400e; }
-.ad-tab.tone-red.is-active .ad-tab-count { background: #fee2e2; color: #991b1b; }
+  if (!collapsible) {
+    return (
+      <section className={`ad-card ${className}`}>
+        <div className="ad-card-head">
+          <div>
+            <h2>{title}</h2>
+            {subtitle ? <p>{subtitle}</p> : null}
+          </div>
+          {actions ? <div className="ad-actions">{actions}</div> : null}
+        </div>
+        <div className={bodyClassName}>{children}</div>
+      </section>
+    );
+  }
+  return (
+    <section className={`ad-card ad-collapse ${open ? 'is-open' : ''} ${className}`}>
+      <button type="button" className="ad-collapse-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <div>
+          <h2>{title}</h2>
+          {subtitle ? <p>{subtitle}</p> : null}
+        </div>
+        <span className="ad-collapse-icon" aria-hidden>+</span>
+      </button>
+      {open ? <div className={bodyClassName}>{children}</div> : null}
+    </section>
+  );
+}
 
-.ad-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.ad-page .ad-chip { padding: 6px 12px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; background: #f3f4f6; color: #374151; border: 1px solid transparent; width: auto; }
-.ad-page .ad-chip:hover { background: #e5e7eb; }
-.ad-page .ad-chip.is-active { background: #111827; color: #fff; }
-.ad-custom-range { display: inline-flex; align-items: center; gap: 6px; color: #6b7280; font-size: 0.8rem; }
-.ad-custom-range input { width: auto; padding: 5px 8px; margin: 0; font-size: 0.8rem; }
-.ad-range-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 16px 20px 0; }
+export function Field({ label, hint, wide, className = '', children }: { label: ReactNode; hint?: ReactNode; wide?: boolean; className?: string; children: ReactNode }) {
+  return (
+    <label className={`ad-field ${wide ? 'is-wide' : ''} ${className}`}>
+      {label}
+      {children}
+      {hint ? <span className="ad-field-hint">{hint}</span> : null}
+    </label>
+  );
+}
 
-.ad-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 14px 20px 8px; }
-.ad-search { position: relative; flex: 1 1 280px; max-width: 420px; }
-.ad-search input { padding-left: 34px; padding-right: 32px; margin: 0; }
-.ad-search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #9ca3af; font-size: 1.05rem; pointer-events: none; }
-.ad-page .ad-search-clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: transparent; color: #9ca3af; padding: 2px 8px; font-size: 1.1rem; line-height: 1; width: auto; }
-.ad-page .ad-search-clear:hover { background: #f3f4f6; color: #374151; }
-.ad-field { display: grid; gap: 4px; font-size: 0.72rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.03em; }
-.ad-page select { font: inherit; font-size: 0.875rem; font-weight: 500; text-transform: none; letter-spacing: normal; padding: 9px 10px; border-radius: 8px; border: 1px solid #d1d5db; background: #fff; color: #111827; min-width: 140px; max-width: 260px; cursor: pointer; }
-.ad-page select:focus, .ad-page textarea:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
-.ad-page textarea { font: inherit; font-size: 0.9rem; padding: 10px 12px; border-radius: 8px; border: 1px solid #d1d5db; background: #fff; color: #111827; resize: vertical; width: 100%; box-sizing: border-box; }
-.ad-num-input { width: 96px !important; margin: 0; padding: 9px 10px !important; font-size: 0.875rem; text-transform: none; }
-.ad-check { display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; color: #374151; padding-bottom: 10px; cursor: pointer; white-space: nowrap; }
-.ad-check input { width: 16px; height: 16px; margin: 0; }
+export function Switch({ checked, onChange, disabled, label }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; label: string }) {
+  return (
+    <label className="ad-switch" title={label}>
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} aria-label={label} />
+      <span />
+    </label>
+  );
+}
 
-.ad-seg { display: inline-flex; border: 1px solid #d1d5db; border-radius: 8px; overflow: hidden; }
-.ad-page .ad-seg-btn { border-radius: 0; background: #fff; color: #374151; padding: 6px 14px; font-size: 0.8rem; border-right: 1px solid #e5e7eb; width: auto; }
-.ad-page .ad-seg-btn:last-child { border-right: none; }
-.ad-page .ad-seg-btn:hover { background: #f9fafb; }
-.ad-page .ad-seg-btn.is-active { background: #111827; color: #fff; }
+/** Dialog: centered on desktop, bottom sheet on phones. Escape / backdrop close unless `busy`. */
+export function Modal({ title, onClose, busy, size, children, footer, onSubmit }: {
+  title: ReactNode;
+  onClose: () => void;
+  busy?: boolean;
+  size?: 'wide' | 'xl';
+  children: ReactNode;
+  footer?: ReactNode;
+  onSubmit?: () => void;
+}) {
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !busy) closeRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [busy]);
+  const inner = (
+    <>
+      <div className="ad-modal-head">
+        <h2>{title}</h2>
+        <button type="button" className="ad-close" aria-label="Close" disabled={busy} onClick={onClose}>×</button>
+      </div>
+      {children}
+      {footer ? <div className="ad-modal-actions">{footer}</div> : null}
+    </>
+  );
+  return (
+    <div className="ad-overlay" role="dialog" aria-modal="true" onClick={() => !busy && onClose()}>
+      {onSubmit ? (
+        <form className={`ad-modal ${size ? `is-${size}` : ''}`} onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); onSubmit(); }}>
+          {inner}
+        </form>
+      ) : (
+        <div className={`ad-modal ${size ? `is-${size}` : ''}`} onClick={(e) => e.stopPropagation()}>
+          {inner}
+        </div>
+      )}
+    </div>
+  );
+}
 
-.ad-pills { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 20px 8px; }
-.ad-pill { display: inline-flex; align-items: center; gap: 6px; background: #eef2ff; color: #3730a3; border-radius: 999px; padding: 4px 6px 4px 12px; font-size: 0.8rem; font-weight: 600; }
-.ad-page .ad-pill button { background: transparent; color: #4338ca; padding: 0 6px; font-size: 1rem; line-height: 1; border-radius: 999px; width: auto; }
-.ad-page .ad-pill button:hover { background: #c7d2fe; }
+/** Client-side paging for lists already in memory. Goes back to page 1 when `resetKey` changes. */
+export function useClientPager<T>(items: T[], resetKey: unknown, initialLimit = 25) {
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(initialLimit);
+  useEffect(() => setPage(1), [resetKey]);
+  const totalPages = Math.max(1, Math.ceil(items.length / limit));
+  const current = Math.min(page, totalPages);
+  return {
+    pageItems: items.slice((current - 1) * limit, current * limit),
+    pagerProps: {
+      page: current,
+      totalPages,
+      total: items.length,
+      limit,
+      loading: false,
+      limits: [25, 50, 100],
+      onPage: setPage,
+      onLimit: (l: number) => {
+        setLimit(l);
+        setPage(1);
+      },
+    },
+  };
+}
 
-.ad-summary { padding: 4px 20px 12px; color: #6b7280; font-size: 0.85rem; }
-.ad-summary strong { color: #111827; }
-.ad-hint { color: #9ca3af; }
-.ad-alert { margin: 0 20px 12px; padding: 10px 12px; border-radius: 8px; background: #fef2f2; color: #b91c1c; font-size: 0.85rem; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.ad-modal .ad-alert, .ad-card-body .ad-alert { margin: 0; }
-.ad-note { padding: 10px 12px; border-radius: 8px; background: #fffbeb; color: #92400e; font-size: 0.85rem; border: 1px solid #fde68a; }
+/** Catalog tile: square preview, title/meta, active switch, edit and delete. */
+export function MediaCard({ thumb, thumbClass = '', flags, title, meta, extra, active, busy, onToggle, onEdit, onDelete }: {
+  thumb: ReactNode;
+  thumbClass?: string;
+  flags?: ReactNode;
+  title: ReactNode;
+  meta?: ReactNode;
+  extra?: ReactNode;
+  active?: boolean;
+  busy?: boolean;
+  onToggle?: (v: boolean) => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
+}) {
+  return (
+    <div className={`ad-media-card ${active === false ? 'is-off' : ''} ${busy ? 'is-busy' : ''}`}>
+      <div className={`ad-media-thumb ${thumbClass}`} onClick={onEdit} role={onEdit ? 'button' : undefined}>
+        {thumb}
+        {flags ? <div className="ad-media-flags">{flags}</div> : null}
+      </div>
+      <div className="ad-media-body">
+        <div className="ad-media-title" title={typeof title === 'string' ? title : undefined}>{title}</div>
+        {meta ? <div className="ad-media-meta">{meta}</div> : null}
+        {extra}
+      </div>
+      <div className="ad-media-actions">
+        {onToggle && active !== undefined ? (
+          <Switch label={active ? 'Disable' : 'Enable'} checked={active} disabled={busy} onChange={onToggle} />
+        ) : null}
+        <span style={{ flex: 1 }} />
+        {onEdit ? <button type="button" className="ad-btn ad-btn-ghost" onClick={onEdit}>Edit</button> : null}
+        {onDelete ? (
+          <button type="button" className="ad-btn ad-btn-danger-soft ad-icon-btn" aria-label="Delete" title="Delete" onClick={onDelete}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2m1 0-1 14H8L7 6" /></svg>
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
-.ad-table-wrap { overflow-x: auto; }
-.ad-table { width: 100%; border-collapse: collapse; text-align: left; }
-.ad-th { padding: 11px 14px; border-top: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb; color: #6b7280; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; background: #f9fafb; white-space: nowrap; font-weight: 600; }
-.ad-sort { cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 4px; }
-.ad-sort:hover, .ad-sort.is-active { color: #111827; }
-.ad-sort-icon { font-size: 0.65rem; opacity: 0.5; }
-.ad-sort.is-active .ad-sort-icon { opacity: 1; color: #4f46e5; }
-.ad-td { padding: 11px 14px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; font-size: 0.875rem; color: #111827; }
-.ad-row:hover { background: #fafafa; }
-.ad-row.is-busy { opacity: 0.55; pointer-events: none; }
-.ad-row.is-muted .ad-name, .ad-row.is-muted .ad-muted-when-off { color: #9ca3af; }
-.ad-row.is-clickable { cursor: pointer; }
-tbody.is-loading { opacity: 0.6; transition: opacity 0.15s; }
-.ad-id { color: #6b7280; font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600; }
-.ad-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.ad-nowrap { white-space: nowrap; }
-.ad-user { display: flex; align-items: center; gap: 10px; min-width: 180px; max-width: 280px; }
-.ad-avatar { position: relative; flex: 0 0 34px; border-radius: 50%; background: #eef2ff; color: #4338ca; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85rem; }
-.ad-avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
-.ad-online-dot { position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px; border-radius: 50%; background: #10b981; border: 2px solid #fff; }
-.ad-name { font-weight: 600; color: #111827; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ad-sub { font-size: 0.76rem; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ad-page .ad-link { background: transparent; color: #4f46e5; padding: 0; font-size: 0.76rem; font-weight: 500; border-radius: 0; width: auto; }
-.ad-page .ad-link:hover { background: transparent; color: #3730a3; text-decoration: underline; }
-
-.ad-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; background: #f3f4f6; color: #374151; }
-.ad-badge.green { background: #d1fae5; color: #065f46; }
-.ad-badge.amber { background: #fef3c7; color: #92400e; }
-.ad-badge.red { background: #fee2e2; color: #991b1b; }
-.ad-badge.indigo { background: #e0e7ff; color: #3730a3; }
-.ad-badge.gray { background: #f3f4f6; color: #6b7280; }
-.ad-tag { display: inline-block; padding: 2px 8px; border-radius: 6px; background: #f3f4f6; color: #374151; font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
-
-.ad-actions { display: inline-flex; gap: 6px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
-.ad-page .ad-btn { padding: 7px 12px; font-size: 0.8rem; border-radius: 8px; width: auto; white-space: nowrap; font-weight: 600; }
-.ad-page .ad-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.ad-page .ad-btn-lg { padding: 9px 16px; font-size: 0.85rem; }
-.ad-page .ad-btn-ghost { background: #fff; color: #374151; border: 1px solid #d1d5db; }
-.ad-page .ad-btn-ghost:hover:not(:disabled) { background: #f3f4f6; }
-.ad-page .ad-btn-soft { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
-.ad-page .ad-btn-soft:hover:not(:disabled) { background: #dbeafe; }
-.ad-page .ad-btn-danger-soft { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
-.ad-page .ad-btn-danger-soft:hover:not(:disabled) { background: #fee2e2; }
-.ad-page .ad-btn-success-soft { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
-.ad-page .ad-btn-success-soft:hover:not(:disabled) { background: #d1fae5; }
-.ad-page .ad-btn-solid { color: #fff; border: none; }
-.ad-page .ad-btn-solid.tone-primary, .ad-page .ad-btn-primary { background: #111827; color: #fff; border: none; }
-.ad-page .ad-btn-solid.tone-primary:hover:not(:disabled), .ad-page .ad-btn-primary:hover:not(:disabled) { background: #1f2937; }
-.ad-page .ad-btn-solid.tone-danger { background: #dc2626; }
-.ad-page .ad-btn-solid.tone-danger:hover:not(:disabled) { background: #b91c1c; }
-.ad-page .ad-btn-solid.tone-success, .ad-page .ad-btn-export { background: #059669; color: #fff; border: none; }
-.ad-page .ad-btn-solid.tone-success:hover:not(:disabled), .ad-page .ad-btn-export:hover:not(:disabled) { background: #047857; }
-
-.ad-skeleton { height: 34px; border-radius: 8px; background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 37%, #f3f4f6 63%); background-size: 400% 100%; animation: ad-shimmer 1.2s ease infinite; }
-@keyframes ad-shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
-.ad-empty { padding: 48px 16px; text-align: center; color: #6b7280; font-size: 0.875rem; }
-.ad-empty-title { font-weight: 600; color: #111827; font-size: 1rem; margin-bottom: 4px; }
-
-.ad-pager { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 14px 20px 8px; }
-.ad-pager-info { display: flex; align-items: center; gap: 16px; color: #6b7280; font-size: 0.85rem; }
-.ad-pager-info strong { color: #111827; }
-.ad-page-size { display: inline-flex; align-items: center; gap: 6px; }
-.ad-page .ad-page-size select { min-width: 0; padding: 5px 8px; }
-.ad-pager-controls { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.ad-page .ad-page-btn { padding: 6px 11px; min-width: 34px; font-size: 0.8rem; border-radius: 8px; background: #fff; color: #374151; border: 1px solid #e5e7eb; width: auto; }
-.ad-page .ad-page-btn:hover:not(:disabled) { background: #f3f4f6; }
-.ad-page .ad-page-btn.is-active { background: #111827; color: #fff; border-color: #111827; }
-.ad-page .ad-page-btn:disabled:not(.is-active) { opacity: 0.4; cursor: not-allowed; }
-.ad-page-gap { color: #9ca3af; padding: 0 4px; }
-.ad-jump { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; color: #6b7280; font-size: 0.8rem; }
-.ad-jump input { width: 64px; padding: 5px 8px; margin: 0; }
-
-.ad-overlay { position: fixed; inset: 0; background: rgba(17,24,39,0.45); display: flex; align-items: center; justify-content: center; z-index: 70; padding: 16px; }
-.ad-modal { width: 100%; max-width: 460px; background: #fff; border-radius: 12px; border: 1px solid #e5e7eb; box-shadow: 0 20px 40px rgba(0,0,0,0.15); padding: 24px; display: grid; gap: 14px; }
-.ad-modal h2 { margin: 0; font-size: 1.15rem; font-weight: 700; color: #111827; }
-.ad-modal-text { margin: 0; color: #4b5563; font-size: 0.9rem; line-height: 1.5; }
-.ad-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
-
-.ad-drawer-overlay { position: fixed; inset: 0; background: rgba(17,24,39,0.35); z-index: 65; display: flex; justify-content: flex-end; }
-.ad-drawer { width: 100%; max-width: 480px; height: 100%; background: #fff; box-shadow: -12px 0 32px rgba(0,0,0,0.12); padding: 24px; overflow-y: auto; box-sizing: border-box; animation: ad-slide 0.18s ease-out; display: flex; flex-direction: column; gap: 18px; }
-@keyframes ad-slide { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
-.ad-drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.ad-drawer-head h2 { margin: 0; font-size: 1.15rem; font-weight: 700; }
-.ad-page .ad-close { background: #f3f4f6; color: #374151; padding: 4px 10px; font-size: 1.2rem; line-height: 1; width: auto; }
-.ad-page .ad-close:hover { background: #e5e7eb; }
-.ad-dl { display: grid; grid-template-columns: 130px 1fr; gap: 10px 12px; margin: 0; font-size: 0.875rem; }
-.ad-dl dt { color: #6b7280; }
-.ad-dl dd { margin: 0; color: #111827; word-break: break-word; }
-
-.ad-toasts { position: fixed; right: 20px; bottom: 20px; display: grid; gap: 8px; z-index: 80; }
-.ad-toast { padding: 10px 14px; border-radius: 10px; font-size: 0.875rem; font-weight: 500; box-shadow: 0 8px 24px rgba(0,0,0,0.12); animation: ad-in 0.18s ease-out; max-width: 360px; }
-.ad-toast.success { background: #064e3b; color: #ecfdf5; }
-.ad-toast.error { background: #7f1d1d; color: #fef2f2; }
-@keyframes ad-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
-
-@media (max-width: 900px) { .ad-page { padding: 20px 16px; } }
-`;
+export function MediaSkeleton({ count = 8 }: { count?: number }) {
+  return (
+    <div className="ad-media-grid">
+      {Array.from({ length: count }).map((_, i) => <div key={i} className="ad-skeleton is-card" />)}
+    </div>
+  );
+}

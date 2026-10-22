@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import { AdminTier, PANEL, TIER_LABEL, canSeePage, panelAccepts, readTier } from '@/lib/tier';
 
 const MENU_GROUPS = [
   {
@@ -58,105 +60,124 @@ const MENU_GROUPS = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const [tier, setTier] = useState<AdminTier | null>(null);
+  useEffect(() => {
+    const t = readTier();
+    // Both panels share the browser's storage; a session for the other panel goes back to this login.
+    // UI only — the API enforces every tier on its own.
+    if (!panelAccepts(t)) {
+      router.replace('/login');
+      return;
+    }
+    setTier(t);
+  }, [router]);
+
+  // Default to the lowest tier until known, so a staff member never flashes gated pages.
+  const effTier: AdminTier = tier ?? 'admin';
+  const [query, setQuery] = useState('');
+  const term = query.trim().toLowerCase();
+  const groups = MENU_GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((it) => canSeePage(effTier, it.href) && (!term || it.name.toLowerCase().includes(term))),
+  })).filter((g) => g.items.length > 0);
+
+  // Mobile drawer: closes on navigation and Escape.
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    setOpen(false);
+    setQuery('');
+  }, [pathname]);
+  useEffect(() => {
+    if (open) document.querySelector('.sb-link.is-active')?.scrollIntoView({ block: 'center' });
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  const title = PANEL === 'staff' ? 'ChatAura Staff' : 'ChatAura Admin';
+  const current = MENU_GROUPS.flatMap((g) => g.items).find((it) => it.href === pathname);
 
   return (
-    <aside style={{
-      width: '260px',
-      backgroundColor: '#1c2536',
-      color: '#9ca3af',
-      height: '100vh',
-      overflowY: 'auto',
-      display: 'flex',
-      flexDirection: 'column',
-      flexShrink: 0,
-    }}>
-      <div style={{ padding: '24px 20px', color: '#fff' }}>
-        <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700 }}>ChatAura Admin</h2>
-        <p style={{ margin: 0, fontSize: '0.8rem', color: '#9ca3af', marginTop: '4px' }}>Superadmin</p>
-      </div>
+    <>
+      <header className="sb-topbar">
+        <button
+          type="button"
+          className="sb-burger"
+          aria-label="Open menu"
+          aria-expanded={open}
+          aria-controls="sb-drawer"
+          onClick={() => setOpen(true)}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+        </button>
+        <div className="sb-topbar-title">
+          <strong>{current?.name ?? title}</strong>
+          {current ? <small>{title}</small> : null}
+        </div>
+      </header>
+      <div className={`sb-backdrop ${open ? 'is-open' : ''}`} onClick={() => setOpen(false)} aria-hidden />
 
-      <nav style={{ padding: '0 12px 24px 12px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-        {MENU_GROUPS.map((group, idx) => (
-          <div key={idx}>
-            {group.title && (
-              <h3 style={{
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                margin: '0 0 8px 12px',
-                color: '#6b7280'
-              }}>
-                {group.title}
-              </h3>
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {group.items.map(item => {
-                const isActive = pathname === item.href;
-                return (
+      <aside id="sb-drawer" className={`sb ${open ? 'is-open' : ''}`}>
+        <div className="sb-head">
+          <div>
+            <h2>{title}</h2>
+            <p>{tier ? TIER_LABEL[tier] : ''}</p>
+          </div>
+          <button type="button" className="sb-close" aria-label="Close menu" onClick={() => setOpen(false)}>×</button>
+        </div>
+
+        <div className="sb-find">
+          <input
+            type="search"
+            placeholder="Find a page…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              const first = groups[0]?.items[0];
+              if (e.key === 'Enter' && first) router.push(first.href);
+            }}
+            aria-label="Find a page"
+          />
+        </div>
+
+        <nav className="sb-nav">
+          {groups.length === 0 && <p className="sb-empty">No page matches &ldquo;{query}&rdquo;</p>}
+          {groups.map((group, idx) => (
+            <div key={idx}>
+              {group.title && <h3 className="sb-group">{group.title}</h3>}
+              <div className="sb-items">
+                {group.items.map((item) => (
                   <Link
                     key={item.name}
                     href={item.href}
-                    style={{
-                      padding: '10px 12px',
-                      borderRadius: '8px',
-                      color: isActive ? '#fff' : '#9ca3af',
-                      backgroundColor: isActive ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
-                      textDecoration: 'none',
-                      fontSize: '0.9rem',
-                      fontWeight: isActive ? 600 : 500,
-                      transition: 'all 0.2s',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isActive) {
-                        e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.04)';
-                        e.currentTarget.style.color = '#fff';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isActive) {
-                        e.currentTarget.style.backgroundColor = 'transparent';
-                        e.currentTarget.style.color = '#9ca3af';
-                      }
-                    }}
+                    className={`sb-link ${pathname === item.href ? 'is-active' : ''}`}
+                    aria-current={pathname === item.href ? 'page' : undefined}
                   >
                     {item.name}
                   </Link>
-                );
-              })}
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
-      </nav>
-      <div style={{ marginTop: 'auto', padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-        <button
-          onClick={() => {
-            localStorage.removeItem('ca_admin_token');
-            document.cookie = 'ca_admin_token=; path=/; max-age=0; SameSite=Lax';
-            router.push('/login');
-          }}
-          style={{
-            width: '100%',
-            padding: '10px',
-            borderRadius: '8px',
-            background: 'rgba(239, 68, 68, 0.1)',
-            color: '#f87171',
-            border: '1px solid rgba(239, 68, 68, 0.2)',
-            cursor: 'pointer',
-            fontSize: '0.85rem',
-            fontWeight: 600,
-            transition: 'all 0.2s',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
-          }}
-        >
-          Logout
-        </button>
-      </div>
-    </aside>
+          ))}
+        </nav>
+        <div className="sb-foot">
+          <button
+            type="button"
+            className="sb-logout"
+            onClick={() => {
+              localStorage.removeItem('ca_admin_token');
+              localStorage.removeItem('ca_admin_tier');
+              document.cookie = 'ca_admin_token=; path=/; max-age=0; SameSite=Lax';
+              router.push('/login');
+            }}
+          >
+            Logout
+          </button>
+        </div>
+      </aside>
+    </>
   );
 }

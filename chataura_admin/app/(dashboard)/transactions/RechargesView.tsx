@@ -693,8 +693,8 @@ export default function RechargesView({ tabs }: { tabs: ReactNode }) {
 
   return (
     <main className="tx">
-      <style>{STYLES}</style>
-      <style>{RC_STYLES}</style>
+      <style dangerouslySetInnerHTML={{ __html: STYLES }} />
+      <style dangerouslySetInnerHTML={{ __html: RC_STYLES }} />
       {tabs}
 
       <div className="tx-header">
@@ -1000,11 +1000,11 @@ export default function RechargesView({ tabs }: { tabs: ReactNode }) {
                         if (e.key === 'Enter') openRow(r);
                       }}
                     >
-                      <td className="tx-td">
+                      <td className="tx-td tx-d-only">
                         <div className="tx-id">#{r.id}</div>
                         <div className="tx-sub rc-mono">{r.document_no}</div>
                       </td>
-                      <td className="tx-td">
+                      <td className="tx-td tx-main">
                         <div className="tx-user">
                           <div className="tx-avatar">
                             {r.user_avatar ? (
@@ -1019,10 +1019,12 @@ export default function RechargesView({ tabs }: { tabs: ReactNode }) {
                             <div className="tx-sub rc-ellipsis" title={r.user_email ?? ''}>
                               ID {r.user_display_id ?? r.user_id}{r.user_email ? ` · ${r.user_email}` : ''}
                             </div>
+                            <div className="tx-m-only tx-sub rc-mono">#{r.id} · {r.document_no}</div>
                           </div>
                         </div>
+                        <span className="tx-m-only rc-strong">{money(r.amount, r.currency)}</span>
                       </td>
-                      <td className="tx-td">
+                      <td className="tx-td tx-wide" data-label="Location">
                         <div className="rc-loc">
                           <span className="rc-flag" aria-hidden>{flag(r.country)}</span>
                           <div>
@@ -1039,13 +1041,13 @@ export default function RechargesView({ tabs }: { tabs: ReactNode }) {
                           </div>
                         </div>
                       </td>
-                      <td className="tx-td tx-num">{fmt(r.coins)}</td>
-                      <td className="tx-td tx-num">
+                      <td className="tx-td tx-num" data-label="Coins">{fmt(r.coins)}</td>
+                      <td className="tx-td tx-num" data-label="Paid">
                         <div className="rc-strong">{money(r.amount, r.currency)}</div>
                         {r.payment_method && <div className="tx-sub">{methodLabel(r)}</div>}
                       </td>
-                      <td className="tx-td tx-num tx-muted">{r.taxable && r.market === 'domestic' ? money(r.taxable_value) : '—'}</td>
-                      <td className="tx-td tx-num">
+                      <td className="tx-td tx-num tx-muted" data-label="Taxable">{r.taxable && r.market === 'domestic' ? money(r.taxable_value) : '—'}</td>
+                      <td className="tx-td tx-num" data-label="GST">
                         {r.taxable && r.market === 'domestic' ? (
                           <>
                             <div className="rc-strong">{money(r.total_gst)}</div>
@@ -1057,13 +1059,13 @@ export default function RechargesView({ tabs }: { tabs: ReactNode }) {
                           <span className="tx-muted">—</span>
                         )}
                       </td>
-                      <td className="tx-td">
+                      <td className="tx-td" data-label="Status">
                         {r.needs_review ? <span className="tx-status status-review">Needs review</span> : <span className={`tx-status status-${r.status}`}>{r.status}</span>}
                         {r.gateway?.admin_resolution === 'paid_without_credit' && <div className="tx-sub">paid, no coins</div>}
                         {r.gateway?.admin_resolution === 'imported_from_razorpay' && <div className="tx-sub">imported</div>}
                         {r.source !== 'RAZORPAY' && <div className="tx-sub">{r.source === 'EARNINGS_WALLET' ? 'Earnings' : r.source}</div>}
                       </td>
-                      <td className="tx-td tx-date">
+                      <td className="tx-td tx-date" data-label="Date">
                         <div>{new Date(r.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
                         <div className="tx-sub">{new Date(r.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
                       </td>
