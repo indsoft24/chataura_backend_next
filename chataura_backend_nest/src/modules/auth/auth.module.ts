@@ -5,9 +5,11 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { TokenService } from './token.service';
 import { OtpService } from './otp.service';
+import { UserModule } from '../user/user.module';
 
 @Module({
   imports: [
+    UserModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

@@ -31,12 +31,20 @@ export function tokenAllowed(tokenSid: string | null | undefined, currentSid: st
 /** Android ID / install id from the X-Device-Id header; anything odd is treated as "unknown". */
 export function normalizeDeviceId(raw: unknown): string | null {
   const v = String(raw ?? '').trim();
-  return /^[A-Za-z0-9_-]{6,128}$/.test(v) ? v : null;
+  // "unknown" is the app's fallback when Android gives no id; it must not pool every such phone.
+  return /^[A-Za-z0-9_-]{6,128}$/.test(v) && v.toLowerCase() !== 'unknown' ? v : null;
 }
 
 /** Normal-user accounts already made on this phone vs. the cap. */
 export function canCreateAccount(existingAccounts: number, maxAccounts: number): boolean {
   return existingAccounts < Math.max(1, Math.floor(maxAccounts));
+}
+
+/** Only the first `max` normal accounts seen on a phone may log in on it. */
+export function canUseDevice(userId: bigint, accountsByFirstSeen: bigint[], maxAccounts: number): boolean {
+  const cap = Math.max(1, Math.floor(maxAccounts));
+  const allowed = accountsByFirstSeen.slice(0, cap);
+  return allowed.length < cap || allowed.includes(userId);
 }
 
 export function readMaxAccountsPerDevice(extra: Record<string, unknown> | null | undefined): number {

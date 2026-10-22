@@ -1,5 +1,6 @@
 import {
   canCreateAccount,
+  canUseDevice,
   DEFAULT_MAX_ACCOUNTS_PER_DEVICE,
   LOGGED_OUT_SESSION,
   normalizeDeviceId,
@@ -37,12 +38,20 @@ describe('device limits', () => {
     expect(normalizeDeviceId('')).toBeNull();
     expect(normalizeDeviceId('abc')).toBeNull();
     expect(normalizeDeviceId("x'; drop table")).toBeNull();
+    expect(normalizeDeviceId('unknown')).toBeNull();
   });
   it('allows up to the cap', () => {
     expect(canCreateAccount(0, 2)).toBe(true);
     expect(canCreateAccount(1, 2)).toBe(true);
     expect(canCreateAccount(2, 2)).toBe(false);
     expect(canCreateAccount(0, 0)).toBe(true);
+  });
+  it('only the first accounts on a phone may log in there', () => {
+    expect(canUseDevice(9n, [], 2)).toBe(true);
+    expect(canUseDevice(9n, [1n], 2)).toBe(true);
+    expect(canUseDevice(1n, [1n, 2n], 2)).toBe(true);
+    expect(canUseDevice(2n, [1n, 2n], 2)).toBe(true);
+    expect(canUseDevice(3n, [1n, 2n], 2)).toBe(false);
   });
   it('reads the admin cap with a safe default', () => {
     expect(readMaxAccountsPerDevice({ max_accounts_per_device: 3 })).toBe(3);

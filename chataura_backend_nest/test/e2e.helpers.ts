@@ -106,10 +106,12 @@ export async function registerVerified(
   const email = opts?.email ?? uniqueGmail();
   const password = opts?.password ?? 'secret12';
   const clientIp = `10.77.${Math.floor(seq / 250)}.${(seq % 250) + 1}`;
+  // Unique phone per test user so referral farming guards treat each as a first account.
+  const deviceId = `e2e-device-${seq}-${Date.now()}`;
   const register = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/register',
-    headers: { 'x-forwarded-for': clientIp },
+    headers: { 'x-forwarded-for': clientIp, 'x-device-id': deviceId },
     payload: {
       email,
       password,

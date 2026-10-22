@@ -12,6 +12,7 @@ import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { userForApi } from '../user/user.serializer';
+import { UserService } from '../user/user.service';
 import { OtpService } from './otp.service';
 import { TokenService } from './token.service';
 import {
@@ -26,7 +27,7 @@ import {
   VerifyEmailOtpDto,
 } from './dto/auth.dto';
 import { User } from '@prisma/client';
-import { canCreateAccount, PANEL_SESSION, readMaxAccountsPerDevice } from './session.rules';
+import { canCreateAccount, canUseDevice, PANEL_SESSION, readMaxAccountsPerDevice } from './session.rules';
 
 @Injectable()
 export class AuthService {
@@ -38,6 +39,7 @@ export class AuthService {
     private readonly otp: OtpService,
     private readonly config: ConfigService,
     private readonly online: OnlinePresenceService,
+    private readonly users: UserService,
   ) {}
 
   async register(dto: RegisterDto, deviceId: string | null = null) {
@@ -124,6 +126,7 @@ export class AuthService {
     }
 
     if (panel) return this.panelPayload(user);
+    await this.assertDeviceAllowsLogin(user, deviceId);
     await this.recordDevice(user.id, deviceId);
     return this.authPayload(user);
   }
@@ -191,6 +194,7 @@ export class AuthService {
       }
     } else {
       this.assertAccountActive(user);
+      await this.assertDeviceAllowsLogin(user, deviceId);
       if (!user.emailVerifiedAt) {
         const verified =
           payload.email_verified === undefined
@@ -459,9 +463,14 @@ export class AuthService {
 
   /** Normal accounts made on this phone so far; staff accounts never count. */
   private async assertDeviceCanCreateAccount(deviceId: string | null) {
-    if (!deviceId) return; // older app versions send no device id
-    const settings = await this.prisma.adminSetting.findUnique({ where: { id: 1 } });
-    const max = readMaxAccountsPerDevice(settings?.extraSettings as Record<string, unknown> | null);
+    // Apps older than 1.6.0 send no device id; letting them sign up skipped the cap and the bonus check.
+    if (!deviceId) {
+      throw new ForbiddenException({
+        success: false,
+        error: { code: 'APP_UPDATE_REQUIRED', message: 'Please update Chat Aura from the Play Store to create a new account.' },
+      });
+    }
+    const max = await this.maxAccountsPerDevice();
     const existing = await this.prisma.authDevice.count({
       where: { deviceId, user: { role: 'user' } },
     });
@@ -476,6 +485,32 @@ export class AuthService {
     }
   }
 
+  /** A phone already used by `max` other normal accounts cannot open a further one. */
+  private async assertDeviceAllowsLogin(user: User, deviceId: string | null) {
+    if (!deviceId || user.role !== 'user') return; // old app: no id to check; staff are never capped
+    const max = await this.maxAccountsPerDevice();
+    const first = await this.prisma.authDevice.findMany({
+      where: { deviceId, user: { role: 'user' } },
+      orderBy: [{ firstSeenAt: 'asc' }, { id: 'asc' }],
+      select: { userId: true },
+      take: max,
+    });
+    if (!canUseDevice(user.id, first.map((d) => d.userId), max)) {
+      throw new ForbiddenException({
+        success: false,
+        error: {
+          code: 'DEVICE_ACCOUNT_LIMIT',
+          message: `Only ${max} accounts can be used on one phone. Please log in to one of them.`,
+        },
+      });
+    }
+  }
+
+  private async maxAccountsPerDevice() {
+    const settings = await this.prisma.adminSetting.findUnique({ where: { id: 1 } });
+    return readMaxAccountsPerDevice(settings?.extraSettings as Record<string, unknown> | null);
+  }
+
   private async recordDevice(userId: bigint, deviceId: string | null) {
     if (!deviceId) return;
     await this.prisma.authDevice.upsert({
@@ -483,27 +518,6 @@ export class AuthService {
       create: { deviceId, userId },
       update: { lastSeenAt: new Date() },
     });
-  }
-
-  /** True unless an earlier normal account was made on one of this user's phones (unknown phone = true). */
-  private async isFirstAccountOnDevice(userId: bigint): Promise<boolean> {
-    const mine = await this.prisma.authDevice.findMany({ where: { userId }, select: { deviceId: true, firstSeenAt: true } });
-    for (const d of mine) {
-      const earlier = await this.prisma.authDevice.count({
-        where: { deviceId: d.deviceId, userId: { not: userId }, firstSeenAt: { lt: d.firstSeenAt }, user: { role: 'user' } },
-      });
-      if (earlier > 0) return false;
-    }
-    return true;
-  }
-
-  private async shareDevice(a: bigint, b: bigint): Promise<boolean> {
-    const mine = await this.prisma.authDevice.findMany({ where: { userId: a }, select: { deviceId: true } });
-    if (mine.length === 0) return false;
-    const hit = await this.prisma.authDevice.count({
-      where: { userId: b, deviceId: { in: mine.map((d) => d.deviceId) } },
-    });
-    return hit > 0;
   }
 
   /** Admin panel login: its own token channel, so it never logs the admin out of their phone. */
@@ -592,7 +606,7 @@ export class AuthService {
   private async grantSignupBonus(userId: bigint) {
     const coins = Number(this.config.get('SIGNUP_BONUS_COINS', '50'));
     if (coins <= 0) return null;
-    if (!(await this.isFirstAccountOnDevice(userId))) return null;
+    if (!(await this.users.isFirstAccountOnDevice(userId))) return null;
     const already = await this.prisma.coinTransaction.findFirst({
       where: { userId, referenceId: `signup_bonus_${userId}` },
     });
@@ -617,88 +631,13 @@ export class AuthService {
     return { coins, bonus_type: 'signup' };
   }
 
-  private async resolveReferralRewards(): Promise<{
-    referee: number;
-    referrer: number;
-  }> {
-    const settings = await this.prisma.adminSetting.findUnique({
-      where: { id: 1 },
-    });
-    const extra = (settings?.extraSettings as Record<string, unknown>) ?? {};
-    const referee = Number(
-      extra.referral_reward_referee ??
-        this.config.get('REFERRAL_REWARD_REFEREE', '50'),
-    );
-    const referrer = Number(
-      extra.referral_reward_referrer ??
-        this.config.get('REFERRAL_REWARD_REFERRER', '100'),
-    );
-    return {
-      referee: Number.isFinite(referee) ? referee : 50,
-      referrer: Number.isFinite(referrer) ? referrer : 100,
-    };
-  }
-
-  async grantReferralCoins(inviteeId: bigint, referrerId: bigint) {
-    // Farming guard: only a phone's first account earns, and never by inviting yourself.
-    if (!(await this.isFirstAccountOnDevice(inviteeId)) || (await this.shareDevice(inviteeId, referrerId))) {
+  private async grantReferralCoins(inviteeId: bigint, referrerId: bigint) {
+    if (!(await this.users.referralEligible(inviteeId, referrerId))) {
+      // Unpaid invites must not count toward the referrer's total or milestone.
+      await this.prisma.user.update({ where: { id: inviteeId }, data: { invitedBy: null } });
       return null;
     }
-    const { referee, referrer: referrerAmt } =
-      await this.resolveReferralRewards();
-    return this.prisma.$transaction(async (tx) => {
-      if (referee > 0) {
-        const refKey = `referral_join_${inviteeId}`;
-        const already = await tx.coinTransaction.findFirst({
-          where: { userId: inviteeId, referenceId: refKey },
-        });
-        if (!already) {
-          const u = await tx.user.update({
-            where: { id: inviteeId },
-            data: {
-              walletBalance: { increment: referee },
-            },
-          });
-          await tx.coinTransaction.create({
-            data: {
-              userId: inviteeId,
-              type: 'REFERRAL_REFEREE',
-              title: 'Referral join bonus',
-              coinAmount: BigInt(referee),
-              balanceAfter: u.walletBalance,
-              status: 'success',
-              referenceId: refKey,
-            },
-          });
-        }
-      }
-      if (referrerAmt > 0) {
-        const refBonusKey = `ref_bonus_${inviteeId}`;
-        const already = await tx.coinTransaction.findFirst({
-          where: { userId: referrerId, referenceId: refBonusKey },
-        });
-        if (!already) {
-          const u = await tx.user.update({
-            where: { id: referrerId },
-            data: {
-              walletBalance: { increment: referrerAmt },
-            },
-          });
-          await tx.coinTransaction.create({
-            data: {
-              userId: referrerId,
-              type: 'REFERRAL_REFERRER',
-              title: 'Referral invite bonus',
-              coinAmount: BigInt(referrerAmt),
-              balanceAfter: u.walletBalance,
-              status: 'success',
-              referenceId: refBonusKey,
-            },
-          });
-        }
-      }
-      return { invitee_coins: referee, referrer_coins: referrerAmt };
-    });
+    return this.prisma.$transaction((tx) => this.users.payReferral(tx, inviteeId, referrerId));
   }
 
   private async creditSpendable(

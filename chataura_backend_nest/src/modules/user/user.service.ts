@@ -51,7 +51,7 @@ export class UserService {
         referrer_bonus: rewards.referrer_coins,
       },
       total_invited: totalInvited,
-      total_earned_coins: Number(user.referralBalance),
+      total_earned_coins: await this.referralEarned(userId),
       referral_milestone: {
         enabled: milestone.enabled,
         required_count: milestone.required_count,
@@ -81,6 +81,115 @@ export class UserService {
     };
   }
 
+  /** Coins this user actually received for invites (per-friend + milestone). */
+  private async referralEarned(userId: bigint): Promise<number> {
+    const agg = await this.prisma.coinTransaction.aggregate({
+      where: { userId, type: { in: ['REFERRAL_REFERRER', 'REFERRAL_MILESTONE'] } },
+      _sum: { coinAmount: true },
+    });
+    return Number(agg._sum.coinAmount ?? 0);
+  }
+
+  /** True unless an earlier normal account was made on one of this user's phones (unknown phone = false: no bonus). */
+  async isFirstAccountOnDevice(userId: bigint): Promise<boolean> {
+    const mine = await this.prisma.authDevice.findMany({ where: { userId }, select: { deviceId: true, firstSeenAt: true } });
+    if (mine.length === 0) return false;
+    for (const d of mine) {
+      const earlier = await this.prisma.authDevice.count({
+        where: { deviceId: d.deviceId, userId: { not: userId }, firstSeenAt: { lt: d.firstSeenAt }, user: { role: 'user' } },
+      });
+      if (earlier > 0) return false;
+    }
+    return true;
+  }
+
+  private async shareDevice(a: bigint, b: bigint): Promise<boolean> {
+    const mine = await this.prisma.authDevice.findMany({ where: { userId: a }, select: { deviceId: true } });
+    if (mine.length === 0) return false;
+    const hit = await this.prisma.authDevice.count({
+      where: { userId: b, deviceId: { in: mine.map((d) => d.deviceId) } },
+    });
+    return hit > 0;
+  }
+
+  /** Farming guard: only a phone's first account earns, and never by inviting yourself. */
+  async referralEligible(inviteeId: bigint, referrerId: bigint): Promise<boolean> {
+    return (
+      (await this.isFirstAccountOnDevice(inviteeId)) &&
+      !(await this.shareDevice(inviteeId, referrerId))
+    );
+  }
+
+  /**
+   * Pays both sides of a referral and the referrer's milestone. Call inside the
+   * transaction that set invitee.invitedBy; every credit is keyed, so retries never double-pay.
+   */
+  async payReferral(tx: Prisma.TransactionClient, inviteeId: bigint, referrerId: bigint) {
+    const { milestone, rewards } = await this.referralConfig(tx);
+    const referee = rewards.referee_coins;
+    const referrerAmt = rewards.referrer_coins;
+    // Lock both rows in deterministic ascending ID order
+    const userMap = await this.ledger.lockUsers(tx, [inviteeId, referrerId]);
+
+    if (referee > 0) {
+      await this.ledger.creditCoins(
+        tx,
+        inviteeId,
+        referee,
+        'REFERRAL_REFEREE',
+        'Referral join bonus',
+        `referral_join_${inviteeId}`,
+        userMap.get(inviteeId.toString()),
+        { source: 'referral', currency: 'coins', referrer_id: Number(referrerId) },
+      );
+    }
+
+    if (referrerAmt > 0) {
+      await this.ledger.creditCoins(
+        tx,
+        referrerId,
+        referrerAmt,
+        'REFERRAL_REFERRER',
+        'Referral invite bonus',
+        `ref_bonus_${inviteeId}`,
+        userMap.get(referrerId.toString()),
+        { source: 'referral', currency: 'coins', referee_id: Number(inviteeId) },
+      );
+    }
+
+    const invited = await tx.user.count({ where: { invitedBy: referrerId } });
+    if (milestone.enabled && invited >= milestone.required_count && milestone.coins > 0) {
+      const milestoneKey = 'referral_milestone';
+      const existing = await tx.bonusClaim.findFirst({
+        where: { userId: referrerId, referenceKey: milestoneKey },
+      });
+      if (!existing) {
+        await tx.bonusClaim.create({
+          data: {
+            userId: referrerId,
+            kind: 'referral_milestone',
+            coins: milestone.coins,
+            referenceKey: milestoneKey,
+            meta: { source: 'referral', invited },
+          },
+        });
+        // Fresh lock: the per-friend credit above already moved this balance.
+        await this.ledger.creditCoins(
+          tx,
+          referrerId,
+          milestone.coins,
+          'REFERRAL_MILESTONE',
+          'Referral milestone',
+          milestoneKey,
+          null,
+          { source: 'referral', currency: 'coins', invited },
+        );
+      }
+    }
+
+    return { invitee_coins: referee, referrer_coins: referrerAmt };
+  }
+
   async applyInvite(userId: bigint, rawCode: string) {
     const code = rawCode.trim();
     if (!code) {
@@ -90,34 +199,38 @@ export class UserService {
       });
     }
 
-    const { milestone, rewards } = await this.referralConfig();
-    const referee = rewards.referee_coins;
-    const referrerAmt = rewards.referrer_coins;
+    // Codes are lowercase hex; accept any casing (caps keyboards, copied text).
+    const referrer = await this.prisma.user.findFirst({
+      where: { inviteCode: { equals: code, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    if (!referrer) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'INVALID_CODE', message: 'Invalid invite code' },
+      });
+    }
+    if (referrer.id === userId) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'INVALID_CODE',
+          message: 'Cannot apply your own invite code',
+        },
+      });
+    }
+    // Same guard as signup, so a code typed later can't be used to farm extra accounts.
+    if (!(await this.referralEligible(userId, referrer.id))) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'REFERRAL_NOT_ELIGIBLE',
+          message: 'Referral rewards are only for the first account on a phone',
+        },
+      });
+    }
 
     return this.prisma.$transaction(async (tx) => {
-      // Codes are lowercase hex; accept any casing (caps keyboards, copied text).
-      const referrer = await tx.user.findFirst({
-        where: { inviteCode: { equals: code, mode: 'insensitive' } },
-      });
-      if (!referrer) {
-        throw new BadRequestException({
-          success: false,
-          error: { code: 'INVALID_CODE', message: 'Invalid invite code' },
-        });
-      }
-      if (referrer.id === userId) {
-        throw new BadRequestException({
-          success: false,
-          error: {
-            code: 'INVALID_CODE',
-            message: 'Cannot apply your own invite code',
-          },
-        });
-      }
-
-      // Lock both rows in deterministic ascending ID order
-      const userMap = await this.ledger.lockUsers(tx, [userId, referrer.id]);
-
       const updated = await tx.user.updateMany({
         where: { id: userId, invitedBy: null },
         data: { invitedBy: referrer.id },
@@ -132,88 +245,12 @@ export class UserService {
         });
       }
 
-      if (referee > 0) {
-        const refKey = `referral_join_${userId}`;
-        const alreadyCredited = await tx.coinTransaction.findFirst({
-          where: { userId, referenceId: refKey },
-        });
-        if (!alreadyCredited) {
-          await this.ledger.creditCoins(
-            tx,
-            userId,
-            referee,
-            'REFERRAL_REFEREE',
-            'Referral join bonus',
-            refKey,
-            userMap.get(userId.toString()),
-            {
-              source: 'referral',
-              currency: 'coins',
-              referrer_id: Number(referrer.id),
-            },
-          );
-        }
-      }
-
-      if (referrerAmt > 0) {
-        const refBonusKey = `ref_bonus_${userId}`;
-        const alreadyCredited = await tx.coinTransaction.findFirst({
-          where: { userId: referrer.id, referenceId: refBonusKey },
-        });
-        if (!alreadyCredited) {
-          await this.ledger.creditCoins(
-            tx,
-            referrer.id,
-            referrerAmt,
-            'REFERRAL_REFERRER',
-            'Referral invite bonus',
-            refBonusKey,
-            userMap.get(referrer.id.toString()),
-            { source: 'referral', currency: 'coins', referee_id: Number(userId) },
-          );
-        }
-      }
-
-      const required = milestone.required_count;
-      const milestoneCoins = milestone.coins;
-      const milestoneEnabled = milestone.enabled;
-      const invited = await tx.user.count({
-        where: { invitedBy: referrer.id },
-      });
-      if (milestoneEnabled && invited >= required && milestoneCoins > 0) {
-        const milestoneKey = 'referral_milestone';
-        const existing = await tx.bonusClaim.findFirst({
-          where: { userId: referrer.id, referenceKey: milestoneKey },
-        });
-        if (!existing) {
-          await tx.bonusClaim.create({
-            data: {
-              userId: referrer.id,
-              kind: 'referral_milestone',
-              coins: milestoneCoins,
-              referenceKey: milestoneKey,
-              meta: { source: 'referral', invited },
-            },
-          });
-          await this.ledger.creditCoins(
-            tx,
-            referrer.id,
-            milestoneCoins,
-            'REFERRAL_MILESTONE',
-            'Referral milestone',
-            milestoneKey,
-            null,
-            { source: 'referral', currency: 'coins', invited },
-          );
-        }
-      }
-
+      const paid = await this.payReferral(tx, userId, referrer.id);
       return {
         applied: true,
         invited_by: Number(referrer.id),
         invite_code: code,
-        invitee_coins: referee,
-        referrer_coins: referrerAmt,
+        ...paid,
       };
     });
   }

@@ -197,6 +197,55 @@ describe('Spin / bonuses / invite / calls stub (e2e)', () => {
     expect(referrerTx).toHaveLength(1);
   });
 
+  it('signing up with a code pays the referral milestone once and counts in total earned', async () => {
+    const settings = await prisma.adminSetting.findUnique({ where: { id: 1 } });
+    const extra = (settings?.extraSettings as Record<string, unknown>) ?? {};
+    await prisma.adminSetting.update({
+      where: { id: 1 },
+      data: {
+        extraSettings: {
+          ...extra,
+          referral_milestone_enabled: true,
+          referral_milestone_required_count: 2,
+          referral_milestone_coins: 70,
+        },
+      },
+    });
+    try {
+      const inviter = await registerVerified(app);
+      for (let i = 0; i < 3; i++) {
+        await registerVerified(app, { invite: inviter.inviteCode });
+      }
+
+      const milestone = await prisma.coinTransaction.findMany({
+        where: { userId: BigInt(inviter.id), type: 'REFERRAL_MILESTONE' },
+      });
+      expect(milestone).toHaveLength(1);
+
+      const info = parse<{ total_invited: number; total_earned_coins: number }>(
+        (
+          await app.inject({
+            method: 'GET',
+            url: '/api/v1/users/me/invite',
+            headers: authHeader(inviter.token),
+          })
+        ).payload,
+      );
+      const paid = await prisma.coinTransaction.aggregate({
+        where: { userId: BigInt(inviter.id), type: { in: ['REFERRAL_REFERRER', 'REFERRAL_MILESTONE'] } },
+        _sum: { coinAmount: true },
+      });
+      expect(info.data?.total_invited).toBe(3);
+      expect(info.data?.total_earned_coins).toBe(Number(paid._sum.coinAmount));
+      expect(info.data!.total_earned_coins).toBeGreaterThanOrEqual(70);
+    } finally {
+      await prisma.adminSetting.update({
+        where: { id: 1 },
+        data: { extraSettings: extra as object },
+      });
+    }
+  });
+
   it('availability is busy only in a live room', async () => {
     const user = await registerVerified(app);
     const idle = await app.inject({

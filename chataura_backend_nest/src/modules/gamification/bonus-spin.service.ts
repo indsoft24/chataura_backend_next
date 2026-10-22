@@ -6,6 +6,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService, LockedUser } from '../wallet/ledger.service';
+import { resolveReferralMilestone, resolveReferralRewards } from './bonus-config.resolver';
 
 function isUniqueViolation(error: unknown) {
   return (
@@ -666,22 +667,13 @@ export class BonusSpinService {
 
     // ── referral_milestone from extraSettings ─────────────────────────────
     const cfgRefMilestone = (cfgJson.referral_milestone as Record<string, unknown>) ?? {};
-    const referralMilestone = {
-      ...DEFAULT_BONUS_CONFIG.referral_milestone,
-      ...cfgRefMilestone,
-    };
+    const referralMilestone = resolveReferralMilestone(
+      { ...DEFAULT_BONUS_CONFIG.referral_milestone, ...cfgRefMilestone } as typeof DEFAULT_BONUS_CONFIG.referral_milestone,
+      extraJson,
+    );
 
-    // ── referral_rewards (per-invite coins) from extraSettings ────────────
-    // The app reads BonusConfigDto.referralRewards; the admin writes
-    // referral_reward_referrer / referral_reward_referee into extraSettings.
-    const referralRewards = {
-      referrer_coins: Number(
-        extraJson.referral_reward_referrer ?? DEFAULT_BONUS_CONFIG.referral_milestone.coins,
-      ),
-      referee_coins: Number(
-        extraJson.referral_reward_referee ?? DEFAULT_BONUS_CONFIG.referral_milestone.coins,
-      ),
-    };
+    // ── referral_rewards (per-invite coins): same resolver signup/apply pay with ──
+    const referralRewards = resolveReferralRewards(extraJson);
 
     const merged = {
       ...DEFAULT_BONUS_CONFIG,
