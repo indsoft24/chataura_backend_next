@@ -62,6 +62,13 @@ export class UpdatePackageDto {
 // ──────────────────────────────────────────────
 
 export class CreateGiftDto {
+  /** 0 = anyone; N = only SVIP N or higher may send it. */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(9)
+  required_svip_level?: number;
+
   @IsString()
   name!: string;
 
@@ -76,7 +83,7 @@ export class CreateGiftDto {
   coinCost?: number;
 
   @IsOptional()
-  @IsIn(['standard', 'customize', 'lucky', 'cp', 'bcp'])
+  @IsIn(['standard', 'customize', 'lucky', 'cp', 'bcp', 'svip'])
   category?: string;
 
   @IsOptional()
@@ -101,6 +108,13 @@ export class CreateGiftDto {
 }
 
 export class UpdateGiftDto {
+  /** 0 = anyone; N = only SVIP N or higher may send it. */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(9)
+  required_svip_level?: number;
+
   @IsOptional()
   @IsString()
   name?: string;
@@ -116,7 +130,7 @@ export class UpdateGiftDto {
   coinCost?: number;
 
   @IsOptional()
-  @IsIn(['standard', 'customize', 'lucky', 'cp', 'bcp'])
+  @IsIn(['standard', 'customize', 'lucky', 'cp', 'bcp', 'svip'])
   category?: string;
 
   @IsOptional()
@@ -385,6 +399,13 @@ export class UpdateRoomThemeDto {
 // ──────────────────────────────────────────────
 
 export class CreateStickerDto {
+  /** 0 = anyone; N = only SVIP N or higher may send it. */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(9)
+  required_svip_level?: number;
+
   @IsString()
   name!: string;
 
@@ -403,6 +424,13 @@ export class CreateStickerDto {
 }
 
 export class UpdateStickerDto {
+  /** 0 = anyone; N = only SVIP N or higher may send it. */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(9)
+  required_svip_level?: number;
+
   @IsOptional()
   @IsString()
   name?: string;

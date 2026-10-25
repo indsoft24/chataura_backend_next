@@ -28,6 +28,10 @@ import { RankingsModule } from './modules/rankings/rankings.module';
 import { FxAssetsModule } from './modules/fx-assets/fx-assets.module';
 import { WebModule } from './modules/web/web.module';
 import { RewardsModule } from './modules/rewards/rewards.module';
+import { SvipModule } from './modules/svip/svip.module';
+import { MedalModule } from './modules/medal/medal.module';
+import { DiceModule } from './modules/dice/dice.module';
+import { GoldMineModule } from './modules/gold-mine/gold-mine.module';
 
 @Module({
   imports: [
@@ -60,6 +64,10 @@ import { RewardsModule } from './modules/rewards/rewards.module';
     AdminModule,
     WebModule,
     RewardsModule,
+    SvipModule,
+    MedalModule,
+    DiceModule,
+    GoldMineModule,
   ],
   controllers: [HealthController],
   providers: [

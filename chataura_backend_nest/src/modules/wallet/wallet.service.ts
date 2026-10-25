@@ -1,3 +1,4 @@
+import { assertSvipLevel } from '../svip/svip-gates';
 import { RedisService } from '../../common/redis/redis.service';
 import {
   BadRequestException,
@@ -833,6 +834,7 @@ export class WalletService {
     }
 
     const gift = await resolveGiftForSend(this.prisma, body);
+    await assertSvipLevel(this.prisma, senderId, gift.requiredSvipLevel, 'send this gift');
     const receiverId = BigInt(body.receiver_id);
     const quantity = Math.min(Math.max(Number(body.quantity ?? 1), 1), 100);
     if (receiverId === senderId) {
@@ -1050,6 +1052,7 @@ export class WalletService {
           name: g.name,
           coin_cost: g.coinCost,
           category: normalizeGiftCategory(g.category),
+          required_svip_level: g.requiredSvipLevel,
           ...catalogClientFields(cleanImg, cleanAnim),
         };
       }),

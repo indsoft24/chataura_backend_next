@@ -28,6 +28,8 @@ export const LEDGER_REWARD_TYPES: Record<
   BONUS_GAME: { category: 'bonuses', title: 'Game bonus' },
   BONUS_STREAK: { category: 'bonuses', title: 'Login streak bonus' },
   LUCKY_GIFT_REBATE: { category: 'bonuses', title: 'Lucky gift rebate' },
+  SVIP_MONTHLY_REWARD: { category: 'bonuses', title: 'SVIP monthly coins' },
+  GOLD_MINE_PRIZE: { category: 'bonuses', title: 'Daily Treasure prize' },
   GAME_GREEDY_WIN: { category: 'games', title: 'Greedy win' },
   GAME_LUCKY77_WIN: { category: 'games', title: 'Lucky 77 win' },
   REFERRAL_REFEREE: { category: 'referrals', title: 'Referral join bonus' },

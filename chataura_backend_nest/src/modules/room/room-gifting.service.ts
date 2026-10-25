@@ -1,3 +1,4 @@
+import { assertSvipLevel } from '../svip/svip-gates';
 import {
   BadRequestException,
   ForbiddenException,
@@ -198,6 +199,7 @@ export class RoomGiftingService {
     const room = await this.findRoom(id);
     const quantity = Math.min(Math.max(Number(body.quantity ?? 1), 1), 100);
     const gift = await this.resolveGift(body);
+    await assertSvipLevel(this.prisma, senderId, gift.requiredSvipLevel, 'send this gift');
     const receiverId = BigInt(body.receiver_id);
     await this.requireActiveMember(room.id, senderId);
     const seated = await this.prisma.seat.findFirst({
@@ -458,6 +460,7 @@ export class RoomGiftingService {
     const room = await this.findRoom(body.room_id);
     const quantity = Math.min(Math.max(Number(body.quantity ?? 1), 1), 100);
     const gift = await this.resolveGift(body);
+    await assertSvipLevel(this.prisma, senderId, gift.requiredSvipLevel, 'send this gift');
 
     await this.requireActiveMember(room.id, senderId);
 

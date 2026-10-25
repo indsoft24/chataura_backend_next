@@ -33,88 +33,88 @@ enum UserRole {
 }
 
 model User {
-  id               BigInt         @id @default(autoincrement())
-  email            String?        @unique @db.VarChar(255)
-  phone            String?        @unique @db.VarChar(32)
-  password         String         @db.VarChar(255)
-  name             String?        @db.VarChar(255)
-  displayName      String?        @map("display_name") @db.VarChar(255)
-  avatarUrl        String?        @map("avatar_url") @db.Text
-  bio              String?        @db.Text
-  gender           String?        @db.VarChar(16)
-  dob              DateTime?      @db.Date
-  language         String?        @db.VarChar(16)
-  country          String?        @db.VarChar(64)
-  role             UserRole       @default(user)
-  inviteCode       String?        @unique @map("invite_code") @db.VarChar(16)
-  displayId        String         @unique @map("display_id") @db.VarChar(32)
-  invitedBy        BigInt?        @map("invited_by")
-  emailVerifiedAt  DateTime?      @map("email_verified_at") @db.Timestamptz(6)
-  fcmToken         String?        @map("fcm_token") @db.Text
-  level            Int            @default(1)
-  exp              Int            @default(0)
-  xp               BigInt         @default(0)
-  walletBalance    BigInt         @default(0) @map("wallet_balance")
-  totalEarnedCoins BigInt         @default(0) @map("total_earned_coins")
-  referralBalance  BigInt         @default(0) @map("referral_balance")
-  gems             BigInt         @default(0)
-  inrEarningsBalance BigInt       @default(0) @map("inr_earnings_balance")
-  usdEarningsBalance BigInt       @default(0) @map("usd_earnings_balance")
-  privateAccount   Boolean        @default(false) @map("private_account")
-  isPrivate        Boolean        @default(false) @map("is_private")
-  showOnlineStatus Boolean        @default(true) @map("show_online_status")
-  isOnline         Boolean        @default(false) @map("is_online")
-  lastSeenAt       DateTime?      @map("last_seen_at") @db.Timestamptz(6)
-  isSuspended      Boolean        @default(false) @map("is_suspended")
-  suspendedReason  String?        @map("suspended_reason") @db.Text
-  suspendedUntil   DateTime?      @map("suspended_until") @db.Timestamptz(6)
-  accountStatus    AccountStatus  @default(active) @map("account_status")
-  deletedAt        DateTime?      @map("deleted_at") @db.Timestamptz(6)
-  isStarAccount    Boolean        @default(false) @map("is_star_account")
-  starRank         Int?           @map("star_rank")
-  starBioTag       String?        @map("star_bio_tag") @db.VarChar(255)
-  audioCallRate    Int?           @map("audio_call_rate")
-  videoCallRate    Int?           @map("video_call_rate")
-  selectedFrameId  BigInt?        @map("selected_frame_id")
-  selectedRoleFrameId BigInt?     @map("selected_role_frame_id")
-  selectedEntryBarId BigInt?      @map("selected_entry_bar_id")
-  staffBadgeType   String?        @map("staff_badge_type") @db.VarChar(32)
-  lastClientCountry String?       @map("last_client_country") @db.VarChar(8)
+  id                  BigInt        @id @default(autoincrement())
+  email               String?       @unique @db.VarChar(255)
+  phone               String?       @unique @db.VarChar(32)
+  password            String        @db.VarChar(255)
+  name                String?       @db.VarChar(255)
+  displayName         String?       @map("display_name") @db.VarChar(255)
+  avatarUrl           String?       @map("avatar_url") @db.Text
+  bio                 String?       @db.Text
+  gender              String?       @db.VarChar(16)
+  dob                 DateTime?     @db.Date
+  language            String?       @db.VarChar(16)
+  country             String?       @db.VarChar(64)
+  role                UserRole      @default(user)
+  inviteCode          String?       @unique @map("invite_code") @db.VarChar(16)
+  displayId           String        @unique @map("display_id") @db.VarChar(32)
+  invitedBy           BigInt?       @map("invited_by")
+  emailVerifiedAt     DateTime?     @map("email_verified_at") @db.Timestamptz(6)
+  fcmToken            String?       @map("fcm_token") @db.Text
+  level               Int           @default(1)
+  exp                 Int           @default(0)
+  xp                  BigInt        @default(0)
+  walletBalance       BigInt        @default(0) @map("wallet_balance")
+  totalEarnedCoins    BigInt        @default(0) @map("total_earned_coins")
+  referralBalance     BigInt        @default(0) @map("referral_balance")
+  gems                BigInt        @default(0)
+  inrEarningsBalance  BigInt        @default(0) @map("inr_earnings_balance")
+  usdEarningsBalance  BigInt        @default(0) @map("usd_earnings_balance")
+  privateAccount      Boolean       @default(false) @map("private_account")
+  isPrivate           Boolean       @default(false) @map("is_private")
+  showOnlineStatus    Boolean       @default(true) @map("show_online_status")
+  isOnline            Boolean       @default(false) @map("is_online")
+  lastSeenAt          DateTime?     @map("last_seen_at") @db.Timestamptz(6)
+  isSuspended         Boolean       @default(false) @map("is_suspended")
+  suspendedReason     String?       @map("suspended_reason") @db.Text
+  suspendedUntil      DateTime?     @map("suspended_until") @db.Timestamptz(6)
+  accountStatus       AccountStatus @default(active) @map("account_status")
+  deletedAt           DateTime?     @map("deleted_at") @db.Timestamptz(6)
+  isStarAccount       Boolean       @default(false) @map("is_star_account")
+  starRank            Int?          @map("star_rank")
+  starBioTag          String?       @map("star_bio_tag") @db.VarChar(255)
+  audioCallRate       Int?          @map("audio_call_rate")
+  videoCallRate       Int?          @map("video_call_rate")
+  selectedFrameId     BigInt?       @map("selected_frame_id")
+  selectedRoleFrameId BigInt?       @map("selected_role_frame_id")
+  selectedEntryBarId  BigInt?       @map("selected_entry_bar_id")
+  staffBadgeType      String?       @map("staff_badge_type") @db.VarChar(32)
+  lastClientCountry   String?       @map("last_client_country") @db.VarChar(8)
   /// Session of the one phone allowed to use this account (null = not signed in since single-session).
-  currentSessionId  String?       @map("current_session_id") @db.VarChar(36)
-  streakCount      Int            @default(0) @map("streak_count")
-  lastStreakAt     DateTime?      @map("last_streak_at") @db.Timestamptz(6)
-  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  currentSessionId    String?       @map("current_session_id") @db.VarChar(36)
+  streakCount         Int           @default(0) @map("streak_count")
+  lastStreakAt        DateTime?     @map("last_streak_at") @db.Timestamptz(6)
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   refreshTokens       RefreshToken[]
   devices             UserDevice[]
   authDevices         AuthDevice[]
-  followers           UserFollower[]  @relation("Following")
-  following           UserFollower[]  @relation("Follower")
-  friendshipsAsUser   Friendship[]    @relation("FriendshipUser")
-  friendshipsAsFriend Friendship[]    @relation("FriendshipFriend")
-  friendRequestsSent  FriendRequest[] @relation("FriendRequestSender")
-  friendRequestsRecv  FriendRequest[] @relation("FriendRequestReceiver")
-  blocksInitiated     BlockedUser[]   @relation("Blocker")
-  blocksReceived      BlockedUser[]   @relation("Blocked")
-  reportsFiled        UserReport[]    @relation("Reporter")
-  reportsAgainst      UserReport[]    @relation("Reported")
+  followers           UserFollower[]             @relation("Following")
+  following           UserFollower[]             @relation("Follower")
+  friendshipsAsUser   Friendship[]               @relation("FriendshipUser")
+  friendshipsAsFriend Friendship[]               @relation("FriendshipFriend")
+  friendRequestsSent  FriendRequest[]            @relation("FriendRequestSender")
+  friendRequestsRecv  FriendRequest[]            @relation("FriendRequestReceiver")
+  blocksInitiated     BlockedUser[]              @relation("Blocker")
+  blocksReceived      BlockedUser[]              @relation("Blocked")
+  reportsFiled        UserReport[]               @relation("Reporter")
+  reportsAgainst      UserReport[]               @relation("Reported")
   coinPurchases       CoinPurchaseTransaction[]
   coinTransactions    CoinTransaction[]
   gemConversions      GemConversion[]
   withdrawals         WithdrawalRequest[]
   unlockedFrames      UserUnlockedFrame[]
-  selectedFrame       Frame?          @relation("SelectedFrame", fields: [selectedFrameId], references: [id])
-  selectedRoleFrame   Frame?          @relation("SelectedRoleFrame", fields: [selectedRoleFrameId], references: [id])
-  selectedEntryBar    EntryBar?       @relation("SelectedEntryBar", fields: [selectedEntryBarId], references: [id])
-  roomsOwned          Room[]          @relation("RoomOwner")
-  roomsHosted         Room[]          @relation("RoomHost")
-  roomsCohosted       Room[]          @relation("RoomCoHost")
+  selectedFrame       Frame?                     @relation("SelectedFrame", fields: [selectedFrameId], references: [id])
+  selectedRoleFrame   Frame?                     @relation("SelectedRoleFrame", fields: [selectedRoleFrameId], references: [id])
+  selectedEntryBar    EntryBar?                  @relation("SelectedEntryBar", fields: [selectedEntryBarId], references: [id])
+  roomsOwned          Room[]                     @relation("RoomOwner")
+  roomsHosted         Room[]                     @relation("RoomHost")
+  roomsCohosted       Room[]                     @relation("RoomCoHost")
   roomMemberships     RoomMember[]
   rocketAdminSeats    RoomRocketAdmin[]
   roomStaffAdminSeats RoomStaffAdmin[]
-  rocketLaunches      RocketLaunch[]        @relation("RocketLauncher")
+  rocketLaunches      RocketLaunch[]             @relation("RocketLauncher")
   rocketRewards       RocketReward[]
   rocketContributions RocketContribution[]
   seatsOccupied       Seat[]
@@ -123,21 +123,29 @@ model User {
   lucky77Bets         Lucky77Bet[]
   conversationParts   ConversationParticipant[]
   messagesSent        Message[]
-  starChatAsPayer     StarChatSession[] @relation("StarChatPayer")
-  starChatAsStar      StarChatSession[] @relation("StarChatStar")
+  starChatAsPayer     StarChatSession[]          @relation("StarChatPayer")
+  starChatAsStar      StarChatSession[]          @relation("StarChatStar")
   unlockedStickers    UserUnlockedSticker[]
   mediaItems          MediaItem[]
   mediaComments       MediaComment[]
   mediaLikes          MediaLike[]
   mediaSaves          MediaSave[]
-  agencyAsOwner       AgencyAffiliation[] @relation("AgencyOwner")
-  agencyAsMember      AgencyAffiliation[] @relation("AgencyMember")
+  agencyAsOwner       AgencyAffiliation[]        @relation("AgencyOwner")
+  agencyAsMember      AgencyAffiliation[]        @relation("AgencyMember")
   agencyWeeklyAsOwner AgencyWeeklyDistribution[]
   feedback            Feedback[]
   bonusClaims         BonusClaim[]
   presenceSessions    UserRoomPresenceSession[]
   roomRewardGifting   RoomRewardGifting[]
   coinSellerContact   CoinSellerContact?
+  svip                UserSvip?
+  svipMonthlyPoints   SvipMonthlyPoints[]
+  medals              UserMedal[]
+  profileVisits       UserVisit[]                @relation("VisitTarget")
+  diceRolls           DiceRoll[]
+  goldMines           UserGoldMine[]
+  goldMineDraws       GoldMineDraw[]
+  visitsMade          UserVisit[]                @relation("VisitViewer")
 
   @@index([accountStatus])
   @@index([isStarAccount, starRank])
@@ -196,13 +204,13 @@ model AuthDevice {
 }
 
 model UserDevice {
-  id         BigInt   @id @default(autoincrement())
-  userId     BigInt   @map("user_id")
-  deviceId   String?  @map("device_id") @db.VarChar(255)
-  platform   String?  @db.VarChar(32)
-  fcmToken   String?  @map("fcm_token") @db.Text
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  deviceId  String?  @map("device_id") @db.VarChar(255)
+  platform  String?  @db.VarChar(32)
+  fcmToken  String?  @map("fcm_token") @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -326,31 +334,31 @@ model CoinPackage {
 }
 
 model CoinPurchaseTransaction {
-  id                 BigInt         @id @default(autoincrement())
-  userId             BigInt         @map("user_id")
-  packageId          BigInt?        @map("package_id")
-  razorpayOrderId    String?        @unique @map("razorpay_order_id") @db.VarChar(64)
-  razorpayPaymentId  String?        @unique @map("razorpay_payment_id") @db.VarChar(64)
-  razorpaySignature  String?        @map("razorpay_signature") @db.VarChar(255)
-  amountMinor        Int            @map("amount_minor")
-  currency           String         @db.VarChar(8)
-  coinsCredited      Int            @map("coins_credited")
-  status             PurchaseStatus @default(pending)
-  paymentSource      PaymentSource  @default(RAZORPAY) @map("payment_source")
-  country            String?        @db.VarChar(8)
+  id                BigInt         @id @default(autoincrement())
+  userId            BigInt         @map("user_id")
+  packageId         BigInt?        @map("package_id")
+  razorpayOrderId   String?        @unique @map("razorpay_order_id") @db.VarChar(64)
+  razorpayPaymentId String?        @unique @map("razorpay_payment_id") @db.VarChar(64)
+  razorpaySignature String?        @map("razorpay_signature") @db.VarChar(255)
+  amountMinor       Int            @map("amount_minor")
+  currency          String         @db.VarChar(8)
+  coinsCredited     Int            @map("coins_credited")
+  status            PurchaseStatus @default(pending)
+  paymentSource     PaymentSource  @default(RAZORPAY) @map("payment_source")
+  country           String?        @db.VarChar(8)
   /// GST place of supply (canonical Indian state name), see common/gst/indian-states.ts
-  state              String?        @db.VarChar(64)
+  state             String?        @db.VarChar(64)
   /// Where `state` came from: client (app at checkout) | admin (manual correction)
-  stateSource        String?        @map("state_source") @db.VarChar(16)
-  clientIp           String?        @map("client_ip") @db.VarChar(64)
+  stateSource       String?        @map("state_source") @db.VarChar(16)
+  clientIp          String?        @map("client_ip") @db.VarChar(64)
   /// Last known Razorpay payment status for this order (captured, failed, authorized, refunded, no_attempt…)
-  gatewayStatus      String?        @map("gateway_status") @db.VarChar(24)
-  paymentMethod      String?        @map("payment_method") @db.VarChar(24)
+  gatewayStatus     String?        @map("gateway_status") @db.VarChar(24)
+  paymentMethod     String?        @map("payment_method") @db.VarChar(24)
   /// Razorpay payment details: contact, vpa, bank, card, rrn, fee, tax, error…
-  gatewayData        Json?          @map("gateway_data")
-  gatewaySyncedAt    DateTime?      @map("gateway_synced_at") @db.Timestamptz(6)
-  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  gatewayData       Json?          @map("gateway_data")
+  gatewaySyncedAt   DateTime?      @map("gateway_synced_at") @db.Timestamptz(6)
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   package CoinPackage? @relation(fields: [packageId], references: [id])
@@ -388,24 +396,24 @@ model CoinTransaction {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, referenceId], map: "coin_transactions_user_reference_unique")
   @@index([userId, createdAt])
   /// Reward history: a user's rows of the reward types, newest first.
   @@index([userId, type, createdAt])
   @@index([referenceId])
-  @@unique([userId, referenceId], map: "coin_transactions_user_reference_unique")
   @@map("coin_transactions")
 }
 
 model GemConversion {
-  id               BigInt   @id @default(autoincrement())
-  userId           BigInt   @map("user_id")
-  gemsDebited      BigInt   @map("gems_debited")
-  currency         String   @db.VarChar(16)
-  coinsCredited    BigInt   @default(0) @map("coins_credited")
-  gemsBalanceAfter BigInt   @map("gems_balance_after")
-  walletBalanceAfter BigInt? @map("wallet_balance_after")
-  gemsPerCoin      Decimal  @map("gems_per_coin") @db.Decimal(12, 4)
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                 BigInt   @id @default(autoincrement())
+  userId             BigInt   @map("user_id")
+  gemsDebited        BigInt   @map("gems_debited")
+  currency           String   @db.VarChar(16)
+  coinsCredited      BigInt   @default(0) @map("coins_credited")
+  gemsBalanceAfter   BigInt   @map("gems_balance_after")
+  walletBalanceAfter BigInt?  @map("wallet_balance_after")
+  gemsPerCoin        Decimal  @map("gems_per_coin") @db.Decimal(12, 4)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -414,15 +422,15 @@ model GemConversion {
 }
 
 model WithdrawalRequest {
-  id         BigInt           @id @default(autoincrement())
-  userId     BigInt           @map("user_id")
-  amount     Decimal          @db.Decimal(12, 2)
-  currency   String           @db.VarChar(8)
-  source     String           @map("withdrawal_source") @db.VarChar(32)
-  status     WithdrawalStatus @default(pending)
-  note       String?          @db.Text
-  createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id        BigInt           @id @default(autoincrement())
+  userId    BigInt           @map("user_id")
+  amount    Decimal          @db.Decimal(12, 2)
+  currency  String           @db.VarChar(8)
+  source    String           @map("withdrawal_source") @db.VarChar(32)
+  status    WithdrawalStatus @default(pending)
+  note      String?          @db.Text
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -431,22 +439,22 @@ model WithdrawalRequest {
 }
 
 model AdminSetting {
-  id                    Int      @id @default(1)
-  gemsPerCoin           Decimal  @default(10) @map("gems_per_coin") @db.Decimal(12, 4)
-  minGemsConvertToCoins Int      @default(10) @map("min_gems_convert_to_coins")
-  coinToXpRatio         Decimal  @default(0.1) @map("coin_to_xp_ratio") @db.Decimal(12, 4)
-  giftCommissionPct     Decimal  @default(20) @map("gift_commission_pct") @db.Decimal(8, 2)
-  earningsPurchaseEnabled Boolean @default(true) @map("earnings_purchase_enabled")
-  cashoutEnabled        Boolean  @default(false) @map("cashout_enabled")
-  audioCallPricePerMin  Int      @default(20) @map("audio_call_price_per_min")
-  videoCallPricePerMin  Int      @default(40) @map("video_call_price_per_min")
-  starChatPricePerMin   Int      @default(5) @map("star_chat_price_per_min")
-  starChatCommissionPct Decimal  @default(30) @map("star_chat_commission_pct") @db.Decimal(8, 2)
-  starChatHeartbeatSec  Int      @default(25) @map("star_chat_heartbeat_seconds")
-  spinCost              Int      @default(50) @map("spin_cost")
-  bonusConfig           Json?    @map("bonus_config")
-  extraSettings         Json?    @map("extra_settings")
-  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                      Int      @id @default(1)
+  gemsPerCoin             Decimal  @default(10) @map("gems_per_coin") @db.Decimal(12, 4)
+  minGemsConvertToCoins   Int      @default(10) @map("min_gems_convert_to_coins")
+  coinToXpRatio           Decimal  @default(0.1) @map("coin_to_xp_ratio") @db.Decimal(12, 4)
+  giftCommissionPct       Decimal  @default(20) @map("gift_commission_pct") @db.Decimal(8, 2)
+  earningsPurchaseEnabled Boolean  @default(true) @map("earnings_purchase_enabled")
+  cashoutEnabled          Boolean  @default(false) @map("cashout_enabled")
+  audioCallPricePerMin    Int      @default(20) @map("audio_call_price_per_min")
+  videoCallPricePerMin    Int      @default(40) @map("video_call_price_per_min")
+  starChatPricePerMin     Int      @default(5) @map("star_chat_price_per_min")
+  starChatCommissionPct   Decimal  @default(30) @map("star_chat_commission_pct") @db.Decimal(8, 2)
+  starChatHeartbeatSec    Int      @default(25) @map("star_chat_heartbeat_seconds")
+  spinCost                Int      @default(50) @map("spin_cost")
+  bonusConfig             Json?    @map("bonus_config")
+  extraSettings           Json?    @map("extra_settings")
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("admin_settings")
 }
@@ -483,9 +491,10 @@ model Frame {
   avatarOffsetY Float?   @map("avatar_offset_y")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  unlocks              UserUnlockedFrame[]
-  selectedByUsers      User[]              @relation("SelectedFrame")
-  selectedByRoleUsers  User[]              @relation("SelectedRoleFrame")
+  unlocks             UserUnlockedFrame[]
+  goldMinePrizes      GoldMinePrize[]
+  selectedByUsers     User[]              @relation("SelectedFrame")
+  selectedByRoleUsers User[]              @relation("SelectedRoleFrame")
 
   @@index([isActive, levelRequired])
   @@map("frames")
@@ -515,6 +524,8 @@ model EntryBar {
   imageUrl      String?  @map("image_url") @db.Text
   animationUrl  String?  @map("animation_url") @db.Text
   isActive      Boolean  @default(true) @map("is_active")
+  /// 0 = normal bar. N = only SVIP N or higher may select it.
+  svipLevel     Int      @default(0) @map("svip_level")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   selectedByUsers User[] @relation("SelectedEntryBar")
@@ -523,17 +534,19 @@ model EntryBar {
 }
 
 model Gift {
-  id           BigInt   @id @default(autoincrement())
+  id                BigInt   @id @default(autoincrement())
   /// Stable, immutable, human-readable unique key (e.g. "cp.wedding", "standard.wedding").
   /// Set once at creation; never changes when the gift is renamed or re-priced.
-  giftKey      String?  @unique @map("gift_key") @db.VarChar(200)
-  name         String   @db.VarChar(128)
-  coinCost     Int      @map("coin_cost")
-  category     String   @default("standard") @db.VarChar(32)
-  imageUrl     String?  @map("image_url") @db.Text
-  animationUrl String?  @map("animation_url") @db.Text
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  giftKey           String?  @unique @map("gift_key") @db.VarChar(200)
+  name              String   @db.VarChar(128)
+  coinCost          Int      @map("coin_cost")
+  category          String   @default("standard") @db.VarChar(32)
+  imageUrl          String?  @map("image_url") @db.Text
+  animationUrl      String?  @map("animation_url") @db.Text
+  isActive          Boolean  @default(true) @map("is_active")
+  /// 0 = anyone. N = only SVIP N or higher may send it.
+  requiredSvipLevel Int      @default(0) @map("required_svip_level")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([isActive, category])
   @@map("gifts")
@@ -577,57 +590,63 @@ model RoomTheme {
 }
 
 model Room {
-  id               String    @id @default(uuid()) @db.Uuid
-  displayId        String    @unique @map("display_id") @db.VarChar(8)
-  title            String    @db.VarChar(255)
-  ownerId          BigInt    @map("owner_id")
-  hostId           BigInt?   @map("host_id")
-  coHostId         BigInt?   @map("co_host_id")
+  id                  String    @id @default(uuid()) @db.Uuid
+  displayId           String    @unique @map("display_id") @db.VarChar(8)
+  title               String    @db.VarChar(255)
+  ownerId             BigInt    @map("owner_id")
+  hostId              BigInt?   @map("host_id")
+  coHostId            BigInt?   @map("co_host_id")
   /// Holds the host's powers while the host is away (resolveActingHost): the host's co-host,
   /// else an admin, else a seated member. Null while the host is in the room.
-  actingHostId     BigInt?   @map("acting_host_id")
-  agoraChannelName String    @map("agora_channel_name") @db.VarChar(128)
-  maxSeats         Int       @default(8) @map("max_seats")
+  actingHostId        BigInt?   @map("acting_host_id")
+  agoraChannelName    String    @map("agora_channel_name") @db.VarChar(128)
+  maxSeats            Int       @default(8) @map("max_seats")
   /// Live state version (RoomStateService): strictly increasing, wall-clock floored (ms).
-  stateVersion     BigInt    @default(0) @map("state_version")
-  isLive           Boolean   @default(true) @map("is_live")
-  isPermanent      Boolean   @default(false) @map("is_permanent")
-  /** Private rooms require password; excluded from discovery + rankings. */
-  isPrivate        Boolean   @default(false) @map("is_private")
-  passwordHash     String?   @map("password_hash") @db.VarChar(255)
-  /** Seat entry: "direct" (self takeSeat) or "request" (host approval). */
-  seatMode         String    @default("request") @map("seat_mode") @db.VarChar(16)
-  coverImageUrl    String?   @map("cover_image_url") @db.Text
-  description      String?   @db.Text
-  tags             Json?
-  settings         Json?
-  themeId          BigInt?   @map("theme_id")
-  countryCode      String?   @map("country_code") @db.VarChar(8)
-  allowedCountry   String?   @map("allowed_country") @db.VarChar(8)
-  allowedGender    String?   @map("allowed_gender") @db.VarChar(16)
-  minAge           Int?      @map("min_age")
-  maxAge           Int?      @map("max_age")
-  lastActivityAt   DateTime? @map("last_activity_at") @db.Timestamptz(6)
+  stateVersion        BigInt    @default(0) @map("state_version")
+  isLive              Boolean   @default(true) @map("is_live")
+  isPermanent         Boolean   @default(false) @map("is_permanent")
+  /**
+   * Private rooms require password; excluded from discovery + rankings.
+   */
+  isPrivate           Boolean   @default(false) @map("is_private")
+  passwordHash        String?   @map("password_hash") @db.VarChar(255)
+  /**
+   * Seat entry: "direct" (self takeSeat) or "request" (host approval).
+   */
+  seatMode            String    @default("request") @map("seat_mode") @db.VarChar(16)
+  coverImageUrl       String?   @map("cover_image_url") @db.Text
+  description         String?   @db.Text
+  tags                Json?
+  settings            Json?
+  themeId             BigInt?   @map("theme_id")
+  countryCode         String?   @map("country_code") @db.VarChar(8)
+  allowedCountry      String?   @map("allowed_country") @db.VarChar(8)
+  allowedGender       String?   @map("allowed_gender") @db.VarChar(16)
+  minAge              Int?      @map("min_age")
+  maxAge              Int?      @map("max_age")
+  lastActivityAt      DateTime? @map("last_activity_at") @db.Timestamptz(6)
   hostLastHeartbeatAt DateTime? @map("host_last_heartbeat_at") @db.Timestamptz(6)
-  endedAt          DateTime? @map("ended_at") @db.Timestamptz(6)
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  endedAt             DateTime? @map("ended_at") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  owner   User       @relation("RoomOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  host    User?      @relation("RoomHost", fields: [hostId], references: [id])
-  coHost  User?      @relation("RoomCoHost", fields: [coHostId], references: [id])
-  theme   RoomTheme? @relation(fields: [themeId], references: [id])
-  members        RoomMember[]
-  rocketAdmins   RoomRocketAdmin[]
-  staffAdmins    RoomStaffAdmin[]
-  rocketLaunches RocketLaunch[]
-  rocketEvents   RocketEvent[]
-  seats          Seat[]
-  blocks      RoomBlock[]
-  affiliations AgencyAffiliation[]
+  owner            User                      @relation("RoomOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  host             User?                     @relation("RoomHost", fields: [hostId], references: [id])
+  coHost           User?                     @relation("RoomCoHost", fields: [coHostId], references: [id])
+  theme            RoomTheme?                @relation(fields: [themeId], references: [id])
+  members          RoomMember[]
+  rocketAdmins     RoomRocketAdmin[]
+  staffAdmins      RoomStaffAdmin[]
+  rocketLaunches   RocketLaunch[]
+  rocketEvents     RocketEvent[]
+  seats            Seat[]
+  blocks           RoomBlock[]
+  affiliations     AgencyAffiliation[]
   presenceSessions UserRoomPresenceSession[]
   rewardProgress   RoomRewardProgress?
   rewardGifting    RoomRewardGifting[]
+
+  diceRolls DiceRoll[]
 
   @@index([isLive, lastActivityAt])
   @@index([ownerId])
@@ -636,21 +655,21 @@ model Room {
 }
 
 model RoomMember {
-  id              BigInt         @id @default(autoincrement())
-  roomId          String         @map("room_id") @db.Uuid
-  userId          BigInt         @map("user_id")
-  role            RoomMemberRole @default(listener)
-  seatIndex       Int?           @map("seat_index")
+  id                BigInt         @id @default(autoincrement())
+  roomId            String         @map("room_id") @db.Uuid
+  userId            BigInt         @map("user_id")
+  role              RoomMemberRole @default(listener)
+  seatIndex         Int?           @map("seat_index")
   /// Host/co-host/admin mic mute that follows the member across seats, leave and rejoin
   /// until an authorised unmute. Null = not host-muted.
-  hostMutedByUserId BigInt?      @map("host_muted_by_user_id")
-  agoraUid        Int?           @map("agora_uid")
-  isActive        Boolean        @default(true) @map("is_active")
-  lastHeartbeatAt DateTime?      @map("last_heartbeat_at") @db.Timestamptz(6)
-  joinedAt        DateTime       @default(now()) @map("joined_at") @db.Timestamptz(6)
+  hostMutedByUserId BigInt?        @map("host_muted_by_user_id")
+  agoraUid          Int?           @map("agora_uid")
+  isActive          Boolean        @default(true) @map("is_active")
+  lastHeartbeatAt   DateTime?      @map("last_heartbeat_at") @db.Timestamptz(6)
+  joinedAt          DateTime       @default(now()) @map("joined_at") @db.Timestamptz(6)
   /// Room Reward Levels: start of this member's current continuous stay. Kept across short drops
   /// (rejoin within the allowed gap); reset on a longer absence. Null = not in the room.
-  stayStartedAt   DateTime?      @map("stay_started_at") @db.Timestamptz(6)
+  stayStartedAt     DateTime?      @map("stay_started_at") @db.Timestamptz(6)
 
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -660,7 +679,9 @@ model RoomMember {
   @@map("room_members")
 }
 
-/** Host-appointed room staff admins (separate from co-host and rocket admins). */
+/**
+ * Host-appointed room staff admins (separate from co-host and rocket admins).
+ */
 model RoomStaffAdmin {
   id        BigInt   @id @default(autoincrement())
   roomId    String   @map("room_id") @db.Uuid
@@ -689,26 +710,26 @@ model RoomRocketAdmin {
 }
 
 model RocketLaunch {
-  id          String   @id @default(uuid()) @db.Uuid
-  roomId      String   @map("room_id") @db.Uuid
-  launcherId  BigInt   @map("launcher_id")
-  price       Int
-  coinPool    Int      @map("coin_pool")
-  joinedCount Int      @map("joined_count")
-  winnerCount Int      @map("winner_count")
+  id               String   @id @default(uuid()) @db.Uuid
+  roomId           String   @map("room_id") @db.Uuid
+  launcherId       BigInt   @map("launcher_id")
+  price            Int
+  coinPool         Int      @map("coin_pool")
+  joinedCount      Int      @map("joined_count")
+  winnerCount      Int      @map("winner_count")
   /// Jet skin LV 1–5 chosen from top contributor user.level (identical for all clients)
-  jetLevel    Int      @default(3) @map("jet_level")
-  topContributorId BigInt? @map("top_contributor_id")
+  jetLevel         Int      @default(3) @map("jet_level")
+  topContributorId BigInt?  @map("top_contributor_id")
   /// Rocket ladder level (1..N) that launched; null for pre-ladder launches.
-  rocketLevel    Int?     @map("rocket_level")
-  levelName      String?  @map("level_name") @db.VarChar(64)
-  launchVideoUrl String?  @map("launch_video_url") @db.Text
-  themeColor     String?  @map("theme_color") @db.VarChar(16)
-  luckyPool      Int      @default(0) @map("lucky_pool")
-  luckyCount     Int      @default(0) @map("lucky_count")
+  rocketLevel      Int?     @map("rocket_level")
+  levelName        String?  @map("level_name") @db.VarChar(64)
+  launchVideoUrl   String?  @map("launch_video_url") @db.Text
+  themeColor       String?  @map("theme_color") @db.VarChar(16)
+  luckyPool        Int      @default(0) @map("lucky_pool")
+  luckyCount       Int      @default(0) @map("lucky_count")
   /// People present in the room at launch (lucky draw candidates + top winners)
-  audienceCount  Int      @default(0) @map("audience_count")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  audienceCount    Int      @default(0) @map("audience_count")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   room     Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
   launcher User           @relation("RocketLauncher", fields: [launcherId], references: [id])
@@ -742,28 +763,28 @@ model RocketReward {
 
 /// Admin-configured crowdfund campaign (Rockit).
 model RocketCampaignConfig {
-  id                        BigInt   @id @default(autoincrement())
-  name                      String   @default("Rockit") @db.VarChar(128)
-  launchThresholdCoins      Int      @map("launch_threshold_coins")
-  rewardPoolPercentage      Float    @default(50) @map("reward_pool_percentage")
-  maxWinnersCount           Int      @default(7) @map("max_winners_count")
+  id                          BigInt   @id @default(autoincrement())
+  name                        String   @default("Rockit") @db.VarChar(128)
+  launchThresholdCoins        Int      @map("launch_threshold_coins")
+  rewardPoolPercentage        Float    @default(50) @map("reward_pool_percentage")
+  maxWinnersCount             Int      @default(7) @map("max_winners_count")
   /// e.g. [40,25,15,10,5,3,2] — percentages for top N; should sum ~100
-  rewardDistributionRules   Json     @map("reward_distribution_rules")
-  minimumContributionRequired Int    @default(1) @map("minimum_contribution_required")
+  rewardDistributionRules     Json     @map("reward_distribution_rules")
+  minimumContributionRequired Int      @default(1) @map("minimum_contribution_required")
   /// e.g. ["all"] | ["public","permanent","vip"]
-  eligibleRoomTypes         Json     @default("[\"all\"]") @map("eligible_room_types")
-  rockitDurationSeconds     Int      @default(3600) @map("rockit_duration_seconds")
-  status                    Boolean  @default(true)
+  eligibleRoomTypes           Json     @default("[\"all\"]") @map("eligible_room_types")
+  rockitDurationSeconds       Int      @default(3600) @map("rockit_duration_seconds")
+  status                      Boolean  @default(true)
   /// Ladder resets to the first level daily at reset_hour in reset_timezone.
-  dailyResetEnabled         Boolean  @default(true) @map("daily_reset_enabled")
-  resetTimezone             String   @default("Asia/Kolkata") @map("reset_timezone") @db.VarChar(64)
-  resetHour                 Int      @default(4) @map("reset_hour")
+  dailyResetEnabled           Boolean  @default(true) @map("daily_reset_enabled")
+  resetTimezone               String   @default("Asia/Kolkata") @map("reset_timezone") @db.VarChar(64)
+  resetHour                   Int      @default(4) @map("reset_hour")
   /// RESET_PROGRESS (stay on level, progress to 0) | RESET_CYCLE (back to first level)
-  expiryMode                String   @default("RESET_PROGRESS") @map("expiry_mode") @db.VarChar(16)
+  expiryMode                  String   @default("RESET_PROGRESS") @map("expiry_mode") @db.VarChar(16)
   /// Coins beyond a level's threshold seed the next level (capped below its threshold).
-  carryOverflow             Boolean  @default(true) @map("carry_overflow")
-  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                 DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  carryOverflow               Boolean  @default(true) @map("carry_overflow")
+  createdAt                   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   events RocketEvent[]
   levels RocketLevelConfig[]
@@ -843,8 +864,8 @@ model RocketEvent {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  room          Room                   @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  config        RocketCampaignConfig   @relation(fields: [configId], references: [id])
+  room          Room                 @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  config        RocketCampaignConfig @relation(fields: [configId], references: [id])
   contributions RocketContribution[]
 
   @@index([roomId, status])
@@ -905,13 +926,15 @@ model RoomBlock {
 }
 
 model Sticker {
-  id           BigInt   @id @default(autoincrement())
-  name         String   @db.VarChar(128)
-  coinCost     Int      @default(0) @map("coin_cost")
-  imageUrl     String?  @map("image_url") @db.Text
-  animationUrl String?  @map("animation_url") @db.Text
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                BigInt   @id @default(autoincrement())
+  name              String   @db.VarChar(128)
+  coinCost          Int      @default(0) @map("coin_cost")
+  imageUrl          String?  @map("image_url") @db.Text
+  animationUrl      String?  @map("animation_url") @db.Text
+  isActive          Boolean  @default(true) @map("is_active")
+  /// 0 = anyone. N = SVIP emoji, only SVIP N or higher may send it.
+  requiredSvipLevel Int      @default(0) @map("required_svip_level")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   unlocks UserUnlockedSticker[]
 
@@ -933,13 +956,13 @@ model UserUnlockedSticker {
 }
 
 model GreedyRound {
-  id             BigInt         @id @default(autoincrement())
-  phase          GameRoundPhase @default(betting)
-  bettingEndsAt  DateTime       @map("betting_ends_at") @db.Timestamptz(6)
-  winningItem    String?        @map("winning_item") @db.VarChar(32)
-  winningMultiplier Int?        @map("winning_multiplier")
-  settledAt      DateTime?      @map("settled_at") @db.Timestamptz(6)
-  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                BigInt         @id @default(autoincrement())
+  phase             GameRoundPhase @default(betting)
+  bettingEndsAt     DateTime       @map("betting_ends_at") @db.Timestamptz(6)
+  winningItem       String?        @map("winning_item") @db.VarChar(32)
+  winningMultiplier Int?           @map("winning_multiplier")
+  settledAt         DateTime?      @map("settled_at") @db.Timestamptz(6)
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
 
   bets GreedyBet[]
 
@@ -968,13 +991,13 @@ model GreedyBet {
 }
 
 model Lucky77Round {
-  id            BigInt         @id @default(autoincrement())
-  phase         GameRoundPhase @default(betting)
-  bettingEndsAt DateTime       @map("betting_ends_at") @db.Timestamptz(6)
-  winningItem   String?        @map("winning_item") @db.VarChar(32)
-  winningMultiplier Int?       @map("winning_multiplier")
-  settledAt     DateTime?      @map("settled_at") @db.Timestamptz(6)
-  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                BigInt         @id @default(autoincrement())
+  phase             GameRoundPhase @default(betting)
+  bettingEndsAt     DateTime       @map("betting_ends_at") @db.Timestamptz(6)
+  winningItem       String?        @map("winning_item") @db.VarChar(32)
+  winningMultiplier Int?           @map("winning_multiplier")
+  settledAt         DateTime?      @map("settled_at") @db.Timestamptz(6)
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
 
   bets Lucky77Bet[]
 
@@ -1020,16 +1043,16 @@ model Conversation {
 }
 
 model ConversationParticipant {
-  id         BigInt    @id @default(autoincrement())
-  conversationId BigInt @map("conversation_id")
-  userId     BigInt    @map("user_id")
-  lastReadAt DateTime? @map("last_read_at") @db.Timestamptz(6)
+  id             BigInt    @id @default(autoincrement())
+  conversationId BigInt    @map("conversation_id")
+  userId         BigInt    @map("user_id")
+  lastReadAt     DateTime? @map("last_read_at") @db.Timestamptz(6)
   /// "Delete chat" for this member only: messages up to this time are hidden from them, and the
   /// conversation leaves their list until a newer message arrives.
-  clearedAt  DateTime? @map("cleared_at") @db.Timestamptz(6)
+  clearedAt      DateTime? @map("cleared_at") @db.Timestamptz(6)
   /// Group role: owner | admin | member (private chats: member).
-  role       String    @default("member") @db.VarChar(16)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  role           String    @default("member") @db.VarChar(16)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1061,19 +1084,19 @@ model Message {
 }
 
 model StarChatSession {
-  id                 BigInt         @id @default(autoincrement())
-  conversationId     BigInt         @map("conversation_id")
-  payerId            BigInt         @map("payer_id")
-  starUserId         BigInt         @map("star_user_id")
-  status             StarChatStatus @default(active)
-  startedAt          DateTime       @default(now()) @map("started_at") @db.Timestamptz(6)
-  endedAt            DateTime?      @map("ended_at") @db.Timestamptz(6)
-  payerHeartbeatAt   DateTime?      @map("payer_heartbeat_at") @db.Timestamptz(6)
-  pricePerMin        Int            @map("price_per_min")
-  commissionPercent  Decimal        @map("commission_percent") @db.Decimal(8, 2)
-  coinsCharged       BigInt         @default(0) @map("coins_charged")
-  gemsCredited       BigInt         @default(0) @map("gems_credited")
-  endReason          String?        @map("end_reason") @db.VarChar(64)
+  id                BigInt         @id @default(autoincrement())
+  conversationId    BigInt         @map("conversation_id")
+  payerId           BigInt         @map("payer_id")
+  starUserId        BigInt         @map("star_user_id")
+  status            StarChatStatus @default(active)
+  startedAt         DateTime       @default(now()) @map("started_at") @db.Timestamptz(6)
+  endedAt           DateTime?      @map("ended_at") @db.Timestamptz(6)
+  payerHeartbeatAt  DateTime?      @map("payer_heartbeat_at") @db.Timestamptz(6)
+  pricePerMin       Int            @map("price_per_min")
+  commissionPercent Decimal        @map("commission_percent") @db.Decimal(8, 2)
+  coinsCharged      BigInt         @default(0) @map("coins_charged")
+  gemsCredited      BigInt         @default(0) @map("gems_credited")
+  endReason         String?        @map("end_reason") @db.VarChar(64)
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   payer        User         @relation("StarChatPayer", fields: [payerId], references: [id])
@@ -1175,12 +1198,12 @@ model MediaSave {
 }
 
 model MusicTrack {
-  id        BigInt   @id @default(autoincrement())
-  title     String   @db.VarChar(255)
-  artist    String?  @db.VarChar(255)
-  fileUrl   String   @map("file_url") @db.Text
-  isTrending Boolean @default(false) @map("is_trending")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id         BigInt   @id @default(autoincrement())
+  title      String   @db.VarChar(255)
+  artist     String?  @db.VarChar(255)
+  fileUrl    String   @map("file_url") @db.Text
+  isTrending Boolean  @default(false) @map("is_trending")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@map("music_tracks")
 }
@@ -1229,16 +1252,16 @@ model Feedback {
 }
 
 model AgencyAffiliation {
-  id           BigInt                   @id @default(autoincrement())
-  agencyUserId BigInt                   @map("agency_user_id")
-  roomOwnerId  BigInt                   @map("room_owner_id")
-  roomId       String?                  @map("room_id") @db.Uuid
-  status       AgencyAffiliationStatus  @default(pending)
-  joinedAt     DateTime?                @map("joined_at") @db.Timestamptz(6)
-  leftAt       DateTime?                @map("left_at") @db.Timestamptz(6)
+  id            BigInt                  @id @default(autoincrement())
+  agencyUserId  BigInt                  @map("agency_user_id")
+  roomOwnerId   BigInt                  @map("room_owner_id")
+  roomId        String?                 @map("room_id") @db.Uuid
+  status        AgencyAffiliationStatus @default(pending)
+  joinedAt      DateTime?               @map("joined_at") @db.Timestamptz(6)
+  leftAt        DateTime?               @map("left_at") @db.Timestamptz(6)
   cooldownUntil DateTime?               @map("cooldown_until") @db.Timestamptz(6)
-  createdAt    DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt     DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   agency    User  @relation("AgencyOwner", fields: [agencyUserId], references: [id], onDelete: Cascade)
   roomOwner User  @relation("AgencyMember", fields: [roomOwnerId], references: [id], onDelete: Cascade)
@@ -1335,41 +1358,40 @@ model UserRoomPresenceSession {
   @@map("user_room_presence_sessions")
 }
 
-
 // ─── Relationship Engine (generic CP/BCP/…) ─────────────────────────────
 
 model RelationshipType {
-  id                         String   @id @default(uuid()) @db.Uuid
-  code                       String   @unique @db.VarChar(32)
-  name                       String   @db.VarChar(64)
-  description                String?  @db.Text
-  enabled                    Boolean  @default(true)
-  sortOrder                  Int      @default(0) @map("sort_order")
-  exclusivityMode            String   @default("none") @map("exclusivity_mode") @db.VarChar(32)
-  formationRule              String   @default("first_qualifying_gift") @map("formation_rule") @db.VarChar(48)
-  requiresAccept             Boolean  @default(false) @map("requires_accept")
-  bidirectionalScoring       Boolean  @default(true) @map("bidirectional_scoring")
-  quantityMultipliesPoints   Boolean  @default(true) @map("quantity_multiplies_points")
-  levelsEnabled              Boolean  @default(false) @map("levels_enabled")
-  dmGiftsCount               Boolean  @default(true) @map("dm_gifts_count")
-  roomGiftsCount             Boolean  @default(true) @map("room_gifts_count")
-  maxPartners                Int?     @map("max_partners")
-  formationCostCoins         Int      @default(0) @map("formation_cost_coins")
+  id                       String   @id @default(uuid()) @db.Uuid
+  code                     String   @unique @db.VarChar(32)
+  name                     String   @db.VarChar(64)
+  description              String?  @db.Text
+  enabled                  Boolean  @default(true)
+  sortOrder                Int      @default(0) @map("sort_order")
+  exclusivityMode          String   @default("none") @map("exclusivity_mode") @db.VarChar(32)
+  formationRule            String   @default("first_qualifying_gift") @map("formation_rule") @db.VarChar(48)
+  requiresAccept           Boolean  @default(false) @map("requires_accept")
+  bidirectionalScoring     Boolean  @default(true) @map("bidirectional_scoring")
+  quantityMultipliesPoints Boolean  @default(true) @map("quantity_multiplies_points")
+  levelsEnabled            Boolean  @default(false) @map("levels_enabled")
+  dmGiftsCount             Boolean  @default(true) @map("dm_gifts_count")
+  roomGiftsCount           Boolean  @default(true) @map("room_gifts_count")
+  maxPartners              Int?     @map("max_partners")
+  formationCostCoins       Int      @default(0) @map("formation_cost_coins")
   /// > 0: pair forms only once combined gift coin value (both directions) reaches this.
-  formationThresholdCoins    BigInt   @default(0) @map("formation_threshold_coins")
-  unbindCostCoins            Int      @default(0) @map("unbind_cost_coins")
-  micExpPerTick              Int      @default(0) @map("mic_exp_per_tick")
-  micExpDailyCap             Int      @default(0) @map("mic_exp_daily_cap")
-  visual                     Json?
-  leaderboard                Json?
-  rank1Rewards               Json?    @map("rank1_rewards")
-  createdAt                  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  formationThresholdCoins  BigInt   @default(0) @map("formation_threshold_coins")
+  unbindCostCoins          Int      @default(0) @map("unbind_cost_coins")
+  micExpPerTick            Int      @default(0) @map("mic_exp_per_tick")
+  micExpDailyCap           Int      @default(0) @map("mic_exp_daily_cap")
+  visual                   Json?
+  leaderboard              Json?
+  rank1Rewards             Json?    @map("rank1_rewards")
+  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  giftRules     RelationshipGiftRule[]
-  relationships UserRelationship[]
+  giftRules       RelationshipGiftRule[]
+  relationships   UserRelationship[]
   levelThresholds RelationshipLevelThreshold[]
-  rings         RelationshipRing[]
+  rings           RelationshipRing[]
 
   @@index([enabled, sortOrder])
   @@map("relationship_types")
@@ -1392,23 +1414,23 @@ model RelationshipGiftRule {
 }
 
 model UserRelationship {
-  id                 String   @id @default(uuid()) @db.Uuid
-  relationshipTypeId String   @map("relationship_type_id") @db.Uuid
-  userLowId          BigInt   @map("user_low_id")
-  userHighId         BigInt   @map("user_high_id")
-  initiatorId        BigInt?  @map("initiator_id")
+  id                    String   @id @default(uuid()) @db.Uuid
+  relationshipTypeId    String   @map("relationship_type_id") @db.Uuid
+  userLowId             BigInt   @map("user_low_id")
+  userHighId            BigInt   @map("user_high_id")
+  initiatorId           BigInt?  @map("initiator_id")
   /// building | pending | active | ended
-  status             String   @default("active") @db.VarChar(16)
-  totalScore         BigInt   @default(0) @map("total_score")
+  status                String   @default("active") @db.VarChar(16)
+  totalScore            BigInt   @default(0) @map("total_score")
   /// Gift coin value accumulated towards formation_threshold_coins while building.
   progressCoins         BigInt   @default(0) @map("progress_coins")
   disconnectCoins       BigInt   @default(0) @map("disconnect_coins")
   disconnectRequestedBy BigInt?  @map("disconnect_requested_by")
   level                 Int?
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  relationshipType RelationshipType            @relation(fields: [relationshipTypeId], references: [id], onDelete: Cascade)
+  relationshipType RelationshipType          @relation(fields: [relationshipTypeId], references: [id], onDelete: Cascade)
   ledger           RelationshipScoreLedger[]
   periodScores     RelationshipPeriodScore[]
 
@@ -1436,18 +1458,18 @@ model RelationshipCleanupAudit {
 }
 
 model RelationshipScoreLedger {
-  id                 String   @id @default(uuid()) @db.Uuid
-  relationshipId     String   @map("relationship_id") @db.Uuid
-  giftTransactionId  String   @unique @map("gift_transaction_id") @db.VarChar(191)
-  senderId           BigInt   @map("sender_id")
-  receiverId         BigInt   @map("receiver_id")
-  giftId             BigInt?  @map("gift_id")
-  quantity           Int      @default(1)
-  pointValue         Int      @map("point_value")
-  contribution       BigInt
-  source             String   @db.VarChar(16)
-  roomId             String?  @map("room_id") @db.VarChar(64)
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                String   @id @default(uuid()) @db.Uuid
+  relationshipId    String   @map("relationship_id") @db.Uuid
+  giftTransactionId String   @unique @map("gift_transaction_id") @db.VarChar(191)
+  senderId          BigInt   @map("sender_id")
+  receiverId        BigInt   @map("receiver_id")
+  giftId            BigInt?  @map("gift_id")
+  quantity          Int      @default(1)
+  pointValue        Int      @map("point_value")
+  contribution      BigInt
+  source            String   @db.VarChar(16)
+  roomId            String?  @map("room_id") @db.VarChar(64)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   relationship UserRelationship @relation(fields: [relationshipId], references: [id], onDelete: Cascade)
 
@@ -1648,4 +1670,200 @@ model RoomRewardRecipient {
   @@unique([payoutId, userId])
   @@index([userId, createdAt])
   @@map("room_reward_recipients")
+}
+
+/// SVIP level catalogue (super admin panel). Bought with coins; kept by a monthly maintenance fee.
+model SvipLevelConfig {
+  level              Int      @id
+  name               String   @db.VarChar(64)
+  purchasePrice      BigInt   @map("purchase_price")
+  /// Free coins an active member claims once per calendar month (IST).
+  monthlyReward      BigInt   @map("monthly_reward")
+  /// Off = not for sale. Existing members keep it and keep renewing.
+  isActive           Boolean  @default(false) @map("is_active")
+  /// Room dice: how many times one roll can be re-rolled (within the re-roll window).
+  diceRefreshes      Int      @default(2) @map("dice_refreshes")
+  /// Extra Gold Mine draws per day while a mine is active.
+  goldMineBonusDraws Int      @default(2) @map("gold_mine_bonus_draws")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("svip_level_configs")
+}
+
+/// A user's SVIP membership. Level is live while now < period_ends_at + grace days.
+model UserSvip {
+  userId              BigInt    @id @map("user_id")
+  level               Int
+  /// active | grace | expired (the cron keeps it in step with the dates).
+  status              String    @default("active") @db.VarChar(16)
+  periodStartsAt      DateTime  @map("period_starts_at") @db.Timestamptz(6)
+  periodEndsAt        DateTime  @map("period_ends_at") @db.Timestamptz(6)
+  lastChargeAttemptAt DateTime? @map("last_charge_attempt_at") @db.Timestamptz(6)
+  /// My Items switches for the level's chat bubble, room card and mic wave.
+  bubbleOn            Boolean   @default(true) @map("bubble_on")
+  roomCardOn          Boolean   @default(true) @map("room_card_on")
+  micWaveOn           Boolean   @default(true) @map("mic_wave_on")
+  /// Custom profile background (SVIP privilege); shown only while SVIP is active.
+  profileBgUrl        String?   @map("profile_bg_url") @db.Text
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, periodEndsAt])
+  @@map("user_svips")
+}
+
+/// SVIP points: coins spent on gifts, per IST calendar month (yyyy-mm).
+model SvipMonthlyPoints {
+  userId    BigInt   @map("user_id")
+  month     String   @db.VarChar(7)
+  points    BigInt   @default(0)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, month])
+  @@map("svip_monthly_points")
+}
+
+/// Medal catalogue. SVIP medals (svip_level > 0) are granted while that SVIP level is active.
+model Medal {
+  id          BigInt   @id @default(autoincrement())
+  slug        String   @unique @db.VarChar(64)
+  name        String   @db.VarChar(64)
+  description String?  @db.Text
+  imageUrl    String   @map("image_url") @db.Text
+  svipLevel   Int      @default(0) @map("svip_level")
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  owners UserMedal[]
+
+  @@map("medals")
+}
+
+/// A medal a user owns. Up to 3 are worn on the profile (slot 1..3).
+model UserMedal {
+  id        BigInt    @id @default(autoincrement())
+  userId    BigInt    @map("user_id")
+  medalId   BigInt    @map("medal_id")
+  /// Null = permanent.
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(6)
+  wornSlot  Int?      @map("worn_slot")
+  source    String    @db.VarChar(16)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  medal Medal @relation(fields: [medalId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, medalId])
+  @@index([userId, wornSlot])
+  @@map("user_medals")
+}
+
+/// Who viewed whose profile (SVIP "visitor records"). One row per pair.
+model UserVisit {
+  targetId      BigInt   @map("target_id")
+  viewerId      BigInt   @map("viewer_id")
+  visitCount    Int      @default(1) @map("visit_count")
+  lastVisitedAt DateTime @default(now()) @map("last_visited_at") @db.Timestamptz(6)
+
+  target User @relation("VisitTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  viewer User @relation("VisitViewer", fields: [viewerId], references: [id], onDelete: Cascade)
+
+  @@id([targetId, viewerId])
+  @@index([targetId, lastVisitedAt])
+  @@map("user_visits")
+}
+
+/// One room dice roll. The server picks the value; SVIP members may re-roll it a few times.
+model DiceRoll {
+  id           BigInt   @id @default(autoincrement())
+  roomId       String   @map("room_id") @db.Uuid
+  userId       BigInt   @map("user_id")
+  value        Int
+  /// Roller's SVIP level at roll time (picks the dice skin).
+  svipLevel    Int      @default(0) @map("svip_level")
+  refreshCount Int      @default(0) @map("refresh_count")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([roomId, createdAt])
+  @@map("dice_rolls")
+}
+
+/// A Gold Mine a user can activate with coins (price set in admin).
+model GoldMinePlan {
+  id           Int      @id
+  name         String   @db.VarChar(64)
+  price        BigInt
+  durationDays Int      @default(30) @map("duration_days")
+  dailyDraws   Int      @map("daily_draws")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  owners UserGoldMine[]
+
+  @@map("gold_mine_plans")
+}
+
+model UserGoldMine {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  planId    Int      @map("plan_id")
+  startsAt  DateTime @map("starts_at") @db.Timestamptz(6)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan GoldMinePlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, planId])
+  @@map("user_gold_mines")
+}
+
+/// Weighted Daily Treasure prize. kind: coins (coins) | frame (frameId for `days`).
+model GoldMinePrize {
+  id        BigInt   @id @default(autoincrement())
+  name      String   @db.VarChar(64)
+  kind      String   @db.VarChar(16)
+  coins     BigInt   @default(0)
+  frameId   BigInt?  @map("frame_id")
+  days      Int      @default(0)
+  weight    Int
+  imageUrl  String?  @map("image_url") @db.Text
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  frame Frame?         @relation(fields: [frameId], references: [id], onDelete: SetNull)
+  draws GoldMineDraw[]
+
+  @@map("gold_mine_prizes")
+}
+
+/// One Daily Treasure draw. `day` is the IST date; `prize` snapshots what was won.
+model GoldMineDraw {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  prizeId   BigInt?  @map("prize_id")
+  day       String   @db.VarChar(10)
+  prize     Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prizeItem GoldMinePrize? @relation(fields: [prizeId], references: [id], onDelete: SetNull)
+
+  @@index([userId, day])
+  @@map("gold_mine_draws")
 }

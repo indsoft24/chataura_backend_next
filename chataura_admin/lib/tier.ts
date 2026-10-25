@@ -35,6 +35,8 @@ export function creatableTiers(actor: AdminTier): AdminTier[] {
 /** Minimum tier to see a nav page (by href). Pages not listed need only 'admin'. */
 export const PAGE_MIN_TIER: Record<string, AdminTier> = {
   '/settings': 'superadmin',
+  '/svip': 'superadmin',
+  '/gold-mine': 'superadmin',
   '/withdrawals': 'ceo',
   '/transactions': 'ceo',
   '/packages': 'ceo',

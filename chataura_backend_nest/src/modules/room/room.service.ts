@@ -1,3 +1,5 @@
+import { assertSvipLevel, SVIP_PRIVILEGE_LEVEL } from '../svip/svip-gates';
+import { SvipChromeRow, svipClientFields, svipLevelOf } from '../svip/svip-chrome';
 import { bandForXp, ensureLaravelLevelBands } from '../gamification/level-bands';
 import { readMemberTimeoutSeconds } from './room-state/room-runtime.config';
 import { RedisService } from '../../common/redis/redis.service';
@@ -49,7 +51,7 @@ const SEAT_MODE_REQUEST = 'request';
 const CP_SEAT_TYPE_CODES = ['cp', 'bcp'] as const;
 
 const personWithFrame = {
-  include: { selectedFrame: true, selectedRoleFrame: true },
+  include: { selectedFrame: true, selectedRoleFrame: true, svip: true },
 } as const;
 
 type UserLite = {
@@ -66,6 +68,7 @@ type UserLite = {
   selectedRoleFrameId?: bigint | null;
   selectedFrame?: FrameAsset | null;
   selectedRoleFrame?: FrameAsset | null;
+  svip?: SvipChromeRow;
 };
 
 function coverUrlFromBody(body: {
@@ -698,7 +701,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      include: { selectedFrame: true, selectedRoleFrame: true },
+      include: { selectedFrame: true, selectedRoleFrame: true, svip: true },
     });
     const agoraUid = this.agoraUid(userId);
     let hostReclaimedFrom: bigint | null = null;
@@ -1000,7 +1003,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         isActive: true,
       },
       include: {
-        user: { include: { selectedFrame: true, selectedRoleFrame: true } },
+        user: { include: { selectedFrame: true, selectedRoleFrame: true, svip: true } },
       },
     });
     // Deduplicate by account userId (unique constraint exists, but be defensive).
@@ -1011,6 +1014,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       seen.add(key);
       return true;
     });
+    // SVIP privilege: SVIP members are listed first, higher level first (stable otherwise).
+    unique.sort((a, b) => svipLevelOf(b.user.svip) - svipLevelOf(a.user.svip));
     // Same XP → level rule as the profile screen, so the list shows each user's real level.
     const bands = await ensureLaravelLevelBands(this.prisma);
     return {
@@ -1741,6 +1746,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
           name: s.name,
           coin_cost: s.coinCost,
           is_free: isFree,
+          required_svip_level: s.requiredSvipLevel,
           ...catalogClientFields(s.imageUrl, s.animationUrl),
           owned: isFree || ownedIds.has(s.id.toString()),
         };
@@ -1832,6 +1838,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         error: { code: 'NOT_FOUND', message: 'Sticker not found' },
       });
     }
+    await assertSvipLevel(this.prisma, userId, sticker.requiredSvipLevel, 'use SVIP emoji');
     if (sticker.coinCost > 0) {
       const owned = await this.prisma.userUnlockedSticker.findUnique({
         where: { userId_stickerId: { userId, stickerId: sticker.id } },
@@ -1978,7 +1985,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   private async liveSeats(roomId: string, maxSeats: number): Promise<LiveSeat[]> {
     const seats = await this.prisma.seat.findMany({
       where: { roomId, seatIndex: { lt: maxSeats } },
-      include: { user: { include: { selectedFrame: true, selectedRoleFrame: true } } },
+      include: { user: { include: { selectedFrame: true, selectedRoleFrame: true, svip: true } } },
       orderBy: { seatIndex: 'asc' },
     });
     const activeMembers = await this.prisma.roomMember.findMany({
@@ -2000,8 +2007,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       const room = await this.prisma.room.findUnique({
         where: { id: roomId },
         include: {
-          host: { include: { selectedFrame: true, selectedRoleFrame: true } },
-          owner: { include: { selectedFrame: true, selectedRoleFrame: true } },
+          host: { include: { selectedFrame: true, selectedRoleFrame: true, svip: true } },
+          owner: { include: { selectedFrame: true, selectedRoleFrame: true, svip: true } },
         },
       });
       const hostUser = room?.host ?? room?.owner;
@@ -2044,6 +2051,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
           : null,
         ...this.seatFrameFields(s.user?.selectedFrame),
         ...(s.user ? this.roleBadgeFields(s.user as any) : {}),
+        ...svipClientFields(s.userId ? (s.user as UserLite | null)?.svip : null),
         rtc_role: s.userId ? 'publisher' : null,
       }));
   }
@@ -2741,6 +2749,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         : null,
       ...selectedFrameClientFields(user.selectedFrame),
       ...this.roleBadgeFields(user),
+      ...svipClientFields(user.svip),
       joined_at: member.joinedAt?.toISOString(),
     };
   }
@@ -2771,6 +2780,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         : null,
       ...selectedFrameClientFields(user.selectedFrame),
       ...this.roleBadgeFields(user),
+      ...svipClientFields(user.svip),
     };
   }
 

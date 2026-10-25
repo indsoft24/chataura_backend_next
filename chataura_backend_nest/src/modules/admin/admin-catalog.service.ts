@@ -184,6 +184,7 @@ export class AdminCatalogService {
           name: g.name,
           coin_cost: g.coinCost,
           category: normalizeGiftCategory(g.category),
+          required_svip_level: g.requiredSvipLevel,
           image_url: media.image_url,
           animation_url: media.animation_url,
           media_type: media.media_type,
@@ -204,6 +205,7 @@ export class AdminCatalogService {
     animation_url?: string;
     animationUrl?: string;
     video_url?: string;
+    required_svip_level?: number;
   }) {
     const cost = body.coin_cost ?? body.coinCost ?? 0;
     if (body.category !== undefined && !isGiftCategory(body.category)) {
@@ -231,6 +233,8 @@ export class AdminCatalogService {
             category,
             imageUrl: paired.imageUrl,
             animationUrl: paired.animationUrl,
+            // An SVIP-tab gift needs at least SVIP 1.
+            requiredSvipLevel: body.required_svip_level ?? (category === 'svip' ? 1 : 0),
           },
         });
       } catch (err) {
@@ -245,6 +249,7 @@ export class AdminCatalogService {
       name: g.name,
       coin_cost: g.coinCost,
       category: normalizeGiftCategory(g.category),
+      required_svip_level: g.requiredSvipLevel,
       image_url: g.imageUrl,
       animation_url: g.animationUrl,
       is_active: g.isActive,
@@ -264,6 +269,7 @@ export class AdminCatalogService {
       animationUrl?: string;
       video_url?: string;
       is_active?: boolean;
+      required_svip_level?: number;
     },
   ) {
     const cost = body.coin_cost ?? body.coinCost;
@@ -305,14 +311,23 @@ export class AdminCatalogService {
             }
           : {}),
         ...(body.is_active !== undefined ? { isActive: body.is_active } : {}),
+        ...(body.required_svip_level !== undefined
+          ? { requiredSvipLevel: Number(body.required_svip_level) }
+          : {}),
       },
     });
+    // An SVIP-tab gift needs at least SVIP 1.
+    if (normalizeGiftCategory(g.category) === 'svip' && g.requiredSvipLevel === 0) {
+      await this.prisma.gift.update({ where: { id }, data: { requiredSvipLevel: 1 } });
+      g.requiredSvipLevel = 1;
+    }
     return {
       id: Number(g.id),
       gift_key: g.giftKey ?? null,
       name: g.name,
       coin_cost: g.coinCost,
       category: normalizeGiftCategory(g.category),
+      required_svip_level: g.requiredSvipLevel,
       image_url: g.imageUrl,
       animation_url: g.animationUrl,
       is_active: g.isActive,
@@ -873,6 +888,7 @@ export class AdminCatalogService {
           id: Number(s.id),
           name: s.name,
           coin_cost: s.coinCost,
+          required_svip_level: s.requiredSvipLevel,
           image_url: media.image_url,
           animation_url: media.animation_url,
           media_type: media.media_type,
@@ -887,12 +903,14 @@ export class AdminCatalogService {
     coin_cost?: number;
     image_url?: string;
     animation_url?: string;
+    required_svip_level?: number;
   }) {
     const paired = await this.pairCatalogMedia(body.image_url, body.animation_url);
     const s = await this.prisma.sticker.create({
       data: {
         name: body.name,
         coinCost: Number(body.coin_cost ?? 0),
+        requiredSvipLevel: Number(body.required_svip_level ?? 0),
         imageUrl: paired.imageUrl,
         animationUrl: paired.animationUrl,
       },
@@ -901,6 +919,7 @@ export class AdminCatalogService {
       id: Number(s.id),
       name: s.name,
       coin_cost: s.coinCost,
+      required_svip_level: s.requiredSvipLevel,
       image_url: s.imageUrl,
       is_active: s.isActive,
     };
@@ -914,6 +933,7 @@ export class AdminCatalogService {
       image_url?: string;
       animation_url?: string;
       is_active?: boolean;
+      required_svip_level?: number;
     },
   ) {
     let mediaPatch: { imageUrl: string | null; animationUrl: string | null } | null =
@@ -946,9 +966,12 @@ export class AdminCatalogService {
         ...(body.is_active !== undefined
           ? { isActive: Boolean(body.is_active) }
           : {}),
+        ...(body.required_svip_level !== undefined
+          ? { requiredSvipLevel: Number(body.required_svip_level) }
+          : {}),
       },
     });
-    return { id: Number(s.id), name: s.name, is_active: s.isActive };
+    return { id: Number(s.id), name: s.name, is_active: s.isActive, required_svip_level: s.requiredSvipLevel };
   }
 
   async deleteSticker(id: bigint) {

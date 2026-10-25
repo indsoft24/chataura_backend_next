@@ -28,13 +28,14 @@ type Sticker = {
   id: number;
   name: string;
   coin_cost: number;
+  required_svip_level?: number;
   image_url: string | null;
   animation_url: string | null;
   is_active: boolean;
 };
 
-type Draft = { id?: number; name: string; coinCost: string; imageUrl: string; animationUrl: string; isActive: boolean };
-const NEW_DRAFT: Draft = { name: '', coinCost: '10', imageUrl: '', animationUrl: '', isActive: true };
+type Draft = { id?: number; name: string; coinCost: string; svipLevel: string; imageUrl: string; animationUrl: string; isActive: boolean };
+const NEW_DRAFT: Draft = { name: '', coinCost: '10', svipLevel: '0', imageUrl: '', animationUrl: '', isActive: true };
 
 export default function StickersPage() {
   const { token } = useAdminAuth();
@@ -100,6 +101,7 @@ export default function StickersPage() {
     const body = {
       name: draft.name.trim(),
       coin_cost: Number(draft.coinCost) || 0,
+      required_svip_level: Math.min(9, Math.max(0, Number(draft.svipLevel) || 0)),
       image_url: draft.imageUrl.trim() || undefined,
       animation_url: draft.animationUrl.trim() || undefined,
     };
@@ -206,7 +208,14 @@ export default function StickersPage() {
               <MediaCard
                 key={x.id}
                 thumb={<MediaThumb imageUrl={x.image_url} animationUrl={x.animation_url} alt={x.name} fallback="✨" />}
-                flags={x.animation_url ? <><span /><span className="ad-badge indigo" title="Animated">✨</span></> : undefined}
+                flags={
+                  x.animation_url || (x.required_svip_level ?? 0) > 0 ? (
+                    <>
+                      {(x.required_svip_level ?? 0) > 0 ? <span className="ad-badge amber">SVIP {x.required_svip_level}</span> : <span />}
+                      {x.animation_url ? <span className="ad-badge indigo" title="Animated">✨</span> : <span />}
+                    </>
+                  ) : undefined
+                }
                 title={x.name}
                 meta={`#${x.id}`}
                 extra={<div className={x.coin_cost > 0 ? 'ad-media-price' : 'ad-media-price tone-green'}>{x.coin_cost > 0 ? `🪙 ${x.coin_cost.toLocaleString()}` : 'Free'}</div>}
@@ -215,7 +224,7 @@ export default function StickersPage() {
                 onToggle={() => void toggleActive(x)}
                 onEdit={() => {
                   setFormError('');
-                  setDraft({ id: x.id, name: x.name, coinCost: String(x.coin_cost), imageUrl: x.image_url ?? '', animationUrl: x.animation_url ?? '', isActive: x.is_active });
+                  setDraft({ id: x.id, name: x.name, coinCost: String(x.coin_cost), svipLevel: String(x.required_svip_level ?? 0), imageUrl: x.image_url ?? '', animationUrl: x.animation_url ?? '', isActive: x.is_active });
                 }}
                 onDelete={() => remove(x)}
               />
@@ -245,6 +254,9 @@ export default function StickersPage() {
             </Field>
             <Field label="Coin cost" hint="0 = free.">
               <div className="ad-unit"><input type="number" inputMode="numeric" value={draft.coinCost} onChange={(e) => set({ coinCost: e.target.value })} /><span>coins</span></div>
+            </Field>
+            <Field label="SVIP emoji" hint="0 = everyone. N = only SVIP N or higher can send it.">
+              <input type="number" min={0} max={9} inputMode="numeric" value={draft.svipLevel} onChange={(e) => set({ svipLevel: e.target.value })} />
             </Field>
           </div>
           <FileUploadInput

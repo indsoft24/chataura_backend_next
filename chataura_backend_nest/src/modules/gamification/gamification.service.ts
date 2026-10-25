@@ -8,6 +8,7 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { presentFrameMedia } from '../../common/utils/catalog-media';
 import { LedgerService, REWARD_ONLY_FRAME_CATEGORIES } from '../wallet/ledger.service';
+import { svipLevelOf } from '../svip/svip-chrome';
 import { buildRoleBadge } from '../user/user.serializer';
 import { periodKey } from '../relationship/relationship-period';
 import { eligibleFrames, type FrameSource } from './frame-eligibility';
@@ -596,7 +597,9 @@ export class GamificationService {
   async entryBars(userId: bigint) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
+      include: { svip: true },
     });
+    const svipLevel = svipLevelOf(user.svip);
     const bars = await this.prisma.entryBar.findMany({
       where: { isActive: true },
       orderBy: [{ levelRequired: 'asc' }, { id: 'asc' }],
@@ -606,7 +609,8 @@ export class GamificationService {
       name: b.name,
       level_required: b.levelRequired,
       image_url: b.imageUrl,
-      unlocked: b.levelRequired <= user.level,
+      svip_level_required: b.svipLevel,
+      unlocked: b.svipLevel > 0 ? svipLevel >= b.svipLevel : b.levelRequired <= user.level,
       is_selected: user.selectedEntryBarId === b.id,
     }));
     return {
@@ -633,8 +637,15 @@ export class GamificationService {
     }
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
+      include: { svip: true },
     });
-    if (bar.levelRequired > user.level) {
+    if (bar.svipLevel > 0 && svipLevelOf(user.svip) < bar.svipLevel) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'SVIP_REQUIRED', message: `Requires SVIP ${bar.svipLevel}` },
+      });
+    }
+    if (bar.svipLevel === 0 && bar.levelRequired > user.level) {
       throw new BadRequestException({
         success: false,
         error: {

@@ -556,6 +556,7 @@ export class MediaService {
   async storeFromRequest(
     req: { file?: () => Promise<any> },
     fallback?: string,
+    opts: { imagesOnly?: boolean } = {},
   ): Promise<string | undefined> {
     if (typeof req.file !== 'function') return fallback;
     try {
@@ -563,6 +564,10 @@ export class MediaService {
       if (!part) return fallback;
       const mime = (part.mimetype || '').toLowerCase();
       const ext = (part.filename || '').split('.').pop()?.toLowerCase();
+      if (opts.imagesOnly) {
+        const photo = /^image\/(jpeg|png|webp|gif)$/.test(mime) || ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext ?? '');
+        return photo ? this.storeLocalFile(part.filename, part.file) : fallback;
+      }
       const allowedExts = [
         'json',
         'svga',

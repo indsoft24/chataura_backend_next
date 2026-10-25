@@ -1,3 +1,4 @@
+import { SvipChromeRow, svipClientFields, svipProfileBg } from '../svip/svip-chrome';
 import { User } from '@prisma/client';
 import { presenceFields } from '../../common/presence/online-status';
 import {
@@ -97,6 +98,8 @@ function roleFrameClientFields(frame: FrameAsset | null | undefined) {
 
 type UserWithRoleFrame = User & {
   selectedRoleFrame?: FrameAsset | null;
+  /** Present only when the query included it; then SVIP fields are emitted. */
+  svip?: SvipChromeRow;
   staffBadgeType?: string | null;
   selectedEntryBar?: {
     id: bigint;
@@ -179,6 +182,7 @@ export function userForApi(
         ? Number(user.selectedRoleFrameId)
         : null,
     ...selectedFrameClientFields(selected),
+    ...('svip' in user ? { ...svipClientFields(user.svip), profile_bg_url: svipProfileBg(user.svip) } : {}),
     role_badge: badge,
     role_badge_type: badge?.type ?? null,
     role_badge_label: badge?.label ?? null,

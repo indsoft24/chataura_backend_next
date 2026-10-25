@@ -21,6 +21,8 @@ const MENU_GROUPS = [
       { name: 'Party Room Bonuses', href: '/party-bonuses' },
       { name: 'Rocket levels', href: '/rockit' },
       { name: 'Room Reward Levels', href: '/room-rewards' },
+      { name: 'SVIP', href: '/svip' },
+      { name: 'Gold Mine', href: '/gold-mine' },
     ]
   },
   {

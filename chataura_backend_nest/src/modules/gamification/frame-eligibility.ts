@@ -3,7 +3,7 @@
  * Pure (unit-tested); the service loads the inputs.
  */
 
-export type FrameSource = 'paid' | 'free' | 'rocket' | 'rank' | 'support' | 'role' | 'cp' | 'bcp';
+export type FrameSource = 'paid' | 'free' | 'rocket' | 'rank' | 'support' | 'role' | 'cp' | 'bcp' | 'svip';
 
 export type EligibilityFrame = {
   id: bigint;
@@ -57,6 +57,8 @@ export function eligibleFrames(input: EligibilityInput): Map<string, FrameSource
     if (!f || f.category === 'role' || f.category?.toUpperCase() === RELATIONSHIP) continue;
     // Reward frames count only from their real grant; an old shop/level row must not unlock them.
     if ((f.category === 'rocket' || f.category === 'rank') && !REWARD_UNLOCKS.has(u.unlockType ?? '')) continue;
+    // SVIP frames count only while SVIP grants them (expiry follows the membership).
+    if (f.category === 'svip' && u.unlockType !== 'svip') continue;
     // C.S comes from the star flag below, never from an unlock row.
     if (f.category === 'special') continue;
     out.set(f.id.toString(), sourceOfUnlock(f.category, u));
@@ -93,5 +95,6 @@ function sourceOfUnlock(
   if (category === 'rocket') return 'rocket';
   if (category === 'rank') return 'rank';
   if (category === 'special') return 'support';
+  if (category === 'svip') return 'svip';
   return u.unlockType === 'level' && u.coinsPaid === 0 ? 'free' : 'paid';
 }

@@ -29,6 +29,7 @@ const GIFT_CATEGORIES = [
   { value: 'customize', label: 'Customize' },
   { value: 'cp', label: 'CP (Couple)' },
   { value: 'bcp', label: 'BCP (Best Friend Couple)' },
+  { value: 'svip', label: 'SVIP (members only)' },
 ] as const;
 
 type GiftCategory = (typeof GIFT_CATEGORIES)[number]['value'];
@@ -39,6 +40,7 @@ type Gift = {
   name: string;
   coin_cost: number;
   category?: string | null;
+  required_svip_level?: number;
   image_url: string | null;
   animation_url: string | null;
   is_active: boolean;
@@ -49,8 +51,8 @@ function categoryLabel(value: string | null | undefined) {
   return GIFT_CATEGORIES.find((c) => c.value === key)?.label ?? 'Standard';
 }
 
-type Draft = { id?: number; giftKey?: string | null; name: string; coinCost: string; category: GiftCategory; imageUrl: string; animationUrl: string; isActive: boolean };
-const NEW_DRAFT: Draft = { name: '', coinCost: '50', category: 'standard', imageUrl: '', animationUrl: '', isActive: true };
+type Draft = { id?: number; giftKey?: string | null; name: string; coinCost: string; category: GiftCategory; svipLevel: string; imageUrl: string; animationUrl: string; isActive: boolean };
+const NEW_DRAFT: Draft = { name: '', coinCost: '50', category: 'standard', svipLevel: '0', imageUrl: '', animationUrl: '', isActive: true };
 
 function catOf(g: Gift): GiftCategory {
   const c = (g.category ?? 'standard').toLowerCase();
@@ -128,6 +130,7 @@ export default function GiftsPage() {
       name: draft.name.trim(),
       coin_cost: Number(draft.coinCost) || 0,
       category: draft.category,
+      required_svip_level: Math.min(9, Math.max(0, Number(draft.svipLevel) || 0)),
       image_url: draft.imageUrl.trim() || undefined,
       animation_url: draft.animationUrl.trim() || undefined,
     };
@@ -234,6 +237,7 @@ export default function GiftsPage() {
                 flags={
                   <>
                     <span className="ad-badge gray">{categoryLabel(g.category).split(' (')[0]}</span>
+                    {(g.required_svip_level ?? 0) > 0 && <span className="ad-badge amber">SVIP {g.required_svip_level}</span>}
                     {g.animation_url ? <span className="ad-badge indigo" title="Animation attached">✨</span> : <span />}
                   </>
                 }
@@ -245,7 +249,7 @@ export default function GiftsPage() {
                 onToggle={() => void toggleActive(g)}
                 onEdit={() => {
                   setFormError('');
-                  setDraft({ id: g.id, giftKey: g.gift_key, name: g.name, coinCost: String(g.coin_cost), category: catOf(g), imageUrl: g.image_url ?? '', animationUrl: g.animation_url ?? '', isActive: g.is_active });
+                  setDraft({ id: g.id, giftKey: g.gift_key, name: g.name, coinCost: String(g.coin_cost), category: catOf(g), svipLevel: String(g.required_svip_level ?? 0), imageUrl: g.image_url ?? '', animationUrl: g.animation_url ?? '', isActive: g.is_active });
                 }}
                 onDelete={() => remove(g)}
               />
@@ -277,11 +281,20 @@ export default function GiftsPage() {
               <div className="ad-unit"><input type="number" inputMode="numeric" value={draft.coinCost} onChange={(e) => set({ coinCost: e.target.value })} /><span>coins</span></div>
             </Field>
             <Field label="Category">
-              <select value={draft.category} onChange={(e) => set({ category: e.target.value as GiftCategory })}>
+              <select
+                value={draft.category}
+                onChange={(e) => {
+                  const category = e.target.value as GiftCategory;
+                  set({ category, ...(category === 'svip' && draft.svipLevel === '0' ? { svipLevel: '1' } : {}) });
+                }}
+              >
                 {GIFT_CATEGORIES.map((c) => (
                   <option key={c.value} value={c.value}>{c.label}</option>
                 ))}
               </select>
+            </Field>
+            <Field label="SVIP required" hint="0 = anyone. N = only SVIP N or higher can send it (server-enforced).">
+              <input type="number" min={0} max={9} inputMode="numeric" value={draft.svipLevel} onChange={(e) => set({ svipLevel: e.target.value })} />
             </Field>
           </div>
           <FileUploadInput
