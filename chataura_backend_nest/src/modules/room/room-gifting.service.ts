@@ -1,3 +1,4 @@
+import { giftQuantity } from './gift-quantity';
 import { assertSvipLevel } from '../svip/svip-gates';
 import {
   BadRequestException,
@@ -197,7 +198,7 @@ export class RoomGiftingService {
     },
   ) {
     const room = await this.findRoom(id);
-    const quantity = Math.min(Math.max(Number(body.quantity ?? 1), 1), 100);
+    const quantity = giftQuantity(body.quantity);
     const gift = await this.resolveGift(body);
     await assertSvipLevel(this.prisma, senderId, gift.requiredSvipLevel, 'send this gift');
     const receiverId = BigInt(body.receiver_id);
@@ -458,7 +459,7 @@ export class RoomGiftingService {
     }
 
     const room = await this.findRoom(body.room_id);
-    const quantity = Math.min(Math.max(Number(body.quantity ?? 1), 1), 100);
+    const quantity = giftQuantity(body.quantity);
     const gift = await this.resolveGift(body);
     await assertSvipLevel(this.prisma, senderId, gift.requiredSvipLevel, 'send this gift');
 
