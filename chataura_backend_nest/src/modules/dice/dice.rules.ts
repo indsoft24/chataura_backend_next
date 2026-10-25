@@ -42,6 +42,8 @@ export type DiceEvent = {
   refresh_count: number;
   refreshes_left: number;
   refresh_until: string | null;
+  /** Re-roll time left at `now`, so apps don't depend on their own clock. */
+  refresh_left_ms: number;
 };
 
 export function diceEvent(
@@ -54,8 +56,10 @@ export function diceEvent(
     createdAt: Date;
   },
   allowed: number,
+  now: Date = new Date(),
 ): DiceEvent {
   const left = Math.max(0, allowed - roll.refreshCount);
+  const windowEnd = roll.createdAt.getTime() + DICE_REFRESH_WINDOW_MS;
   return {
     roll_id: Number(roll.id),
     user_id: Number(roll.userId),
@@ -63,12 +67,8 @@ export function diceEvent(
     svip_level: roll.svipLevel,
     refresh_count: roll.refreshCount,
     refreshes_left: left,
-    refresh_until:
-      left > 0
-        ? new Date(
-            roll.createdAt.getTime() + DICE_REFRESH_WINDOW_MS,
-          ).toISOString()
-        : null,
+    refresh_until: left > 0 ? new Date(windowEnd).toISOString() : null,
+    refresh_left_ms: left > 0 ? Math.max(0, windowEnd - now.getTime()) : 0,
   };
 }
 

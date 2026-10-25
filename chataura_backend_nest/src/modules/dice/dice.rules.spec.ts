@@ -62,7 +62,21 @@ describe('dice rules', () => {
       refresh_count: 1,
       refreshes_left: 1,
       refresh_until: '2026-10-27T10:00:10.000Z',
+      refresh_left_ms: e.refresh_left_ms,
     });
+    const at3 = diceEvent(
+      {
+        id: 5n,
+        userId: 7n,
+        value: 4,
+        svipLevel: 1,
+        refreshCount: 1,
+        createdAt: at,
+      },
+      2,
+      new Date(at.getTime() + 3000),
+    );
+    expect(at3.refresh_left_ms).toBe(7000);
     expect(
       diceEvent(
         {
