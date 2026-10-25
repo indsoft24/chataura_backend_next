@@ -174,6 +174,7 @@ export class RoomGiftingService {
           coin_cost: g.coinCost,
           coin_price: g.coinCost,
           category: normalizeGiftCategory(g.category),
+          required_svip_level: g.requiredSvipLevel,
           ...catalogClientFields(cleanImg, cleanAnim),
         };
       }),
