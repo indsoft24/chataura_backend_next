@@ -1,3 +1,4 @@
+import { readFileSync } from 'fs';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { App, initializeApp, cert, getApps } from 'firebase-admin/app';
@@ -20,6 +21,23 @@ export class FcmService implements OnModuleInit {
     this.initFirebase();
   }
 
+  /**
+   * Service-account JSON from a key file: FIREBASE_CREDENTIALS (what the deploy .env sets) or
+   * GOOGLE_APPLICATION_CREDENTIALS. Unreadable files are logged, not fatal.
+   */
+  private readCredentialsFile(): string | undefined {
+    const path =
+      this.config.get<string>('FIREBASE_CREDENTIALS') ??
+      this.config.get<string>('GOOGLE_APPLICATION_CREDENTIALS');
+    if (!path) return undefined;
+    try {
+      return readFileSync(path, 'utf8');
+    } catch (e) {
+      this.logger.error(`Firebase key file ${path} is not readable: ${String(e)}`);
+      return undefined;
+    }
+  }
+
   private initFirebase() {
     try {
       const existingApps = getApps();
@@ -30,9 +48,9 @@ export class FcmService implements OnModuleInit {
         return;
       }
 
-      const serviceAccountJson = this.config.get<string>(
-        'FIREBASE_SERVICE_ACCOUNT_JSON',
-      );
+      const serviceAccountJson =
+        this.config.get<string>('FIREBASE_SERVICE_ACCOUNT_JSON') ??
+        this.readCredentialsFile();
       const projectId = this.config.get<string>('FIREBASE_PROJECT_ID');
       const clientEmail = this.config.get<string>('FIREBASE_CLIENT_EMAIL');
       const privateKey = this.config.get<string>('FIREBASE_PRIVATE_KEY');
