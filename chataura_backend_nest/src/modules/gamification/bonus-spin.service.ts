@@ -215,12 +215,15 @@ export class BonusSpinService {
       : cooldown;
     const secondsUntilNext = Math.max(0, cooldown - sinceAdmob);
     const todayClaimed = this.sameUtcDay(user.lastStreakAt);
-    const nextDay = todayClaimed
-      ? Math.min(user.streakCount + 1, cfg.daily_streak.rewards.length)
-      : Math.min(
-          Math.max(user.streakCount, 0) + 1,
-          cfg.daily_streak.rewards.length,
-        );
+    // Same rule as claimStreak: a streak only continues from yesterday; otherwise the next
+    // claim is day 1 (the dialog used to promise the old day's reward).
+    const claimedYesterday = this.sameUtcDay(
+      user.lastStreakAt,
+      new Date(Date.now() - 86400000),
+    );
+    const liveStreak =
+      todayClaimed || claimedYesterday ? Math.max(user.streakCount, 0) : 0;
+    const nextDay = Math.min(liveStreak + 1, cfg.daily_streak.rewards.length);
     const [invited, milestoneClaim, activeSession, tierClaims] =
       await Promise.all([
         this.prisma.user.count({ where: { invitedBy: userId } }),
@@ -237,18 +240,15 @@ export class BonusSpinService {
       ]);
     return {
       daily_streak: {
-        streak_count: user.streakCount,
+        streak_count: liveStreak,
         last_check_in_at: user.lastStreakAt?.toISOString() ?? null,
         today_claimed: todayClaimed,
         can_claim_today: cfg.daily_streak.enabled && !todayClaimed,
-        next_day_to_claim: todayClaimed
-          ? nextDay
-          : Math.max(user.streakCount, 0) + 1,
+        next_day_to_claim: nextDay,
         days: cfg.daily_streak.rewards.map((coins, i) => ({
           day: i + 1,
           coins,
-          claimed:
-            i < user.streakCount && (todayClaimed || i < user.streakCount),
+          claimed: i < liveStreak,
         })),
       },
       referral_milestone: {
