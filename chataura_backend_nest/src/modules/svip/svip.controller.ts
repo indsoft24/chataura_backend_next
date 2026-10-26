@@ -67,6 +67,7 @@ export class SvipController {
       mic_wave?: boolean;
       frame?: boolean;
       entry_bar?: boolean;
+      entry_bar_id?: number | string;
     },
   ) {
     return this.svip.updateItems(user.id, body);

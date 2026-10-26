@@ -326,6 +326,19 @@ export class CreateEntryBarDto {
   level_required?: number;
 
   @IsOptional()
+  @IsInt()
+  @Min(0)
+  svip_level?: number;
+
+  @IsOptional()
+  @IsIn(['alpha', 'screen'])
+  composite_mode?: string;
+
+  @IsOptional()
+  @IsInt()
+  sort_order?: number;
+
+  @IsOptional()
   @IsString()
   image_url?: string;
 
@@ -343,6 +356,19 @@ export class UpdateEntryBarDto {
   @IsInt()
   @Min(1)
   level_required?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  svip_level?: number;
+
+  @IsOptional()
+  @IsIn(['alpha', 'screen'])
+  composite_mode?: string;
+
+  @IsOptional()
+  @IsInt()
+  sort_order?: number;
 
   @IsOptional()
   @IsString()

@@ -17,7 +17,14 @@ function makeWorld(opts: { wallet: bigint; enabled?: boolean }) {
   const ledger: Array<{ type: string; amount: bigint; ref?: string }> = [];
   const notes: string[] = [];
   const FRAME = { id: 50n, slug: 'svip1_frame', category: 'svip' };
-  const BAR = { id: 60n, svipLevel: 1 };
+  const bar = (id: bigint, sortOrder: number, name: string) => ({
+    id, name, svipLevel: 1, sortOrder, isActive: true, levelRequired: 1,
+    imageUrl: null, animationUrl: `https://cdn/${name}.mp4`, compositeMode: 'screen',
+  });
+  // Two SVIP 1 choices; the lower sort order is the default.
+  const BARS = [bar(61n, 1, 'armored'), bar(60n, 0, 'winged')];
+  const byOrder = () =>
+    [...BARS].sort((a, b) => a.sortOrder - b.sortOrder || Number(a.id - b.id));
   const user = {
     selectedFrameId: 9n as bigint | null,
     selectedEntryBarId: null as bigint | null,
@@ -66,7 +73,11 @@ function makeWorld(opts: { wallet: bigint; enabled?: boolean }) {
       },
     },
     user: {
-      findUniqueOrThrow: async () => ({ walletBalance: wallet, ...user }),
+      findUniqueOrThrow: async () => ({
+        walletBalance: wallet,
+        ...user,
+        selectedEntryBar: BARS.find((b) => b.id === user.selectedEntryBarId) ?? null,
+      }),
       findUnique: async () => ({ id: USER }),
       update: async ({ data }: any) => Object.assign(user, data),
       updateMany: async ({ where, data }: any) => {
@@ -76,7 +87,8 @@ function makeWorld(opts: { wallet: bigint; enabled?: boolean }) {
           (where.selectedEntryBarId !== undefined &&
             user.selectedEntryBarId === where.selectedEntryBarId) ||
           (where.selectedFrame && user.selectedFrameId === FRAME.id) ||
-          (where.selectedEntryBar && user.selectedEntryBarId === BAR.id);
+          (where.selectedEntryBar &&
+            BARS.some((b) => b.id === user.selectedEntryBarId));
         if (hit) Object.assign(user, data);
       },
     },
@@ -87,7 +99,10 @@ function makeWorld(opts: { wallet: bigint; enabled?: boolean }) {
     medal: { findFirst: async () => null },
     userMedal: { updateMany: async () => ({ count: 0 }) },
     entryBar: {
-      findFirst: async ({ where }: any) => (where.svipLevel === 1 ? BAR : null),
+      findFirst: async ({ where }: any) =>
+        where.svipLevel === 1 ? byOrder()[0] : null,
+      findMany: async ({ where }: any) =>
+        where.svipLevel.lte >= 1 ? byOrder() : [],
     },
     userUnlockedFrame: {
       updateMany: async ({ data }: any) =>
@@ -354,5 +369,40 @@ describe('SvipService identity items', () => {
     expect(w.user.selectedFrameId).toBeNull();
     const back = await w.svc.updateItems(USER, { frame: true });
     expect(back.frame).toEqual({ id: 50, equipped: true });
+  });
+
+  it('My Items lists both SVIP 1 bars and wears the one picked', async () => {
+    const w = makeWorld({ wallet: 7_000_000n });
+    await w.svc.purchase(USER, 1);
+    expect(w.user.selectedEntryBarId).toBe(60n);
+    const res = await w.svc.updateItems(USER, { entry_bar_id: 61 });
+    expect(w.user.selectedEntryBarId).toBe(61n);
+    expect(res.entry_bars.map((b: any) => [b.id, b.equipped, b.media_type])).toEqual([
+      [60, false, 'video'],
+      [61, true, 'video'],
+    ]);
+    expect(res.entry_bar).toEqual({ id: 61, equipped: true });
+    expect(await code(w.svc.updateItems(USER, { entry_bar_id: 999 }))).toBe(
+      'BAR_NOT_AVAILABLE',
+    );
+  });
+
+  it('the pick survives switching the bar off / on and a renewal', async () => {
+    const w = makeWorld({ wallet: 9_000_000n });
+    await w.svc.purchase(USER, 1);
+    await w.svc.updateItems(USER, { entry_bar_id: 61 });
+    // Switch on while already wearing a level bar keeps it.
+    await w.svc.updateItems(USER, { entry_bar: true });
+    expect(w.user.selectedEntryBarId).toBe(61n);
+    await w.svc.updateItems(USER, { entry_bar: false });
+    expect(w.user.selectedEntryBarId).toBeNull();
+    // Back on with nothing worn: the default.
+    await w.svc.updateItems(USER, { entry_bar: true });
+    expect(w.user.selectedEntryBarId).toBe(60n);
+
+    await w.svc.updateItems(USER, { entry_bar_id: 61 });
+    w.setPeriodEnd(new Date(Date.now() - 1000));
+    await w.svc.renewOne(USER, new Date(), false);
+    expect(w.user.selectedEntryBarId).toBe(61n);
   });
 });

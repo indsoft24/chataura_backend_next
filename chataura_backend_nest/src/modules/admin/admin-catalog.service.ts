@@ -13,6 +13,7 @@ import { Gift, Prisma } from '@prisma/client';
 import { resolve } from 'path';
 import {
   classifyMediaUrl,
+  normalizeFrameComposite,
   resolveCatalogMedia,
 } from '../../common/utils/catalog-media';
 import {
@@ -720,23 +721,43 @@ export class AdminCatalogService {
     const rows = await this.prisma.entryBar.findMany({
       orderBy: { id: 'asc' },
     });
+    return { entry_bars: rows.map((eb) => this.adminEntryBar(eb)) };
+  }
+
+  private adminEntryBar(eb: {
+    id: bigint;
+    name: string;
+    slug: string | null;
+    levelRequired: number;
+    svipLevel: number;
+    imageUrl: string | null;
+    animationUrl: string | null;
+    compositeMode: string;
+    sortOrder: number;
+    isActive: boolean;
+  }) {
     return {
-      entry_bars: rows.map((eb) => ({
-        id: Number(eb.id),
-        name: eb.name,
-        level_required: eb.levelRequired,
-        image_url: eb.imageUrl,
-        animation_url: eb.animationUrl,
-        is_active: eb.isActive,
-      })),
+      id: Number(eb.id),
+      name: eb.name,
+      slug: eb.slug,
+      level_required: eb.levelRequired,
+      svip_level: eb.svipLevel,
+      image_url: eb.imageUrl,
+      animation_url: eb.animationUrl,
+      composite_mode: normalizeFrameComposite(eb.compositeMode),
+      sort_order: eb.sortOrder,
+      is_active: eb.isActive,
     };
   }
 
   async createEntryBar(body: {
     name: string;
     level_required?: number;
+    svip_level?: number;
     image_url?: string;
     animation_url?: string;
+    composite_mode?: string;
+    sort_order?: number;
   }) {
     const anim =
       body.animation_url?.trim() ||
@@ -749,18 +770,14 @@ export class AdminCatalogService {
       data: {
         name: body.name,
         levelRequired: Number(body.level_required ?? 1),
+        svipLevel: Number(body.svip_level ?? 0),
         imageUrl: image ?? body.image_url ?? null,
         animationUrl: anim ?? null,
+        compositeMode: normalizeFrameComposite(body.composite_mode),
+        sortOrder: Number(body.sort_order ?? 0),
       },
     });
-    return {
-      id: Number(eb.id),
-      name: eb.name,
-      level_required: eb.levelRequired,
-      image_url: eb.imageUrl,
-      animation_url: eb.animationUrl,
-      is_active: eb.isActive,
-    };
+    return this.adminEntryBar(eb);
   }
 
   async updateEntryBar(
@@ -768,8 +785,11 @@ export class AdminCatalogService {
     body: {
       name?: string;
       level_required?: number;
+      svip_level?: number;
       image_url?: string;
       animation_url?: string;
+      composite_mode?: string;
+      sort_order?: number;
       is_active?: boolean;
     },
   ) {
@@ -777,6 +797,7 @@ export class AdminCatalogService {
     if (body.name !== undefined) data.name = body.name;
     if (body.level_required !== undefined)
       data.levelRequired = Number(body.level_required);
+    if (body.svip_level !== undefined) data.svipLevel = Number(body.svip_level);
     if (body.image_url !== undefined) data.imageUrl = body.image_url;
     if (body.animation_url !== undefined) data.animationUrl = body.animation_url;
     if (
@@ -786,18 +807,15 @@ export class AdminCatalogService {
     ) {
       data.animationUrl = body.image_url;
     }
+    if (body.composite_mode !== undefined)
+      data.compositeMode = normalizeFrameComposite(body.composite_mode);
+    if (body.sort_order !== undefined) data.sortOrder = Number(body.sort_order);
     if (body.is_active !== undefined) data.isActive = Boolean(body.is_active);
     const eb = await this.prisma.entryBar.update({
       where: { id },
       data,
     });
-    return {
-      id: Number(eb.id),
-      name: eb.name,
-      image_url: eb.imageUrl,
-      animation_url: eb.animationUrl,
-      is_active: eb.isActive,
-    };
+    return this.adminEntryBar(eb);
   }
 
   async deleteEntryBar(id: bigint) {

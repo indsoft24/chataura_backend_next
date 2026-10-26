@@ -40,6 +40,7 @@ import {
   type RocketListSummary,
 } from './rocket-launch.service';
 import { pickCpSeat } from './cp-seat-placement';
+import { EntryBarRow, wornEntryBarFields } from '../gamification/entry-bar.rules';
 import { resolveActingHost } from './room-authority';
 
 const KICK_SECONDS = 600;
@@ -51,7 +52,7 @@ const SEAT_MODE_REQUEST = 'request';
 const CP_SEAT_TYPE_CODES = ['cp', 'bcp'] as const;
 
 const personWithFrame = {
-  include: { selectedFrame: true, selectedRoleFrame: true, svip: true },
+  include: { selectedFrame: true, selectedRoleFrame: true, svip: true, selectedEntryBar: true },
 } as const;
 
 type UserLite = {
@@ -69,6 +70,7 @@ type UserLite = {
   selectedFrame?: FrameAsset | null;
   selectedRoleFrame?: FrameAsset | null;
   svip?: SvipChromeRow;
+  selectedEntryBar?: EntryBarRow | null;
 };
 
 function coverUrlFromBody(body: {
@@ -701,7 +703,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      include: { selectedFrame: true, selectedRoleFrame: true, svip: true },
+      include: { selectedFrame: true, selectedRoleFrame: true, svip: true, selectedEntryBar: true },
     });
     const agoraUid = this.agoraUid(userId);
     let hostReclaimedFrom: bigint | null = null;
@@ -1003,7 +1005,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         isActive: true,
       },
       include: {
-        user: { include: { selectedFrame: true, selectedRoleFrame: true, svip: true } },
+        user: { include: { selectedFrame: true, selectedRoleFrame: true, svip: true, selectedEntryBar: true } },
       },
     });
     // Deduplicate by account userId (unique constraint exists, but be defensive).
@@ -1985,7 +1987,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
   private async liveSeats(roomId: string, maxSeats: number): Promise<LiveSeat[]> {
     const seats = await this.prisma.seat.findMany({
       where: { roomId, seatIndex: { lt: maxSeats } },
-      include: { user: { include: { selectedFrame: true, selectedRoleFrame: true, svip: true } } },
+      include: { user: { include: { selectedFrame: true, selectedRoleFrame: true, svip: true, selectedEntryBar: true } } },
       orderBy: { seatIndex: 'asc' },
     });
     const activeMembers = await this.prisma.roomMember.findMany({
@@ -2007,8 +2009,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       const room = await this.prisma.room.findUnique({
         where: { id: roomId },
         include: {
-          host: { include: { selectedFrame: true, selectedRoleFrame: true, svip: true } },
-          owner: { include: { selectedFrame: true, selectedRoleFrame: true, svip: true } },
+          host: { include: { selectedFrame: true, selectedRoleFrame: true, svip: true, selectedEntryBar: true } },
+          owner: { include: { selectedFrame: true, selectedRoleFrame: true, svip: true, selectedEntryBar: true } },
         },
       });
       const hostUser = room?.host ?? room?.owner;
@@ -2052,6 +2054,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         ...this.seatFrameFields(s.user?.selectedFrame),
         ...(s.user ? this.roleBadgeFields(s.user as any) : {}),
         ...svipClientFields(s.userId ? (s.user as UserLite | null)?.svip : null),
+        ...(s.user ? this.entryBarFields(s.user as UserLite) : {}),
         rtc_role: s.userId ? 'publisher' : null,
       }));
   }
@@ -2750,6 +2753,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       ...selectedFrameClientFields(user.selectedFrame),
       ...this.roleBadgeFields(user),
       ...svipClientFields(user.svip),
+      ...this.entryBarFields(user),
       joined_at: member.joinedAt?.toISOString(),
     };
   }
@@ -2781,7 +2785,13 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       ...selectedFrameClientFields(user.selectedFrame),
       ...this.roleBadgeFields(user),
       ...svipClientFields(user.svip),
+      ...this.entryBarFields(user),
     };
+  }
+
+  /** Worn entry bar for the room's join effect — from the server, never from the joiner's chat message. */
+  private entryBarFields(user: UserLite) {
+    return wornEntryBarFields(user, svipLevelOf(user.svip));
   }
 
   private async serializeRoom(

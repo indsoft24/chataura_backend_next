@@ -5,6 +5,7 @@ import { FcmService } from '../../common/fcm/fcm.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { grantMedal } from '../medal/medal.rules';
+import { ENTRY_BAR_ORDER, entryBarMedia } from '../gamification/entry-bar.rules';
 import {
   SvipSettings,
   readSvipSettings,
@@ -500,18 +501,18 @@ export class SvipService {
       }),
     ]);
     const level = effectiveLevel(m, new Date(), settings.graceDays);
-    const [frame, bar] = level
+    const [frame, bars] = level
       ? await Promise.all([
           this.prisma.frame.findFirst({
             where: { slug: svipFrameSlug(level), isActive: true },
             select: { id: true },
           }),
-          this.prisma.entryBar.findFirst({
-            where: { svipLevel: level, isActive: true },
-            select: { id: true },
-          }),
+          this.svipBars(this.prisma, level),
         ])
-      : [null, null];
+      : [null, []];
+    const worn = bars.find((b) => b.id === user.selectedEntryBarId);
+    // `entry_bar` (one switch) stays for app versions without the bar picker.
+    const shown = worn ?? bars[0];
     return {
       level,
       bubble: level > 0 && !!m?.bubbleOn,
@@ -520,10 +521,26 @@ export class SvipService {
       frame: frame
         ? { id: Number(frame.id), equipped: user.selectedFrameId === frame.id }
         : null,
-      entry_bar: bar
-        ? { id: Number(bar.id), equipped: user.selectedEntryBarId === bar.id }
+      entry_bar: shown
+        ? { id: Number(shown.id), equipped: !!worn }
         : null,
+      entry_bars: bars.map((b) => ({
+        ...entryBarMedia(b),
+        svip_level: b.svipLevel,
+        equipped: b.id === user.selectedEntryBarId,
+      })),
     };
+  }
+
+  /**
+   * Bars an SVIP level may wear: its own first, then lower levels' (SVIP N may wear any bar
+   * up to N). The first one is the level's default.
+   */
+  private svipBars(tx: Tx | PrismaService, level: number) {
+    return tx.entryBar.findMany({
+      where: { svipLevel: { gt: 0, lte: level }, isActive: true },
+      orderBy: [{ svipLevel: 'desc' }, ...ENTRY_BAR_ORDER],
+    });
   }
 
   /** Switch SVIP items on / off. Frame and entry bar wear or take off the level's own item. */
@@ -535,6 +552,8 @@ export class SvipService {
       mic_wave?: unknown;
       frame?: unknown;
       entry_bar?: unknown;
+      /** Wear this SVIP bar (the level offers several). */
+      entry_bar_id?: unknown;
     },
   ) {
     const { settings } = await this.config();
@@ -569,19 +588,34 @@ export class SvipService {
           });
         }
       }
-      const wearBar = flag(body?.entry_bar);
-      if (wearBar !== undefined) {
-        const bar = await tx.entryBar.findFirst({
-          where: { svipLevel: level, isActive: true },
+      const bars = await this.svipBars(tx, level);
+      const pickId =
+        body?.entry_bar_id === undefined || body?.entry_bar_id === null
+          ? undefined
+          : String(body.entry_bar_id);
+      if (pickId !== undefined) {
+        const pick = bars.find((b) => b.id.toString() === pickId);
+        if (!pick) svipError('BAR_NOT_AVAILABLE', 'This entry bar is not part of your SVIP level');
+        await tx.user.update({
+          where: { id: userId },
+          data: { selectedEntryBarId: pick!.id },
         });
-        if (bar && wearBar) {
+      }
+      const wearBar = flag(body?.entry_bar);
+      if (pickId === undefined && wearBar !== undefined) {
+        const user = await tx.user.findUniqueOrThrow({
+          where: { id: userId },
+          select: { selectedEntryBarId: true },
+        });
+        const worn = bars.find((b) => b.id === user.selectedEntryBarId);
+        if (wearBar && !worn && bars[0]) {
           await tx.user.update({
             where: { id: userId },
-            data: { selectedEntryBarId: bar.id },
+            data: { selectedEntryBarId: bars[0].id },
           });
-        } else if (bar) {
+        } else if (!wearBar && worn) {
           await tx.user.updateMany({
-            where: { id: userId, selectedEntryBarId: bar.id },
+            where: { id: userId, selectedEntryBarId: worn.id },
             data: { selectedEntryBarId: null },
           });
         }
@@ -605,7 +639,7 @@ export class SvipService {
       tx.frame.findFirst({
         where: { slug: svipFrameSlug(level), isActive: true },
       }),
-      tx.entryBar.findFirst({ where: { svipLevel: level, isActive: true } }),
+      this.equipBarFor(tx, userId, level),
       tx.medal.findFirst({ where: { svipLevel: level, isActive: true } }),
     ]);
     // Other levels' SVIP medals end now (upgrade); this level's medal lasts the membership.
@@ -648,6 +682,23 @@ export class SvipService {
         },
       });
     }
+  }
+
+  /**
+   * Bar to wear on buy / upgrade / grant: the user's own pick if it already belongs to this
+   * level, else the level's default.
+   */
+  private async equipBarFor(tx: Tx, userId: bigint, level: number) {
+    const user = await tx.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { selectedEntryBar: { select: { id: true, svipLevel: true, isActive: true } } },
+    });
+    const own = user.selectedEntryBar;
+    if (own && own.isActive && own.svipLevel === level) return own;
+    return tx.entryBar.findFirst({
+      where: { svipLevel: level, isActive: true },
+      orderBy: ENTRY_BAR_ORDER,
+    });
   }
 
   /** Membership ended: SVIP frames expire now; worn SVIP frame / entry bar come off. */
