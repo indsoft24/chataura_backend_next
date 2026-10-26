@@ -31,14 +31,18 @@ export function canWearEntryBar(
     : user.level >= bar.levelRequired;
 }
 
-/** Media contract shared with gifts and frames (`media_type` "video" = full-screen entrance). */
+/**
+ * Media contract shared with gifts and frames, plus `overlay`: the video can be drawn full
+ * screen over the room. MP4 (H.264) has no transparency, so only with "screen" blend (black
+ * drops out); WebM can carry its own alpha. Other bars keep the old pill-only entrance.
+ */
 export function entryBarMedia(bar: EntryBarRow) {
-  return {
-    id: Number(bar.id),
-    name: bar.name,
-    ...catalogClientFields(bar.imageUrl, bar.animationUrl),
-    composite: normalizeFrameComposite(bar.compositeMode),
-  };
+  const media = catalogClientFields(bar.imageUrl, bar.animationUrl);
+  const composite = normalizeFrameComposite(bar.compositeMode);
+  const overlay =
+    media.media_type === 'video' &&
+    (composite === 'screen' || /\.webm(\?|#|$)/i.test(media.animation_url ?? ''));
+  return { id: Number(bar.id), name: bar.name, ...media, composite, overlay };
 }
 
 /**

@@ -39,6 +39,7 @@ describe('entry bar rules', () => {
         media_type: 'video',
         loop: true,
         composite: 'screen',
+        overlay: true,
       },
     });
     expect(wornEntryBarFields({ level: 1, selectedEntryBar: bar() }, 0)).toEqual({
@@ -49,6 +50,16 @@ describe('entry bar rules', () => {
       entry_bar_id: 0,
       entry_bar: null,
     });
+  });
+
+  it('full screen only when the video can be see-through', () => {
+    const media = (p: Partial<EntryBarRow>) =>
+      (wornEntryBarFields({ level: 1, selectedEntryBar: bar({ svipLevel: 0, ...p }) }, 0) as any)
+        .entry_bar;
+    // A plain phone video (MP4, no blend) would cover the room: pill only, as before.
+    expect(media({ compositeMode: 'alpha' }).overlay).toBe(false);
+    expect(media({ animationUrl: 'https://x/a.webm', compositeMode: 'alpha' }).overlay).toBe(true);
+    expect(media({ animationUrl: 'https://x/a.json' }).overlay).toBe(false);
   });
 
   it('says nothing when the bar was not loaded', () => {
