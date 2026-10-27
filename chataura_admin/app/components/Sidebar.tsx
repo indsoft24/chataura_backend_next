@@ -23,6 +23,7 @@ const MENU_GROUPS = [
       { name: 'Room Reward Levels', href: '/room-rewards' },
       { name: 'SVIP', href: '/svip' },
       { name: 'Gold Mine', href: '/gold-mine' },
+      { name: 'Musical Chair', href: '/musical-chair' },
     ]
   },
   {

@@ -654,6 +654,7 @@ model Room {
   rewardGifting    RoomRewardGifting[]
 
   diceRolls DiceRoll[]
+  musicalChairSessions MusicalChairSession[]
 
   @@index([isLive, lastActivityAt])
   @@index([ownerId])
@@ -1873,4 +1874,26 @@ model GoldMineDraw {
 
   @@index([userId, day])
   @@map("gold_mine_draws")
+}
+
+/// Room Musical Chair: one running session per room (partial unique index on ended_at IS NULL in the
+/// migration). Only `starter_id` may play / pause / end it. `paused_*` pin the highlighted seat.
+model MusicalChairSession {
+  id           BigInt    @id @default(autoincrement())
+  roomId       String    @map("room_id") @db.Uuid
+  starterId    BigInt    @map("starter_id")
+  /// idle (started, never played) | playing | paused
+  status       String    @default("idle") @db.VarChar(8)
+  pausedSeat   Int?      @map("paused_seat")
+  pausedUserId BigInt?   @map("paused_user_id")
+  /// Strictly increasing per session; apps ignore an event older than the one they show.
+  version      Int       @default(1)
+  lastActionAt DateTime  @default(now()) @map("last_action_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  endedAt      DateTime? @map("ended_at") @db.Timestamptz(6)
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+  @@map("musical_chair_sessions")
 }

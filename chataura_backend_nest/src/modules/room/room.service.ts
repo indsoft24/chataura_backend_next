@@ -3,6 +3,7 @@ import { SvipChromeRow, svipClientFields, svipLevelOf } from '../svip/svip-chrom
 import { bandForXp, ensureLaravelLevelBands } from '../gamification/level-bands';
 import { readMemberTimeoutSeconds } from './room-state/room-runtime.config';
 import { RedisService } from '../../common/redis/redis.service';
+import { MusicalChairService } from '../musical-chair/musical-chair.service';
 import { RoomStateService } from './room-state/room-state.service';
 import { LiveRoomState, LiveSeat } from './room-state/room-state.rules';
 import { RoomRewardService } from './room-reward/room-reward.service';
@@ -107,6 +108,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     private readonly rewards: RoomRewardService,
     private readonly roomState: RoomStateService,
     private readonly redis: RedisService,
+    private readonly musicalChair: MusicalChairService,
   ) {
     this.roomState.setBuilder((roomId) => this.buildLiveState(roomId));
   }
@@ -867,6 +869,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     if (activeSession && (!sessionId || sessionId === activeSession)) {
       await redisClient.del(sessionKey).catch(() => 0);
     }
+    await this.musicalChair.endIfStarter(room.id, userId).catch(() => undefined);
     let roomEnded = false;
     let roomDeleted = false;
     let bonusEarned: Array<{

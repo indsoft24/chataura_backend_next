@@ -15,10 +15,11 @@ import { CpAffectionGiftsService } from './cp-affection-gifts.service';
 import { YouTubeSearchService } from './youtube-search.service';
 import { RoomRewardService } from './room-reward/room-reward.service';
 import { RoomRewardAdminService } from './room-reward/room-reward-admin.service';
+import { MusicalChairModule } from '../musical-chair/musical-chair.module';
 import { RoomStateService } from './room-state/room-state.service';
 
 @Module({
-  imports: [WalletModule, AuthModule, RelationshipModule],
+  imports: [WalletModule, AuthModule, RelationshipModule, MusicalChairModule],
   controllers: [RoomController],
   providers: [
     RoomService,
