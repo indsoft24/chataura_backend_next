@@ -44,8 +44,12 @@ export type MusicalChairEvent = {
   state: string;
   starter_id: number;
   version: number;
+  /** While paused: the pinned seat. While playing: the seat the hopping resumes after (null = from the start). */
   paused_seat: number | null;
   paused_user_id: number | null;
+  /** When the last action happened and the server clock now (ms): apps derive the highlighted seat from these. */
+  at_ms: number;
+  now_ms: number;
 };
 
 export function mchairEvent(
@@ -55,8 +59,10 @@ export function mchairEvent(
     pausedSeat: number | null;
     pausedUserId: bigint | null;
     version: number;
+    lastActionAt: Date;
   },
   state: string,
+  now: Date = new Date(),
 ): MusicalChairEvent {
   return {
     session_id: Number(s.id),
@@ -65,6 +71,8 @@ export function mchairEvent(
     version: s.version,
     paused_seat: s.pausedSeat,
     paused_user_id: s.pausedUserId == null ? null : Number(s.pausedUserId),
+    at_ms: s.lastActionAt.getTime(),
+    now_ms: now.getTime(),
   };
 }
 

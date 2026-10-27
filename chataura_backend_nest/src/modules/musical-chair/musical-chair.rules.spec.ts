@@ -35,11 +35,12 @@ describe('musical chair rules', () => {
 
   it('builds the room command', () => {
     const ev = mchairEvent(
-      { id: 7n, starterId: 1n, pausedSeat: 3, pausedUserId: 30n, version: 4 },
+      { id: 7n, starterId: 1n, pausedSeat: 3, pausedUserId: 30n, version: 4, lastActionAt: new Date(1000) },
       'paused',
+      new Date(2500),
     );
     expect(mchairCommand(ev)).toBe(
-      'CMD:MCHAIR:{"session_id":7,"state":"paused","starter_id":1,"version":4,"paused_seat":3,"paused_user_id":30}',
+      'CMD:MCHAIR:{"session_id":7,"state":"paused","starter_id":1,"version":4,"paused_seat":3,"paused_user_id":30,"at_ms":1000,"now_ms":2500}',
     );
   });
 });

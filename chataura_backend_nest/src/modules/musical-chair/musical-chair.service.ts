@@ -101,7 +101,11 @@ export class MusicalChairService {
       const seated = await this.occupants(tx, roomId);
       if (seated.length < MCHAIR_MIN_SEATED)
         fail('NEED_SEATED', `Need at least ${MCHAIR_MIN_SEATED} seated members`);
-      return { session: await this.touch(tx, s, 'playing', null), changed: true };
+      // Keep the last pinned seat: the hopping continues after it.
+      const resumeFrom = s.pausedSeat != null && s.pausedUserId != null
+        ? { seat: s.pausedSeat, userId: s.pausedUserId }
+        : null;
+      return { session: await this.touch(tx, s, 'playing', resumeFrom), changed: true };
     });
     return changed ? this.announce(roomId, session, 'playing') : this.reply(session);
   }
