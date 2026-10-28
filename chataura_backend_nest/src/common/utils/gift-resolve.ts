@@ -7,6 +7,7 @@ import {
 import { Gift, PrismaClient } from '@prisma/client';
 import { normalizeGiftCategory } from './gift-category';
 import { giftKeySlug } from './gift-key';
+import { belowLuckyMin, luckyMinCoins } from './lucky-gift-min';
 
 /**
  * Single source of truth for "which gift is the user paying for".
@@ -30,7 +31,7 @@ export type GiftSendSelector = {
   expected_coin_cost?: number | string | null;
 };
 
-type GiftDb = Pick<PrismaClient, 'gift'>;
+type GiftDb = Pick<PrismaClient, 'gift'> & Partial<Pick<PrismaClient, 'adminSetting'>>;
 
 const logger = new Logger('GiftResolve');
 
@@ -155,6 +156,10 @@ export async function resolveGiftForSend(
   }
 
   if (!gift.isActive) {
+    conflict('GIFT_INACTIVE', 'This gift is no longer available.', gift);
+  }
+  // Lucky gifts below the admin's minimum are off sale (an app with an old list refreshes on this error).
+  if (belowLuckyMin(gift, await luckyMinCoins(prisma))) {
     conflict('GIFT_INACTIVE', 'This gift is no longer available.', gift);
   }
 

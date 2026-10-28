@@ -8,6 +8,7 @@ import {
 } from '../room/room-reward/room-reward.config';
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { LUCKY_MIN_KEY, LUCKY_MIN_MAX, luckyMinCoins, readLuckyMinCoins } from '../../common/utils/lucky-gift-min';
 import { SPIN_EXPECTED_PAYOUT, SPIN_MIN_COST } from '../gamification/bonus-spin.service';
 import { Gift, Prisma } from '@prisma/client';
 import { resolve } from 'path';
@@ -219,6 +220,7 @@ export class AdminCatalogService {
       });
     }
     const category = normalizeGiftCategory(body.category);
+    await this.assertLuckyFloor(category, Number(cost));
     const paired = await this.pairCatalogMedia(
       body.image_url ?? body.imageUrl,
       body.animation_url ?? body.animationUrl ?? body.video_url,
@@ -283,6 +285,14 @@ export class AdminCatalogService {
         },
       });
     }
+    if (body.category !== undefined || cost !== undefined) {
+      const before = await this.prisma.gift.findUnique({ where: { id }, select: { category: true, coinCost: true } });
+      if (before)
+        await this.assertLuckyFloor(
+          normalizeGiftCategory(body.category ?? before.category),
+          Number(cost ?? before.coinCost),
+        );
+    }
     const img = body.image_url ?? body.imageUrl;
     const anim = body.animation_url ?? body.animationUrl ?? body.video_url;
     let mediaPatch: { imageUrl: string | null; animationUrl: string | null } | null =
@@ -333,6 +343,20 @@ export class AdminCatalogService {
       animation_url: g.animationUrl,
       is_active: g.isActive,
     };
+  }
+
+  /** Lucky gifts start at the admin's minimum (Settings → Lucky gift minimum). Read live, so no deploy is needed. */
+  private async assertLuckyFloor(category: string, cost: number) {
+    if (category !== 'lucky') return;
+    const min = await luckyMinCoins(this.prisma);
+    if (cost < min)
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `Lucky gifts start at ${min.toLocaleString('en-US')} coins. Raise the price, or lower "Lucky gift minimum" in Settings.`,
+        },
+      });
   }
 
   async deleteGift(id: bigint) {
@@ -1069,6 +1093,7 @@ export class AdminCatalogService {
         room_video_enabled: extra.room_video_enabled !== false,
         [ROOM_MEMBER_TIMEOUT_KEY]: readMemberTimeoutSeconds(extra),
         ...roomRewardSettingsForApi(readRoomRewardSettings(extra)),
+        [LUCKY_MIN_KEY]: readLuckyMinCoins(extra),
         lucky_rebate_min_pct: extra.lucky_rebate_min_pct ?? LUCKY_REBATE_DEFAULT_MIN_PCT,
         lucky_rebate_max_pct: extra.lucky_rebate_max_pct ?? LUCKY_REBATE_DEFAULT_MAX_PCT,
       },
@@ -1077,10 +1102,27 @@ export class AdminCatalogService {
 
   async updateSettings(body: Record<string, unknown>) {
     const data: Prisma.AdminSettingUpdateInput = {};
-    if (body.gift_commission_pct !== undefined || body.gift_commission_percent !== undefined)
-      data.giftCommissionPct = Number(body.gift_commission_pct ?? body.gift_commission_percent);
-    if (body.star_chat_commission_pct !== undefined || body.star_chat_commission_percent !== undefined)
-      data.starChatCommissionPct = Number(body.star_chat_commission_pct ?? body.star_chat_commission_percent);
+    const stored = await this.prisma.adminSetting.findUnique({ where: { id: 1 } });
+    // The settings screen sends both spellings (`_pct` = the value it loaded, `_percent` = what the admin typed).
+    // Take the one that differs from what is stored, otherwise a typed change is thrown away.
+    const pick = (a: unknown, b: unknown, current: unknown): number | undefined => {
+      const x = a === undefined ? undefined : Number(a);
+      const y = b === undefined ? undefined : Number(b);
+      if (x !== undefined && y !== undefined) return x !== Number(current) ? x : y;
+      return x ?? y;
+    };
+    const giftPct = pick(body.gift_commission_pct, body.gift_commission_percent, stored?.giftCommissionPct);
+    if (giftPct !== undefined) data.giftCommissionPct = giftPct;
+    const starPct = pick(body.star_chat_commission_pct, body.star_chat_commission_percent, stored?.starChatCommissionPct);
+    if (starPct !== undefined) data.starChatCommissionPct = starPct;
+    if (body[LUCKY_MIN_KEY] !== undefined) {
+      const n = Number(body[LUCKY_MIN_KEY]);
+      if (!Number.isInteger(n) || n < 0 || n > LUCKY_MIN_MAX)
+        throw new BadRequestException({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: `Lucky gift minimum must be a whole number of coins, 0 – ${LUCKY_MIN_MAX.toLocaleString('en-US')}` },
+        });
+    }
     if (body.cashout_enabled !== undefined)
       data.cashoutEnabled = Boolean(body.cashout_enabled);
     if (body.earnings_purchase_enabled !== undefined)
@@ -1115,6 +1157,15 @@ export class AdminCatalogService {
     const current = await this.prisma.adminSetting.findUnique({ where: { id: 1 } });
     const existingExtra = (current?.extraSettings as Record<string, unknown>) ?? {};
     const mergedExtra: Record<string, unknown> = { ...existingExtra, ...body };
+    if (giftPct !== undefined) {
+      // The panel reads either spelling back: keep both in step.
+      mergedExtra.gift_commission_pct = giftPct;
+      mergedExtra.gift_commission_percent = giftPct;
+    }
+    if (starPct !== undefined) {
+      mergedExtra.star_chat_commission_pct = starPct;
+      mergedExtra.star_chat_commission_percent = starPct;
+    }
     if (body[ROOM_MEMBER_TIMEOUT_KEY] !== undefined) {
       // Store exactly what the room service will use (45–600 s).
       mergedExtra[ROOM_MEMBER_TIMEOUT_KEY] = readMemberTimeoutSeconds(mergedExtra);

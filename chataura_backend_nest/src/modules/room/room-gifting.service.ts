@@ -12,6 +12,7 @@ import {
   GiftSendSelector,
   resolveGiftForSend,
 } from '../../common/utils/gift-resolve';
+import { belowLuckyMin, luckyMinCoins } from '../../common/utils/lucky-gift-min';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { RelationshipEngineService } from '../relationship/relationship-engine.service';
@@ -165,8 +166,9 @@ export class RoomGiftingService {
       });
     }
 
+    const luckyMin = await luckyMinCoins(this.prisma);
     return {
-      gifts: gifts.map((g) => {
+      gifts: gifts.filter((g) => !belowLuckyMin(g, luckyMin)).map((g) => {
         const cleanImg = g.imageUrl?.includes('giphy.com') ? null : g.imageUrl;
         const cleanAnim = g.animationUrl?.includes('giphy.com') ? null : g.animationUrl;
         return {

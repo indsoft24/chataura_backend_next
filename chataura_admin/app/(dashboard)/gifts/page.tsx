@@ -27,6 +27,7 @@ const ANIMATION_ACCEPT =
 const GIFT_CATEGORIES = [
   { value: 'standard', label: 'Standard' },
   { value: 'customize', label: 'Customize' },
+  { value: 'lucky', label: 'Lucky (coin rebate)' },
   { value: 'cp', label: 'CP (Couple)' },
   { value: 'bcp', label: 'BCP (Best Friend Couple)' },
   { value: 'svip', label: 'SVIP (members only)' },
@@ -66,6 +67,8 @@ export default function GiftsPage() {
   const [gifts, setGifts] = useState<Gift[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
+  // Lucky gifts cheaper than this are off sale (Settings → Lucky gift minimum).
+  const [luckyMin, setLuckyMin] = useState(0);
 
   const [cat, setCat] = useState<'' | GiftCategory>('');
   const [q, setQ] = useState('');
@@ -91,6 +94,11 @@ export default function GiftsPage() {
 
   useEffect(() => {
     void load();
+    if (token) {
+      api<any>('/admin/settings', token)
+        .then((r) => setLuckyMin(Number(r.data?.settings?.lucky_gift_min_coins) || 0))
+        .catch(() => undefined);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -122,6 +130,10 @@ export default function GiftsPage() {
     if (!token || !draft) return;
     if (!draft.name.trim()) {
       setFormError('Gift name is required');
+      return;
+    }
+    if (draft.category === 'lucky' && (Number(draft.coinCost) || 0) < luckyMin) {
+      setFormError(`Lucky gifts start at ${luckyMin.toLocaleString()} coins. Raise the price, or lower "Lucky gift minimum" in Settings.`);
       return;
     }
     setSaving(true);
@@ -238,6 +250,9 @@ export default function GiftsPage() {
                   <>
                     <span className="ad-badge gray">{categoryLabel(g.category).split(' (')[0]}</span>
                     {(g.required_svip_level ?? 0) > 0 && <span className="ad-badge amber">SVIP {g.required_svip_level}</span>}
+                    {catOf(g) === 'lucky' && g.coin_cost < luckyMin && (
+                      <span className="ad-badge red" title={`Lucky gifts start at ${luckyMin.toLocaleString()} coins (Settings). This one is hidden in the app.`}>Hidden</span>
+                    )}
                     {g.animation_url ? <span className="ad-badge indigo" title="Animation attached">✨</span> : <span />}
                   </>
                 }
@@ -277,7 +292,10 @@ export default function GiftsPage() {
             <Field label="Gift name *" wide>
               <input autoFocus placeholder="e.g. Diamond Ring / Sports Car" value={draft.name} onChange={(e) => set({ name: e.target.value })} />
             </Field>
-            <Field label="Coin cost">
+            <Field
+              label="Coin cost"
+              hint={draft.category === 'lucky' && luckyMin > 0 ? `Lucky gifts start at ${luckyMin.toLocaleString()} coins. Change this in Settings → Commissions → Lucky gift minimum.` : undefined}
+            >
               <div className="ad-unit"><input type="number" inputMode="numeric" value={draft.coinCost} onChange={(e) => set({ coinCost: e.target.value })} /><span>coins</span></div>
             </Field>
             <Field label="Category">

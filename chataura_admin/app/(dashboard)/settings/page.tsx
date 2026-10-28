@@ -21,6 +21,7 @@ const TABS: { id: TabId; label: string; groups: Group[] }[] = [
     groups: [
       { title: 'Gifts', cols: 3, items: [
         pct('gift_commission_percent', 'Gift platform commission'),
+        coins('lucky_gift_min_coins', 'Lucky gift minimum', 'Lucky gifts start at this many coins. Cheaper lucky gifts are hidden in the app and cannot be sent; admins cannot price one lower. 0 = no minimum. Applies at once, no build needed.'),
         pct('lucky_rebate_min_pct', 'Lucky gift rebate — min', 'Of the gift value.'),
         pct('lucky_rebate_max_pct', 'Lucky gift rebate — max', 'Of the gift value.'),
       ] },
@@ -159,6 +160,7 @@ const DEFAULTS: Record<string, any> = {
   room_gift_banner_duration_big_ms: 6000,
   room_video_enabled: true,
   room_member_timeout_seconds: 90,
+  lucky_gift_min_coins: 2000,
   lucky_rebate_min_pct: 1,
   lucky_rebate_max_pct: 40,
 };
@@ -196,7 +198,11 @@ export default function SettingsPage() {
     if (!token) return;
     setSaving(true);
     try {
-      const res = await api<any>('/admin/settings', token, { method: 'PATCH', body: JSON.stringify(form) });
+      // Send only what changed: sending the whole form made the server pick up stale copies of a setting
+      // (e.g. the old gift commission next to the one just typed).
+      const before = JSON.parse(saved || '{}');
+      const changed = Object.fromEntries(Object.entries(form).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(before[k])));
+      const res = await api<any>('/admin/settings', token, { method: 'PATCH', body: JSON.stringify(changed) });
       const next = { ...form, ...(res.data?.settings ?? {}) };
       setForm(next);
       setSaved(JSON.stringify(next));
