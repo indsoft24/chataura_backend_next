@@ -25,6 +25,7 @@ const MENU_GROUPS = [
       { name: 'Gold Mine', href: '/gold-mine' },
       { name: 'Musical Chair', href: '/musical-chair' },
       { name: 'Battle', href: '/battle' },
+      { name: 'Lucky Slots', href: '/slot' },
     ]
   },
   {

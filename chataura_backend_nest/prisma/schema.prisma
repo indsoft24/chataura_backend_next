@@ -1941,3 +1941,17 @@ model BattlePayout {
   @@unique([battleId, userId, role])
   @@map("battle_payouts")
 }
+
+/// Lucky Slots: one row per spin. The id is the client's request id, so a retried spin is never charged twice.
+model SlotSpin {
+  id        String   @id @db.Uuid
+  userId    BigInt   @map("user_id")
+  bet       BigInt
+  payout    BigInt
+  /// grid[reel][row] symbol ids
+  grid      Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("slot_spins")
+}

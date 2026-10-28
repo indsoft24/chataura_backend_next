@@ -32,6 +32,7 @@ export const LEDGER_REWARD_TYPES: Record<
   GOLD_MINE_PRIZE: { category: 'bonuses', title: 'Daily Treasure prize' },
   GAME_GREEDY_WIN: { category: 'games', title: 'Greedy win' },
   GAME_LUCKY77_WIN: { category: 'games', title: 'Lucky 77 win' },
+  GAME_SLOT_WIN: { category: 'games', title: 'Lucky Slots win' },
   REFERRAL_REFEREE: { category: 'referrals', title: 'Referral join bonus' },
   REFERRAL_REFERRER: { category: 'referrals', title: 'Referral invite bonus' },
   REFERRAL_MILESTONE: { category: 'referrals', title: 'Referral milestone' },
