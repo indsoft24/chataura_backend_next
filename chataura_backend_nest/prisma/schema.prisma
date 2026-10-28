@@ -1685,7 +1685,10 @@ model RoomRewardRecipient {
 model SvipLevelConfig {
   level              Int      @id
   name               String   @db.VarChar(64)
+  /// Coins: only the base of the monthly maintenance fee (pct of this). Nobody buys a level with coins any more.
   purchasePrice      BigInt   @map("purchase_price")
+  /// Rupees of real-money recharge that unlock this level (within the recharge window). 0 = cannot be unlocked.
+  rechargeInr        Decimal  @default(0) @map("recharge_inr") @db.Decimal(12, 2)
   /// Free coins an active member claims once per calendar month (IST).
   monthlyReward      BigInt   @map("monthly_reward")
   /// Off = not for sale. Existing members keep it and keep renewing.
@@ -1954,4 +1957,20 @@ model SlotSpin {
 
   @@index([userId, createdAt(sort: Desc)])
   @@map("slot_spins")
+}
+
+/// Part of a real-money recharge already used to unlock / upgrade / renew SVIP (so one recharge is never counted twice).
+model SvipRechargeSpend {
+  id         BigInt   @id @default(autoincrement())
+  userId     BigInt   @map("user_id")
+  purchaseId BigInt   @map("purchase_id")
+  amountInr  Decimal  @map("amount_inr") @db.Decimal(12, 2)
+  level      Int
+  /// buy | upgrade | renew
+  kind       String   @db.VarChar(10)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([purchaseId])
+  @@index([userId, createdAt])
+  @@map("svip_recharge_spends")
 }

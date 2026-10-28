@@ -37,6 +37,7 @@ function makeWorld(opts: { wallet: bigint; enabled?: boolean }) {
     {
       level: 1,
       name: 'SVIP 1',
+      rechargeInr: 500,
       purchasePrice: 6_000_000n,
       monthlyReward: 300_000n,
       isActive: true,
@@ -44,13 +45,38 @@ function makeWorld(opts: { wallet: bigint; enabled?: boolean }) {
     {
       level: 2,
       name: 'SVIP 2',
+      rechargeInr: 1500,
       purchasePrice: 18_000_000n,
       monthlyReward: 1_080_000n,
       isActive: true,
     },
   ];
 
+  // Paid recharges and the rupees of them already used for SVIP.
+  const recharges: any[] = [];
+  const spends: Array<{ purchaseId: bigint; amountInr: number; kind: string }> = [];
+  let nextRecharge = 1n;
+
   const prisma: any = {
+    coinPurchaseTransaction: {
+      findMany: async ({ where }: any) =>
+        recharges
+          .filter(
+            (r) =>
+              r.status === where.status &&
+              r.paymentSource === where.paymentSource &&
+              r.createdAt >= where.createdAt.gte,
+          )
+          .map((r) => ({ ...r, package: null })),
+    },
+    svipRechargeSpend: {
+      groupBy: async () => {
+        const by = new Map<bigint, number>();
+        for (const x of spends) by.set(x.purchaseId, (by.get(x.purchaseId) ?? 0) + x.amountInr);
+        return [...by].map(([purchaseId, v]) => ({ purchaseId, _sum: { amountInr: v } }));
+      },
+      create: async ({ data }: any) => void spends.push(data),
+    },
     adminSetting: {
       findUnique: async () => ({
         extraSettings: { svip_enabled: opts.enabled ?? true },
@@ -155,8 +181,27 @@ function makeWorld(opts: { wallet: bigint; enabled?: boolean }) {
     sendUserNotification: async (n: any) => notes.push(n.title),
   };
 
+  const svc = new SvipService(prisma, ledgerSvc, fcm);
+  const recharge = (amountInr: number, daysAgo = 0, paymentSource = 'RAZORPAY') =>
+    void recharges.push({
+      id: nextRecharge++,
+      userId: USER,
+      status: 'success',
+      paymentSource,
+      currency: 'INR',
+      amountMinor: amountInr * 100,
+      createdAt: new Date(Date.now() - daysAgo * DAY),
+    });
+
   return {
-    svc: new SvipService(prisma, ledgerSvc, fcm),
+    svc,
+    recharge,
+    spends,
+    /** Unlocks `level` the way a player does: pays its recharge amount, then the sweep runs. */
+    activate: async (level: number) => {
+      recharge(level === 1 ? 500 : 1500);
+      return svc.syncFromRecharges(USER);
+    },
     get wallet() {
       return wallet;
     },
@@ -185,110 +230,146 @@ const code = async (p: Promise<unknown>) => {
   }
 };
 
-describe('SvipService purchase', () => {
-  it('buys SVIP 1 for the full price and starts a 30-day period', async () => {
-    const w = makeWorld({ wallet: 7_000_000n });
-    const res = await w.svc.purchase(USER, 1);
-    expect(w.wallet).toBe(1_000_000n);
-    expect(w.ledger[0]).toMatchObject({
-      type: 'SVIP_PURCHASE',
-      amount: -6_000_000n,
-    });
-    expect(res.me).toMatchObject({
-      level: 1,
-      status: 'active',
-      maintenance_fee: 1_200_000,
-    });
-    const days =
-      (w.member.periodEndsAt.getTime() - w.member.periodStartsAt.getTime()) /
-      DAY;
-    expect(days).toBe(30);
+describe('SvipService recharge unlock', () => {
+  it('Rs 500 in one go unlocks SVIP 1 for 30 days, no coins taken', async () => {
+    const w = makeWorld({ wallet: 100n });
+    expect(await w.activate(1)).toBe(true);
+    expect(w.member).toMatchObject({ level: 1, status: 'active' });
+    expect((w.member.periodEndsAt.getTime() - w.member.periodStartsAt.getTime()) / DAY).toBe(30);
+    expect(w.wallet).toBe(100n);
+    expect(w.ledger).toHaveLength(0);
+    expect(w.notes).toEqual(['SVIP 1 unlocked']);
+    const center = await w.svc.center(USER);
+    expect(center.me).toMatchObject({ level: 1, status: 'active', maintenance_fee: 1_200_000 });
   });
 
-  it('upgrades for the price difference; blocks downgrade and same level', async () => {
-    const w = makeWorld({ wallet: 20_000_000n });
-    await w.svc.purchase(USER, 1);
+  it('five recharges of Rs 100 inside 5 days unlock it; an older one does not count', async () => {
+    const w = makeWorld({ wallet: 0n });
+    for (const daysAgo of [4, 3, 2, 1]) w.recharge(100, daysAgo);
+    expect(await w.svc.syncFromRecharges(USER)).toBe(false); // only 400 so far
+    w.recharge(100, 0);
+    expect(await w.svc.syncFromRecharges(USER)).toBe(true);
+    expect(w.member.level).toBe(1);
+
+    const late = makeWorld({ wallet: 0n });
+    late.recharge(100, 6); // outside the 5-day window
+    for (const daysAgo of [3, 2, 1, 0]) late.recharge(100, daysAgo);
+    expect(await late.svc.syncFromRecharges(USER)).toBe(false);
+  });
+
+  it('a recharge is never counted twice', async () => {
+    const w = makeWorld({ wallet: 0n });
+    await w.activate(1);
     const end = w.member.periodEndsAt.getTime();
-    expect(await code(w.svc.purchase(USER, 1))).toBe('ALREADY_ACTIVE');
-    await w.svc.purchase(USER, 2);
-    expect(w.ledger[1]).toMatchObject({
-      type: 'SVIP_UPGRADE',
-      amount: -12_000_000n,
-    });
-    // Same renewal date: upgrading never skips the next maintenance fee.
+    expect(await w.svc.syncFromRecharges(USER)).toBe(false);
     expect(w.member.periodEndsAt.getTime()).toBe(end);
-    expect(w.member.level).toBe(2);
-    expect(await code(w.svc.purchase(USER, 1))).toBe('DOWNGRADE_NOT_ALLOWED');
+    expect(w.spends).toEqual([{ userId: USER, purchaseId: 1n, amountInr: 500, level: 1, kind: 'buy' }]);
   });
 
-  it('rejects when short of coins or switched off', async () => {
-    expect(await code(makeWorld({ wallet: 10n }).svc.purchase(USER, 1))).toBe(
-      'INSUFFICIENT_BALANCE',
-    );
-    expect(
-      await code(
-        makeWorld({ wallet: 9e9 as any, enabled: false }).svc.purchase(USER, 1),
-      ),
-    ).toBe('SVIP_DISABLED');
+  it('only real-money recharges count', async () => {
+    const w = makeWorld({ wallet: 0n });
+    w.recharge(500, 0, 'EARNINGS_WALLET');
+    w.recharge(500, 0, 'MOCK');
+    expect(await w.svc.syncFromRecharges(USER)).toBe(false);
+    expect(w.member).toBeNull();
+  });
+
+  it('upgrades for the difference and keeps the period; the old recharge is not reused', async () => {
+    const w = makeWorld({ wallet: 0n });
+    await w.activate(1);
+    const end = w.member.periodEndsAt.getTime();
+    w.recharge(900);
+    expect(await w.svc.syncFromRecharges(USER)).toBe(false); // 900 < 1000 difference
+    w.recharge(100);
+    expect(await w.svc.syncFromRecharges(USER)).toBe(true);
+    expect(w.member.level).toBe(2);
+    expect(w.member.periodEndsAt.getTime()).toBe(end);
+    expect(w.notes).toEqual(['SVIP 1 unlocked', 'Upgraded to SVIP 2']);
+  });
+
+  it('does nothing while switched off', async () => {
+    const w = makeWorld({ wallet: 0n, enabled: false });
+    expect(await w.activate(1)).toBe(false);
+    expect(w.member).toBeNull();
   });
 });
 
 describe('SvipService renewals', () => {
-  it('charges 20% at period end and continues from the old end date', async () => {
-    const w = makeWorld({ wallet: 8_000_000n });
-    await w.svc.purchase(USER, 1);
-    const end = new Date(Date.now() - 1000);
+  it('renews with coins in the last days: 20% fee, continues from the old end date', async () => {
+    const w = makeWorld({ wallet: 2_000_000n });
+    await w.activate(1);
+    const end = new Date(Date.now() + 2 * DAY);
     w.setPeriodEnd(end);
-    expect(await w.svc.renewOne(USER, new Date(), false)).toBe('renewed');
+    await w.svc.renew(USER);
     expect(w.wallet).toBe(800_000n);
+    expect(w.ledger[0]).toMatchObject({ type: 'SVIP_MAINTENANCE', amount: -1_200_000n });
     expect(w.member.periodEndsAt.getTime()).toBe(end.getTime() + 30 * DAY);
-    expect(w.notes).toEqual(['SVIP renewed']);
   });
 
-  it('goes to grace when short, keeps the level, then a manual renew works after top-up', async () => {
+  it('is too early before the last days; short of coins is refused', async () => {
+    const w = makeWorld({ wallet: 2_000_000n });
+    await w.activate(1);
+    expect(await code(w.svc.renew(USER))).toBe('NOT_DUE');
+    w.setPeriodEnd(new Date(Date.now() + 2 * DAY));
+    w.wallet = 10n;
+    expect(await code(w.svc.renew(USER))).toBe('INSUFFICIENT_BALANCE');
+    expect(w.wallet).toBe(10n);
+  });
+
+  it('renews with a fresh Rs 500 recharge once the period is near its end', async () => {
+    const w = makeWorld({ wallet: 0n });
+    await w.activate(1);
+    w.recharge(500);
+    expect(await w.svc.syncFromRecharges(USER)).toBe(false); // far from the end: credit waits
+    const end = new Date(Date.now() + 3 * DAY);
+    w.setPeriodEnd(end);
+    expect(await w.svc.syncFromRecharges(USER)).toBe(true);
+    expect(w.member.periodEndsAt.getTime()).toBe(end.getTime() + 30 * DAY);
+    expect(w.notes[w.notes.length - 1]).toBe('SVIP renewed');
+  });
+
+  it('nothing is ever charged automatically; grace keeps the level, a manual renew works', async () => {
     const w = makeWorld({ wallet: 6_000_000n });
-    await w.svc.purchase(USER, 1);
+    await w.activate(1);
     w.setPeriodEnd(new Date(Date.now() - DAY));
-    expect(await w.svc.renewOne(USER, new Date(), false)).toBe('insufficient');
-    expect(w.member.status).toBe('grace');
+    expect(await w.svc.renewOne(USER, new Date(), false)).toBe('not_due');
+    expect(w.wallet).toBe(6_000_000n);
     expect(await w.svc.levelOf(USER)).toBe(1);
-    expect(w.notes).toEqual(['SVIP renewal failed']);
-    // second failed attempt does not notify again
-    await w.svc.renewOne(USER, new Date(), false);
-    expect(w.notes).toHaveLength(1);
-    expect(await code(w.svc.purchase(USER, 2))).toBe('RENEW_FIRST');
-    w.wallet = 2_000_000n;
     await w.svc.renew(USER);
     expect(w.member.status).toBe('active');
-    expect(w.wallet).toBe(800_000n);
+    expect(w.wallet).toBe(4_800_000n);
   });
 
-  it('expires after the grace days and drops the level', async () => {
+  it('a recharge renews a member in grace', async () => {
+    const w = makeWorld({ wallet: 0n });
+    await w.activate(1);
+    const end = new Date(Date.now() - DAY);
+    w.setPeriodEnd(end);
+    w.recharge(500);
+    expect(await w.svc.syncFromRecharges(USER)).toBe(true);
+    expect(w.member.periodEndsAt.getTime()).toBe(end.getTime() + 30 * DAY);
+  });
+
+  it('after the grace days the sweep ends it and a new recharge unlocks it again', async () => {
     const w = makeWorld({ wallet: 6_000_000n });
-    await w.svc.purchase(USER, 1);
+    await w.activate(1);
     w.setPeriodEnd(new Date(Date.now() - 4 * DAY));
     expect(await w.svc.renewOne(USER, new Date(), false)).toBe('expired');
     expect(w.member.status).toBe('expired');
     expect(await w.svc.levelOf(USER)).toBe(0);
-    expect(w.notes).toEqual(['SVIP ended']);
-    expect(w.ledger.filter((l) => l.type === 'SVIP_MAINTENANCE')).toHaveLength(
-      0,
-    );
-  });
-
-  it('does not charge before the period ends', async () => {
-    const w = makeWorld({ wallet: 9_000_000n });
-    await w.svc.purchase(USER, 1);
-    expect(await w.svc.renewOne(USER, new Date(), false)).toBe('not_due');
-    expect(await code(w.svc.renew(USER))).toBe('NOT_DUE');
+    expect(w.notes[w.notes.length - 1]).toBe('SVIP ended');
+    expect(w.ledger.filter((l) => l.type === 'SVIP_MAINTENANCE')).toHaveLength(0);
+    w.recharge(500);
+    expect(await w.svc.syncFromRecharges(USER)).toBe(true);
+    expect(w.member).toMatchObject({ level: 1, status: 'active' });
   });
 });
 
 describe('SvipService monthly claim', () => {
   it('pays the level reward once per month, active members only', async () => {
-    const w = makeWorld({ wallet: 6_000_000n });
+    const w = makeWorld({ wallet: 0n });
     expect(await code(w.svc.claimMonthly(USER))).toBe('NOT_ACTIVE');
-    await w.svc.purchase(USER, 1);
+    await w.activate(1);
     const res = await w.svc.claimMonthly(USER);
     expect(res.claimed_amount).toBe(300_000);
     expect(w.wallet).toBe(300_000n);
@@ -301,7 +382,7 @@ describe('SvipService monthly claim', () => {
 
   it('members in grace cannot claim', async () => {
     const w = makeWorld({ wallet: 6_000_000n });
-    await w.svc.purchase(USER, 1);
+    await w.activate(1);
     w.setPeriodEnd(new Date(Date.now() - DAY));
     expect(await code(w.svc.claimMonthly(USER))).toBe('NOT_ACTIVE');
   });
@@ -310,7 +391,7 @@ describe('SvipService monthly claim', () => {
 describe('SvipService identity items', () => {
   it('buying grants and wears the frame + entry bar until period end + grace', async () => {
     const w = makeWorld({ wallet: 7_000_000n });
-    await w.svc.purchase(USER, 1);
+    await w.activate(1);
     expect(w.user).toMatchObject({
       selectedFrameId: 50n,
       selectedEntryBarId: 60n,
@@ -329,9 +410,9 @@ describe('SvipService identity items', () => {
 
   it('renewal extends the frame; expiry takes items off', async () => {
     const w = makeWorld({ wallet: 8_000_000n });
-    await w.svc.purchase(USER, 1);
+    await w.activate(1);
     w.setPeriodEnd(new Date(Date.now() - 1000));
-    await w.svc.renewOne(USER, new Date(), false);
+    await w.svc.renew(USER);
     expect(w.frameUnlock()!.expiresAt!.getTime()).toBe(
       w.member.periodEndsAt.getTime() + 3 * DAY,
     );
@@ -357,7 +438,7 @@ describe('SvipService identity items', () => {
     expect(await code2(w.svc.updateItems(USER, { bubble: false }))).toBe(
       'NOT_ACTIVE',
     );
-    await w.svc.purchase(USER, 1);
+    await w.activate(1);
     const res = await w.svc.updateItems(USER, { bubble: false, frame: false });
     expect(res).toMatchObject({
       level: 1,
@@ -373,7 +454,7 @@ describe('SvipService identity items', () => {
 
   it('My Items lists both SVIP 1 bars and wears the one picked', async () => {
     const w = makeWorld({ wallet: 7_000_000n });
-    await w.svc.purchase(USER, 1);
+    await w.activate(1);
     expect(w.user.selectedEntryBarId).toBe(60n);
     const res = await w.svc.updateItems(USER, { entry_bar_id: 61 });
     expect(w.user.selectedEntryBarId).toBe(61n);
@@ -389,7 +470,7 @@ describe('SvipService identity items', () => {
 
   it('the pick survives switching the bar off / on and a renewal', async () => {
     const w = makeWorld({ wallet: 9_000_000n });
-    await w.svc.purchase(USER, 1);
+    await w.activate(1);
     await w.svc.updateItems(USER, { entry_bar_id: 61 });
     // Switch on while already wearing a level bar keeps it.
     await w.svc.updateItems(USER, { entry_bar: true });

@@ -13,6 +13,7 @@ type LevelInput = {
   level?: unknown;
   name?: unknown;
   purchase_price?: unknown;
+  recharge_inr?: unknown;
   monthly_reward?: unknown;
   is_active?: unknown;
   dice_refreshes?: unknown;
@@ -32,6 +33,14 @@ function str(raw: unknown): string {
     typeof raw === 'bigint'
     ? String(raw).trim()
     : '';
+}
+
+/** Rupees with up to 2 decimals; -1 = invalid. */
+function toInr(raw: unknown, fallback: number): number {
+  if (raw === undefined || raw === null || raw === '') return fallback;
+  const s = str(raw);
+  if (!/^\d{1,9}(\.\d{1,2})?$/.test(s)) return -1;
+  return Number(s);
 }
 
 function toBig(raw: unknown): bigint {
@@ -64,6 +73,7 @@ export class SvipAdminService {
         level: l.level,
         name: l.name,
         purchase_price: Number(l.purchasePrice),
+        recharge_inr: l.rechargeInr,
         monthly_reward: Number(l.monthlyReward),
         is_active: l.isActive,
         dice_refreshes: l.diceRefreshes,
@@ -88,6 +98,7 @@ export class SvipAdminService {
           level,
           name: str(r.name).slice(0, 64),
           purchasePrice: toBig(r.purchase_price),
+          rechargeInr: toInr(r.recharge_inr, Number(old.get(level)?.rechargeInr ?? 0)),
           monthlyReward: toBig(r.monthly_reward),
           isActive: r.is_active === true || r.is_active === 'true',
           diceRefreshes: toCount(
@@ -100,6 +111,9 @@ export class SvipAdminService {
           ),
         };
       });
+      const badInr = incoming.find((r) => r.rechargeInr < 0);
+      if (badInr)
+        this.invalid(`level ${badInr.level}: recharge amount must be rupees, up to 2 decimals`);
       const badCount = incoming.find(
         (r) => r.diceRefreshes < 0 || r.goldMineBonusDraws < 0,
       );
@@ -108,7 +122,10 @@ export class SvipAdminService {
           `level ${badCount.level}: re-rolls and bonus draws must be 0–20`,
         );
       const merged = new Map(
-        existing.map((l) => [l.level, l as (typeof incoming)[number]]),
+        existing.map((l) => [
+          l.level,
+          { ...l, rechargeInr: Number(l.rechargeInr) } as (typeof incoming)[number],
+        ]),
       );
       for (const r of incoming) merged.set(r.level, r);
       const err = validateLevelTable([...merged.values()]);
@@ -121,6 +138,7 @@ export class SvipAdminService {
             update: {
               name: r.name,
               purchasePrice: r.purchasePrice,
+              rechargeInr: r.rechargeInr,
               monthlyReward: r.monthlyReward,
               isActive: r.isActive,
               diceRefreshes: r.diceRefreshes,

@@ -43,13 +43,23 @@ WHERE s.status IN ('active', 'grace')
 ORDER BY s.period_ends_at
 LIMIT 100;
 
-\echo '4) Memberships with no purchase, upgrade or admin grant in the ledger'
+\echo '4) Memberships with no recharge, old coin purchase/upgrade or admin grant behind them'
 SELECT s.user_id, s.level, s.status
 FROM user_svips s
 WHERE NOT EXISTS (
   SELECT 1 FROM coin_transactions ct
   WHERE ct.user_id = s.user_id AND ct.type IN ('SVIP_PURCHASE', 'SVIP_UPGRADE', 'SVIP_ADMIN')
 )
+AND NOT EXISTS (SELECT 1 FROM svip_recharge_spends r WHERE r.user_id = s.user_id)
+LIMIT 100;
+
+\echo '4b) A recharge used for SVIP for more rupees than it was worth, or one that was not a paid Razorpay recharge'
+SELECT r.purchase_id, sum(r.amount_inr) AS used_inr, p.amount_minor / 100.0 AS paid, p.status, p.payment_source
+FROM svip_recharge_spends r
+JOIN coin_purchase_transactions p ON p.id = r.purchase_id
+GROUP BY r.purchase_id, p.amount_minor, p.status, p.payment_source
+HAVING p.status <> 'success' OR p.payment_source <> 'RAZORPAY'
+    OR sum(r.amount_inr) > COALESCE((SELECT c.base_price_inr FROM coin_packages c WHERE c.id = (SELECT package_id FROM coin_purchase_transactions WHERE id = r.purchase_id)), p.amount_minor / 100.0) + 0.01
 LIMIT 100;
 
 \echo '5) More than one monthly reward for the same IST month'

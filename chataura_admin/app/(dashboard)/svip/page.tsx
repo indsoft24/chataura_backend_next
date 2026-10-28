@@ -6,9 +6,10 @@ import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { EmptyRow, Field, Kpi, Modal, PageHeader, Pager, Section, SkeletonRows, Switch, Tabs, useConfirm } from '@/components/admin-ui';
 
 /**
- * SVIP — paid monthly status. Users buy a level with coins; every period a maintenance fee
- * (a % of the level price) renews it, with a grace window before it ends. Admins edit the
- * price ladder and rules, and can grant / revoke a membership (audited in the coin ledger).
+ * SVIP — monthly status earned by real-money recharge (a rupee amount per level, counted over a rolling
+ * window). Before a period ends the member renews with a maintenance fee in coins (a % of the level's fee base)
+ * or by recharging again; a grace window follows. Admins edit the ladder and rules, and can grant / revoke a
+ * membership (audited in the coin ledger).
  */
 
 type Settings = {
@@ -16,12 +17,15 @@ type Settings = {
   svip_maintenance_pct: number;
   svip_grace_days: number;
   svip_period_days: number;
+  svip_recharge_days: number;
+  svip_renew_days: number;
 };
 
 type ApiLevel = {
   level: number;
   name: string;
   purchase_price: number;
+  recharge_inr: number;
   monthly_reward: number;
   is_active: boolean;
   dice_refreshes: number;
@@ -33,6 +37,7 @@ type LevelRow = {
   level: number;
   name: string;
   purchase_price: string;
+  recharge_inr: string;
   monthly_reward: string;
   dice_refreshes: string;
   gold_mine_bonus_draws: string;
@@ -80,7 +85,7 @@ export default function SvipPage() {
       <style dangerouslySetInnerHTML={{ __html: SV_STYLES }} />
       <PageHeader
         title="SVIP"
-        subtitle="Users buy a level with coins. Each period a maintenance fee renews it automatically; if the wallet is short they keep SVIP through the grace days, then it ends."
+        subtitle="Users unlock a level by recharging real money (for example Rs 500 at once, or 5 x Rs 100 within the recharge window). Before the period ends they renew with the maintenance fee in coins or by recharging again; nothing is charged automatically."
       />
       <div className="ad-card sv-nav">
         <Tabs
@@ -112,6 +117,8 @@ function OverviewTab({ token, flash, confirm }: { token: string; flash: Flash; c
   const [pct, setPct] = useState('20');
   const [grace, setGrace] = useState('3');
   const [period, setPeriod] = useState('30');
+  const [rechargeDays, setRechargeDays] = useState('5');
+  const [renewDays, setRenewDays] = useState('5');
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -121,6 +128,8 @@ function OverviewTab({ token, flash, confirm }: { token: string; flash: Flash; c
     setPct(String(res.data.settings.svip_maintenance_pct));
     setGrace(String(res.data.settings.svip_grace_days));
     setPeriod(String(res.data.settings.svip_period_days));
+    setRechargeDays(String(res.data.settings.svip_recharge_days));
+    setRenewDays(String(res.data.settings.svip_renew_days));
   }, [token]);
 
   useEffect(() => {
@@ -138,6 +147,8 @@ function OverviewTab({ token, flash, confirm }: { token: string; flash: Flash; c
             svip_maintenance_pct: Number(pct),
             svip_grace_days: Number(grace),
             svip_period_days: Number(period),
+            svip_recharge_days: Number(rechargeDays),
+            svip_renew_days: Number(renewDays),
           },
         }),
       });
@@ -153,8 +164,8 @@ function OverviewTab({ token, flash, confirm }: { token: string; flash: Flash; c
   function save() {
     if (enabled && !data?.settings.svip_enabled) {
       confirm({
-        title: 'Open SVIP for purchase?',
-        message: 'Users can buy active levels from the SVIP Center right away.',
+        title: 'Open SVIP?',
+        message: 'Users who recharge the set amount unlock SVIP right away.',
         confirmLabel: 'Turn on',
         onConfirm: doSave,
       });
@@ -175,7 +186,7 @@ function OverviewTab({ token, flash, confirm }: { token: string; flash: Flash; c
     <>
       <div className="ad-kpis sv-kpis">
         <Kpi label="Members" value={fmt(members)} sub="Active + grace" tone="amber" />
-        <Kpi label="Levels on sale" value={`${forSale} / ${data.levels.length}`} />
+        <Kpi label="Levels unlockable" value={`${forSale} / ${data.levels.length}`} />
         <Kpi
           label={first ? `${first.name} maintenance` : 'Maintenance'}
           value={first ? fmt(Math.floor((first.purchase_price * Number(pct || 0)) / 100)) : '—'}
@@ -187,22 +198,28 @@ function OverviewTab({ token, flash, confirm }: { token: string; flash: Flash; c
         <div style={{ display: 'grid', gap: 16 }}>
           <div className="ad-toggle-row">
             <div>
-              <div className="ad-toggle-title">SVIP purchases</div>
+              <div className="ad-toggle-title">SVIP by recharge</div>
               <div className={`ad-toggle-hint ${enabled ? 'tone-green' : 'tone-red'}`}>
-                {enabled ? 'On — users can buy and upgrade' : 'Off — no new purchases (existing members keep renewing)'}
+                {enabled ? 'On — recharges unlock, upgrade and renew SVIP' : 'Off — recharges do nothing for SVIP (existing members keep their level until it ends)'}
               </div>
             </div>
-            <Switch label="SVIP purchases enabled" checked={enabled} onChange={setEnabled} />
+            <Switch label="SVIP by recharge enabled" checked={enabled} onChange={setEnabled} />
           </div>
           <div className="ad-form-grid is-2up">
-            <Field label="Maintenance fee" hint="Charged each period, as a % of the level's purchase price.">
+            <Field label="Maintenance fee" hint="Coins a member pays to renew by hand, as a % of the level's fee base.">
               <div className="ad-unit"><input type="number" min={0} max={100} value={pct} onChange={(e) => setPct(e.target.value)} /><span>%</span></div>
             </Field>
-            <Field label="Period" hint="Days one purchase or renewal lasts.">
+            <Field label="Period" hint="Days one unlock or renewal lasts.">
               <div className="ad-unit"><input type="number" min={1} max={365} value={period} onChange={(e) => setPeriod(e.target.value)} /><span>days</span></div>
             </Field>
-            <Field label="Grace" hint="Days SVIP stays on after a failed renewal. Retried hourly.">
+            <Field label="Grace" hint="Days SVIP stays on after the period ends, so the member can still renew.">
               <div className="ad-unit"><input type="number" min={0} max={30} value={grace} onChange={(e) => setGrace(e.target.value)} /><span>days</span></div>
+            </Field>
+            <Field label="Recharge window" hint="A recharge counts towards SVIP for this many days (e.g. 5 x Rs 100 inside 5 days).">
+              <div className="ad-unit"><input type="number" min={1} max={60} value={rechargeDays} onChange={(e) => setRechargeDays(e.target.value)} /><span>days</span></div>
+            </Field>
+            <Field label="Renew window" hint="Renewing early (coins or recharge) opens in the last this-many days of a period.">
+              <div className="ad-unit"><input type="number" min={0} max={30} value={renewDays} onChange={(e) => setRenewDays(e.target.value)} /><span>days</span></div>
             </Field>
           </div>
         </div>
@@ -230,6 +247,7 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
       c.levels.map((l) => ({
         ...l,
         purchase_price: String(l.purchase_price),
+        recharge_inr: String(l.recharge_inr),
         monthly_reward: String(l.monthly_reward),
         dice_refreshes: String(l.dice_refreshes),
         gold_mine_bonus_draws: String(l.gold_mine_bonus_draws),
@@ -262,6 +280,7 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
             level: r.level,
             name: r.name,
             purchase_price: r.purchase_price.trim(),
+            recharge_inr: r.recharge_inr.trim() || '0',
             monthly_reward: r.monthly_reward.trim(),
             dice_refreshes: r.dice_refreshes.trim(),
             gold_mine_bonus_draws: r.gold_mine_bonus_draws.trim(),
@@ -270,7 +289,7 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
         }),
       });
       apply(res.data);
-      flash(true, 'Levels saved. New prices apply to new purchases and the next renewal.');
+      flash(true, 'Levels saved. New recharge amounts apply to the next unlock; the maintenance fee applies to the next renewal.');
     } catch (e: any) {
       flash(false, `Save failed: ${e?.message ?? e}`);
     } finally {
@@ -281,7 +300,7 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
   function save() {
     confirm({
       title: 'Save SVIP levels?',
-      message: 'Members are charged the new maintenance fee at their next renewal. Turning a level off stops new sales only.',
+      message: 'Members pay the new maintenance fee at their next renewal. Turning a level off stops new unlocks only.',
       confirmLabel: 'Save levels',
       onConfirm: doSave,
     });
@@ -310,7 +329,7 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
       <div className="ad-card-head">
         <div>
           <h2>Levels</h2>
-          <p>Prices must rise level by level. Upgrade cost = new price − current price. Only turn a level on once its assets are live in the app.</p>
+          <p>Recharge amounts (rupees) must rise level by level; moving up needs the difference. Fee base only sets the coin maintenance fee. Only turn a level on once its assets are live in the app.</p>
         </div>
         <div className="ad-actions">
           <button type="button" className="ad-btn ad-btn-primary" onClick={save} disabled={busy || !dirty}>
@@ -324,20 +343,21 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
             <tr>
               <th className="ad-th">Level</th>
               <th className="ad-th">Name</th>
-              <th className="ad-th">Purchase price</th>
+              <th className="ad-th" title="Rupees of real-money recharge (inside the recharge window) that unlock this level. 0 = cannot be unlocked.">Recharge (Rs)</th>
+              <th className="ad-th" title="Coins. The maintenance fee is a % of this.">Fee base (coins)</th>
               <th className="ad-th">Monthly coins</th>
               <th className="ad-th" title="How many times one dice roll can be re-rolled (within 10 s)">Dice re-rolls</th>
               <th className="ad-th" title="Extra Daily Treasure draws per day while a Gold Mine runs">Mine bonus draws</th>
               <th className="ad-th ad-num">Maintenance ({pct}%)</th>
               <th className="ad-th ad-num">Members</th>
-              <th className="ad-th">On sale</th>
+              <th className="ad-th">Unlock on</th>
             </tr>
           </thead>
           <tbody>
             {!rows ? (
-              <SkeletonRows cols={9} rows={9} />
+              <SkeletonRows cols={10} rows={9} />
             ) : rows.length === 0 ? (
-              <EmptyRow cols={9} title="No levels" hint="Levels are created by the SVIP migration." />
+              <EmptyRow cols={10} title="No levels" hint="Levels are created by the SVIP migration." />
             ) : (
               rows.map((r, i) => (
                 <tr key={r.level} className={`ad-row ${r.is_active ? '' : 'is-off'}`}>
@@ -345,14 +365,23 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
                   <td className="ad-td sv-wide" data-label="Name">
                     <input className="sv-cell" value={r.name} maxLength={64} aria-label={`Level ${r.level} name`} onChange={(e) => update(i, { name: e.target.value })} />
                   </td>
-                  {num(i, 'purchase_price', r, 'Purchase price')}
+                  <td className="ad-td sv-wide" data-label="Recharge (Rs)">
+                    <input
+                      className="sv-cell"
+                      value={r.recharge_inr}
+                      inputMode="decimal"
+                      aria-label={`${r.name} recharge amount in rupees`}
+                      onChange={(e) => update(i, { recharge_inr: e.target.value.replace(/[^\d.]/g, '') })}
+                    />
+                  </td>
+                  {num(i, 'purchase_price', r, 'Fee base (coins)')}
                   {num(i, 'monthly_reward', r, 'Monthly coins')}
                   {num(i, 'dice_refreshes', r, 'Dice re-rolls', true)}
                   {num(i, 'gold_mine_bonus_draws', r, 'Mine bonus draws', true)}
                   <td className="ad-td ad-num" data-label="Maintenance">{fmt(Math.floor(((Number(r.purchase_price) || 0) * pct) / 100))}</td>
                   <td className="ad-td ad-num" data-label="Members">{r.members}</td>
                   <td className="ad-td" data-label="On sale">
-                    <Switch label={`${r.name} on sale`} checked={r.is_active} onChange={(v) => update(i, { is_active: v })} />
+                    <Switch label={`${r.name} unlock on`} checked={r.is_active} onChange={(v) => update(i, { is_active: v })} />
                   </td>
                 </tr>
               ))

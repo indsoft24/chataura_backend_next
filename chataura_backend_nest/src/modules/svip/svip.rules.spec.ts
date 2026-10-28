@@ -1,18 +1,23 @@
 import {
   effectiveLevel,
+  RechargeLot,
+  creditExpiresAt,
+  creditOf,
   maintenanceFee,
-  quotePurchase,
+  planUnlock,
+  rechargeInr,
   svipMonth,
   svipStatus,
+  takeCredit,
   validateLevelTable,
 } from './svip.rules';
 
 const DAY = 86_400_000;
 const now = new Date(Date.UTC(2026, 9, 25, 12, 0, 0));
 const levels = [
-  { level: 1, purchasePrice: 6_000_000n, isActive: true },
-  { level: 2, purchasePrice: 18_000_000n, isActive: true },
-  { level: 3, purchasePrice: 45_000_000n, isActive: false },
+  { level: 1, rechargeInr: 500, isActive: true },
+  { level: 2, rechargeInr: 1500, isActive: true },
+  { level: 3, rechargeInr: 4000, isActive: false },
 ];
 
 describe('svipMonth', () => {
@@ -60,49 +65,71 @@ describe('svipStatus / effectiveLevel', () => {
   });
 });
 
-describe('quotePurchase', () => {
-  it('charges full price to new and expired members', () => {
-    expect(quotePurchase('none', 0, 1, levels)).toEqual({
-      ok: true,
-      kind: 'buy',
-      cost: 6_000_000n,
-    });
-    expect(quotePurchase('expired', 2, 1, levels)).toEqual({
-      ok: true,
-      kind: 'buy',
-      cost: 6_000_000n,
-    });
+describe('recharge credit', () => {
+  const lot = (id: number, amountInr: number, daysAgo: number, spentInr = 0): RechargeLot => ({
+    purchaseId: BigInt(id),
+    createdAt: new Date(now.getTime() - daysAgo * DAY),
+    amountInr,
+    spentInr,
   });
 
-  it('charges the price difference on upgrade', () => {
-    expect(quotePurchase('active', 1, 2, levels)).toEqual({
-      ok: true,
-      kind: 'upgrade',
-      cost: 12_000_000n,
-    });
+  it('values a pack: base INR price first, INR amount otherwise, foreign money with no base counts for nothing', () => {
+    expect(rechargeInr({ amountMinor: 50000, currency: 'INR' })).toBe(500);
+    expect(rechargeInr({ amountMinor: 599, currency: 'USD', basePriceInr: 499 })).toBe(499);
+    expect(rechargeInr({ amountMinor: 599, currency: 'USD' })).toBe(0);
   });
 
-  it('rejects same level, downgrade, grace, unknown and off-sale levels', () => {
-    expect(quotePurchase('active', 1, 1, levels)).toEqual({
-      ok: false,
-      error: 'ALREADY_ACTIVE',
-    });
-    expect(quotePurchase('active', 2, 1, levels)).toEqual({
-      ok: false,
-      error: 'DOWNGRADE_NOT_ALLOWED',
-    });
-    expect(quotePurchase('grace', 1, 2, levels)).toEqual({
-      ok: false,
-      error: 'RENEW_FIRST',
-    });
-    expect(quotePurchase('none', 0, 7, levels)).toEqual({
-      ok: false,
-      error: 'LEVEL_NOT_FOUND',
-    });
-    expect(quotePurchase('none', 0, 3, levels)).toEqual({
-      ok: false,
-      error: 'LEVEL_NOT_FOR_SALE',
-    });
+  it('five recharges of 100 add up to 500', () => {
+    const lots = [1, 2, 3, 4, 5].map((i) => lot(i, 100, 5 - i));
+    expect(creditOf(lots)).toBe(500);
+  });
+
+  it('takes credit oldest first and leaves the rest of a partly used recharge', () => {
+    const lots = [lot(1, 300, 4), lot(2, 300, 1)];
+    expect(takeCredit(lots, 500)).toEqual([
+      { purchaseId: 1n, amountInr: 300 },
+      { purchaseId: 2n, amountInr: 200 },
+    ]);
+    expect(takeCredit(lots, 700)).toBeNull();
+    expect(creditOf([lot(1, 300, 4, 300), lot(2, 300, 1, 200)])).toBe(100);
+  });
+
+  it('credit runs out one window after the oldest unused recharge', () => {
+    const lots = [lot(1, 100, 4, 100), lot(2, 100, 3), lot(3, 100, 1)];
+    expect(creditExpiresAt(lots, 5)?.getTime()).toBe(now.getTime() + 2 * DAY);
+    expect(creditExpiresAt([lot(1, 100, 4, 100)], 5)).toBeNull();
+  });
+});
+
+describe('planUnlock', () => {
+  const end = (days: number) => new Date(now.getTime() + days * DAY);
+
+  it('no SVIP / ended: unlocks the highest level the credit reaches, for its full amount', () => {
+    expect(planUnlock('none', 0, null, now, 5, 500, levels)).toEqual({ kind: 'buy', level: 1, cost: 500 });
+    expect(planUnlock('none', 0, null, now, 5, 499, levels)).toBeNull();
+    expect(planUnlock('expired', 1, end(-10), now, 5, 1500, levels)).toEqual({ kind: 'buy', level: 2, cost: 1500 });
+    // off-sale level 3 is never unlocked
+    expect(planUnlock('none', 0, null, now, 5, 9000, levels)).toEqual({ kind: 'buy', level: 2, cost: 1500 });
+  });
+
+  it('active: upgrades for the difference first, else renews inside the renew window only', () => {
+    expect(planUnlock('active', 1, end(20), now, 5, 1000, levels)).toEqual({ kind: 'upgrade', level: 2, cost: 1000 });
+    expect(planUnlock('active', 1, end(20), now, 5, 999, levels)).toBeNull();
+    expect(planUnlock('active', 1, end(20), now, 5, 500, levels)).toBeNull(); // too early to renew
+    expect(planUnlock('active', 1, end(4), now, 5, 500, levels)).toEqual({ kind: 'renew', level: 1, cost: 500 });
+    expect(planUnlock('active', 2, end(1), now, 5, 1499, levels)).toBeNull();
+  });
+
+  it('grace: renews the current level, never moves up or down', () => {
+    expect(planUnlock('grace', 1, end(-1), now, 5, 500, levels)).toEqual({ kind: 'renew', level: 1, cost: 500 });
+    expect(planUnlock('grace', 1, end(-1), now, 5, 1500, levels)).toEqual({ kind: 'renew', level: 1, cost: 500 });
+    expect(planUnlock('grace', 2, end(-1), now, 5, 500, levels)).toBeNull();
+  });
+
+  it('a level with no recharge amount cannot be renewed by recharge', () => {
+    const lv = [{ level: 1, rechargeInr: 0, isActive: true }];
+    expect(planUnlock('grace', 1, end(-1), now, 5, 9999, lv)).toBeNull();
+    expect(planUnlock('none', 0, null, now, 5, 9999, lv)).toBeNull();
   });
 });
 
@@ -112,6 +139,7 @@ describe('validateLevelTable', () => {
     name: `SVIP ${level}`,
     purchasePrice: price,
     monthlyReward: 0n,
+    rechargeInr: Number(price) * 10,
   });
 
   it('accepts a rising ladder', () => {
@@ -125,5 +153,12 @@ describe('validateLevelTable', () => {
     expect(validateLevelTable([row(1, 10n), row(1, 20n)])).toMatch(/duplicate/);
     expect(validateLevelTable([row(10, 10n)])).toMatch(/invalid level/);
     expect(validateLevelTable([row(1, 0n)])).toMatch(/> 0/);
+    expect(
+      validateLevelTable([
+        { ...row(1, 10n), rechargeInr: 500 },
+        { ...row(2, 20n), rechargeInr: 500 },
+      ]),
+    ).toMatch(/bigger recharge/);
+    expect(validateLevelTable([{ ...row(1, 10n), rechargeInr: -1 }])).toMatch(/recharge amount/);
   });
 });

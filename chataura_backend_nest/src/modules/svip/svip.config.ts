@@ -3,7 +3,7 @@
  * Values are clamped here, so a bad admin entry can never break the feature.
  */
 export type SvipSettings = {
-  /** Master switch for new purchases. Ships OFF; existing members keep renewing either way. */
+  /** Master switch for unlocking SVIP by recharge. Ships OFF; existing members keep their level until it ends. */
   enabled: boolean;
   /** Monthly maintenance fee as a % of the level's purchase price. */
   maintenancePct: number;
@@ -11,6 +11,10 @@ export type SvipSettings = {
   graceDays: number;
   /** Length of one paid period. */
   periodDays: number;
+  /** A recharge counts towards SVIP for this many days. */
+  rechargeDays: number;
+  /** Renewing early (coins or recharge) is allowed in the last this-many days of a period. */
+  renewDays: number;
 };
 
 export const SVIP_SETTING_KEYS = {
@@ -18,6 +22,8 @@ export const SVIP_SETTING_KEYS = {
   maintenancePct: 'svip_maintenance_pct',
   graceDays: 'svip_grace_days',
   periodDays: 'svip_period_days',
+  rechargeDays: 'svip_recharge_days',
+  renewDays: 'svip_renew_days',
 } as const;
 
 export const SVIP_DEFAULTS: SvipSettings = {
@@ -25,6 +31,8 @@ export const SVIP_DEFAULTS: SvipSettings = {
   maintenancePct: 20,
   graceDays: 3,
   periodDays: 30,
+  rechargeDays: 5,
+  renewDays: 5,
 };
 
 function intIn(
@@ -74,6 +82,18 @@ export function readSvipSettings(
       1,
       365,
     ),
+    rechargeDays: intIn(
+      e[SVIP_SETTING_KEYS.rechargeDays],
+      SVIP_DEFAULTS.rechargeDays,
+      1,
+      60,
+    ),
+    renewDays: intIn(
+      e[SVIP_SETTING_KEYS.renewDays],
+      SVIP_DEFAULTS.renewDays,
+      0,
+      30,
+    ),
   };
 }
 
@@ -84,5 +104,7 @@ export function svipSettingsForApi(s: SvipSettings) {
     [SVIP_SETTING_KEYS.maintenancePct]: s.maintenancePct,
     [SVIP_SETTING_KEYS.graceDays]: s.graceDays,
     [SVIP_SETTING_KEYS.periodDays]: s.periodDays,
+    [SVIP_SETTING_KEYS.rechargeDays]: s.rechargeDays,
+    [SVIP_SETTING_KEYS.renewDays]: s.renewDays,
   };
 }

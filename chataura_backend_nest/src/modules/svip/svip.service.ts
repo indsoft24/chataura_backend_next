@@ -15,11 +15,17 @@ import {
   Membership,
   addDays,
   effectiveLevel,
+  RechargeLot,
+  creditExpiresAt,
+  creditOf,
   graceEndsAt,
+  inRenewWindow,
   maintenanceFee,
-  quotePurchase,
+  planUnlock,
+  rechargeInr,
   svipMonth,
   svipStatus,
+  takeCredit,
 } from './svip.rules';
 
 type Tx = Prisma.TransactionClient;
@@ -28,6 +34,8 @@ export type SvipLevel = {
   level: number;
   name: string;
   purchasePrice: bigint;
+  /** Rupees of recharge that unlock this level (0 = cannot be unlocked). */
+  rechargeInr: number;
   monthlyReward: bigint;
   isActive: boolean;
   diceRefreshes: number;
@@ -53,8 +61,6 @@ export const SVIP_LEDGER_TYPES = [
 const CONFIG_TTL_MS = 30_000;
 const ALL_ITEMS_ON = { bubbleOn: true, roomCardOn: true, micWaveOn: true };
 const RENEW_BATCH = 200;
-/** A member in grace is retried once per cron run (hourly). */
-const RETRY_AFTER_MS = 55 * 60_000;
 
 /** Each level's frame is the frames row with this slug. */
 export function svipFrameSlug(level: number) {
@@ -64,14 +70,6 @@ export function svipFrameSlug(level: number) {
 function svipError(code: string, message: string): never {
   throw new BadRequestException({ success: false, error: { code, message } });
 }
-
-const PURCHASE_ERRORS: Record<string, string> = {
-  LEVEL_NOT_FOUND: 'SVIP level not found',
-  LEVEL_NOT_FOR_SALE: 'This SVIP level is not available yet',
-  ALREADY_ACTIVE: 'You already have this SVIP level',
-  DOWNGRADE_NOT_ALLOWED: 'You can only move to a higher SVIP level',
-  RENEW_FIRST: 'Renew your current SVIP before changing level',
-};
 
 @Injectable()
 export class SvipService {
@@ -103,7 +101,7 @@ export class SvipService {
       settings: readSvipSettings(
         row?.extraSettings as Record<string, unknown> | null,
       ),
-      levels,
+      levels: levels.map((l) => ({ ...l, rechargeInr: Number(l.rechargeInr) })),
     };
     return this.cache;
   }
@@ -135,6 +133,10 @@ export class SvipService {
   }
 
   async center(userId: bigint) {
+    // A recharge that just went through shows up straight away, without waiting for the minute sweep.
+    await this.syncFromRecharges(userId).catch((e) =>
+      this.logger.warn(`recharge sync(${userId}) failed: ${String(e)}`),
+    );
     const now = new Date();
     const month = svipMonth(now);
     const [{ settings, levels }, m, user, points, claim] = await Promise.all([
@@ -158,6 +160,13 @@ export class SvipService {
     const fee = current
       ? maintenanceFee(current.purchasePrice, settings.maintenancePct)
       : 0n;
+    const lots = await this.rechargeLots(this.prisma, userId, now, settings.rechargeDays);
+    const credit = creditOf(lots);
+    const curCost = current && current.rechargeInr > 0 ? current.rechargeInr : 0;
+    const renewOpen =
+      !!m &&
+      level > 0 &&
+      (status === 'grace' || inRenewWindow(m.periodEndsAt, now, settings.renewDays));
 
     return {
       enabled: settings.enabled,
@@ -173,6 +182,15 @@ export class SvipService {
             ? graceEndsAt(m.periodEndsAt, settings.graceDays).toISOString()
             : null,
         maintenance_fee: Number(fee),
+        // Renewing with coins (the fee above) or with a recharge of this level's amount.
+        can_renew: renewOpen,
+        renew_recharge_inr: curCost,
+        renew_opens_at:
+          m && level > 0 && status === 'active'
+            ? new Date(m.periodEndsAt.getTime() - settings.renewDays * 86_400_000).toISOString()
+            : null,
+        recharge_credit_inr: credit,
+        recharge_credit_expires_at: creditExpiresAt(lots, settings.rechargeDays)?.toISOString() ?? null,
         points_this_month: Number(points?.points ?? 0n),
         monthly_reward: {
           month,
@@ -185,11 +203,19 @@ export class SvipService {
         },
       },
       levels: levels.map((l) => {
-        const q = quotePurchase(status, level, l.level, levels);
+        // What this level still needs: the full amount, or the difference when moving up.
+        const unlockable = l.isActive && l.rechargeInr > 0;
+        const kind =
+          l.level === level
+            ? 'current'
+            : !unlockable || l.level < level
+              ? 'unavailable'
+              : level === 0 || status === 'expired' ? 'unlock' : status === 'grace' ? 'renew_first' : 'upgrade';
+        const cost = kind === 'unlock' ? l.rechargeInr : kind === 'upgrade' ? Math.max(0, l.rechargeInr - curCost) : 0;
         return {
           level: l.level,
           name: l.name,
-          purchase_price: Number(l.purchasePrice),
+          recharge_inr: l.rechargeInr,
           monthly_reward: Number(l.monthlyReward),
           dice_refreshes: l.diceRefreshes,
           gold_mine_bonus_draws: l.goldMineBonusDraws,
@@ -197,84 +223,106 @@ export class SvipService {
             maintenanceFee(l.purchasePrice, settings.maintenancePct),
           ),
           for_sale: l.isActive,
-          action: l.level === level ? 'current' : q.ok ? q.kind : 'unavailable',
-          cost: q.ok ? Number(q.cost) : null,
+          action: kind,
+          need_inr: kind === 'unlock' || kind === 'upgrade' ? Math.max(0, Math.round((cost - credit) * 100) / 100) : 0,
         };
       }),
     };
   }
 
-  /** Buy a level (new / expired member) or upgrade (active member pays the difference). */
-  async purchase(userId: bigint, targetLevel: number) {
+  /** Paid recharges of the last `days` days with how much of each is already used. Real money only. */
+  private async rechargeLots(db: Tx | PrismaService, userId: bigint, now: Date, days: number): Promise<RechargeLot[]> {
+    const since = new Date(now.getTime() - days * 86_400_000);
+    const rows = await db.coinPurchaseTransaction.findMany({
+      where: { userId, status: 'success', paymentSource: 'RAZORPAY', createdAt: { gte: since } },
+      select: { id: true, createdAt: true, amountMinor: true, currency: true, package: { select: { basePriceInr: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (rows.length === 0) return [];
+    const spent = await db.svipRechargeSpend.groupBy({
+      by: ['purchaseId'],
+      where: { purchaseId: { in: rows.map((r) => r.id) } },
+      _sum: { amountInr: true },
+    });
+    const used = new Map(spent.map((x) => [x.purchaseId, Number(x._sum.amountInr ?? 0)]));
+    return rows.map((r) => ({
+      purchaseId: r.id,
+      createdAt: r.createdAt,
+      amountInr: rechargeInr({
+        amountMinor: r.amountMinor,
+        currency: r.currency,
+        basePriceInr: r.package?.basePriceInr != null ? Number(r.package.basePriceInr) : null,
+      }),
+      spentInr: used.get(r.id) ?? 0,
+    }));
+  }
+
+  /**
+   * Turns unused recharge credit into SVIP: unlocks a level, upgrades, or renews (see `planUnlock`).
+   * Idempotent: every rupee used is recorded against its recharge, so nothing is counted twice.
+   */
+  async syncFromRecharges(userId: bigint): Promise<boolean> {
     const { settings, levels } = await this.config();
-    if (!settings.enabled)
-      svipError('SVIP_DISABLED', 'SVIP is not available right now');
-    if (!Number.isInteger(targetLevel))
-      svipError('VALIDATION_ERROR', 'level is required');
+    if (!settings.enabled) return false;
+    let changed = false;
+    const notes: Array<{ title: string; body: string }> = [];
 
     await this.prisma.$transaction(async (tx) => {
       await this.lockMember(tx, userId);
-      const now = new Date();
-      const m = await tx.userSvip.findUnique({ where: { userId } });
-      const status = svipStatus(m, now, settings.graceDays);
-      const q = quotePurchase(
-        status,
-        effectiveLevel(m, now, settings.graceDays),
-        targetLevel,
-        levels,
-      );
-      if (!q.ok) svipError(q.error, PURCHASE_ERRORS[q.error]);
+      for (let step = 0; step < 5; step++) {
+        const now = new Date();
+        const m = await tx.userSvip.findUnique({ where: { userId } });
+        const lots = await this.rechargeLots(tx, userId, now, settings.rechargeDays);
+        const status = svipStatus(m, now, settings.graceDays);
+        const plan = planUnlock(
+          status,
+          m?.level ?? 0,
+          m?.periodEndsAt ?? null,
+          now,
+          settings.renewDays,
+          creditOf(lots),
+          levels,
+        );
+        if (!plan) break;
+        const spends = takeCredit(lots, plan.cost);
+        if (!spends) break;
 
-      const type = q.kind === 'buy' ? 'SVIP_PURCHASE' : 'SVIP_UPGRADE';
-      if (q.cost > 0n) {
-        try {
-          await this.debit(
-            tx,
-            userId,
-            q.cost,
-            type,
-            `SVIP ${targetLevel} ${q.kind}`,
-            {
-              ref: `svip_${q.kind}_${userId}_L${targetLevel}_${m?.updatedAt.getTime() ?? 0}`,
-              meta: { level: targetLevel, from_level: m?.level ?? 0 },
-            },
-          );
-        } catch (e) {
-          if ((e as { code?: string }).code === 'INSUFFICIENT_BALANCE') {
-            svipError('INSUFFICIENT_BALANCE', 'Insufficient coin balance');
-          }
-          throw e;
-        }
+        // Late renewals continue from the old end, so grace days are never free extra days.
+        const periodEndsAt =
+          plan.kind === 'buy'
+            ? addDays(now, settings.periodDays)
+            : plan.kind === 'renew'
+              ? addDays(m!.periodEndsAt, settings.periodDays)
+              : m!.periodEndsAt;
+        const data = {
+          level: plan.level,
+          status: 'active',
+          periodStartsAt: plan.kind === 'buy' ? now : plan.kind === 'renew' ? m!.periodEndsAt : m!.periodStartsAt,
+          periodEndsAt,
+          lastChargeAttemptAt: null,
+          // A new membership wears everything; an upgrade or renewal keeps the choices.
+          ...(plan.kind === 'buy' ? ALL_ITEMS_ON : {}),
+        };
+        await tx.userSvip.upsert({ where: { userId }, create: { userId, ...data }, update: data });
+        await this.grantItems(tx, userId, plan.level, graceEndsAt(periodEndsAt, settings.graceDays), plan.kind === 'buy');
+        for (const sp of spends)
+          await tx.svipRechargeSpend.create({
+            data: { userId, purchaseId: sp.purchaseId, amountInr: sp.amountInr, level: plan.level, kind: plan.kind },
+          });
+        notes.push({
+          title: plan.kind === 'buy' ? `SVIP ${plan.level} unlocked` : plan.kind === 'upgrade' ? `Upgraded to SVIP ${plan.level}` : 'SVIP renewed',
+          body:
+            plan.kind === 'renew'
+              ? `Your SVIP ${plan.level} is renewed for ${settings.periodDays} days.`
+              : `Your recharge unlocked SVIP ${plan.level} for ${settings.periodDays} days.`,
+        });
+        changed = true;
       }
-      // An upgrade keeps the current period: the next maintenance fee (at the new level) is still
-      // due on the same date, so upgrading can't be used to skip a renewal.
-      const upgrade = q.kind === 'upgrade' && m;
-      const periodEndsAt = upgrade
-        ? m.periodEndsAt
-        : addDays(now, settings.periodDays);
-      const data = {
-        level: targetLevel,
-        status: 'active',
-        periodStartsAt: upgrade ? m.periodStartsAt : now,
-        periodEndsAt,
-        lastChargeAttemptAt: null,
-        // A new membership wears everything ("automatically worn"); an upgrade keeps the choices.
-        ...(q.kind === 'buy' ? ALL_ITEMS_ON : {}),
-      };
-      await tx.userSvip.upsert({
-        where: { userId },
-        create: { userId, ...data },
-        update: data,
-      });
-      await this.grantItems(
-        tx,
-        userId,
-        targetLevel,
-        graceEndsAt(periodEndsAt, settings.graceDays),
-        true,
-      );
     });
-    return this.center(userId);
+
+    for (const n of notes)
+      await this.fcm.sendUserNotification({ userId, ...n, data: { type: 'svip', outcome: 'recharge' } });
+    return changed;
   }
 
   /** Pay the maintenance fee now (member in grace who topped up). */
@@ -285,7 +333,7 @@ export class SvipService {
     if (outcome === 'expired' || outcome === 'none')
       svipError(
         'SVIP_EXPIRED',
-        'Your SVIP has ended. Buy a level to join again',
+        'Your SVIP has ended. Recharge to unlock it again',
       );
     if (outcome === 'insufficient')
       svipError('INSUFFICIENT_BALANCE', 'Insufficient coin balance');
@@ -355,35 +403,63 @@ export class SvipService {
     };
   }
 
-  /** Renewals: charge members whose period ended; expire those past grace. */
+  /** Ends memberships that are past grace. Nothing is charged automatically any more. */
   @Cron('5 * * * *')
   async processRenewals() {
     try {
+      const { settings } = await this.config();
       const now = new Date();
-      const due = await this.prisma.userSvip.findMany({
+      const ended = await this.prisma.userSvip.findMany({
         where: {
-          status: { in: ['active', 'grace'] },
-          periodEndsAt: { lte: now },
-          OR: [
-            { lastChargeAttemptAt: null },
-            {
-              lastChargeAttemptAt: {
-                lt: new Date(now.getTime() - RETRY_AFTER_MS),
-              },
-            },
-          ],
+          status: { not: 'expired' },
+          periodEndsAt: { lte: addDays(now, -settings.graceDays) },
         },
         select: { userId: true },
         orderBy: { periodEndsAt: 'asc' },
         take: RENEW_BATCH,
       });
-      for (const { userId } of due) {
+      for (const { userId } of ended) {
         await this.renewOne(userId, now, false).catch((e) =>
-          this.logger.warn(`renew(${userId}) failed: ${String(e)}`),
+          this.logger.warn(`expire(${userId}) failed: ${String(e)}`),
         );
       }
+      // Recharge credit may now pay for a renewal (members near the end of their period, or in grace).
+      const near = await this.prisma.userSvip.findMany({
+        where: {
+          status: { in: ['active', 'grace'] },
+          periodEndsAt: { lte: addDays(now, settings.renewDays) },
+        },
+        select: { userId: true },
+        take: RENEW_BATCH,
+      });
+      for (const { userId } of near)
+        await this.syncFromRecharges(userId).catch((e) =>
+          this.logger.warn(`recharge sync(${userId}) failed: ${String(e)}`),
+        );
     } catch (e) {
-      this.logger.warn(`SVIP renewal sweep failed: ${String(e)}`);
+      this.logger.warn(`SVIP sweep failed: ${String(e)}`);
+    }
+  }
+
+  /** Every minute: users whose recharge just went through get their SVIP. */
+  @Cron('* * * * *')
+  async processRecharges() {
+    try {
+      const { settings } = await this.config();
+      if (!settings.enabled) return;
+      const since = new Date(Date.now() - 3 * 60_000);
+      const rows = await this.prisma.coinPurchaseTransaction.findMany({
+        where: { status: 'success', paymentSource: 'RAZORPAY', updatedAt: { gte: since } },
+        select: { userId: true },
+        distinct: ['userId'],
+        take: RENEW_BATCH,
+      });
+      for (const { userId } of rows)
+        await this.syncFromRecharges(userId).catch((e) =>
+          this.logger.warn(`recharge sync(${userId}) failed: ${String(e)}`),
+        );
+    } catch (e) {
+      this.logger.warn(`SVIP recharge sweep failed: ${String(e)}`);
     }
   }
 
@@ -404,7 +480,14 @@ export class SvipService {
       const m = await tx.userSvip.findUnique({ where: { userId } });
       if (!m) return 'none' as const;
       const status = svipStatus(m, now, settings.graceDays);
-      if (status === 'active') return 'not_due' as const;
+      // Nothing is ever charged automatically. Active members may renew by hand in the last days of the
+      // period; members in grace may renew by hand any time.
+      if (
+        (status === 'active' || status === 'grace') &&
+        (!manual ||
+          (status === 'active' && !inRenewWindow(m.periodEndsAt, now, settings.renewDays)))
+      )
+        return 'not_due' as const;
       if (status === 'expired' || status === 'none') {
         if (m.status !== 'expired') {
           await tx.userSvip.update({
@@ -414,7 +497,7 @@ export class SvipService {
           await this.revokeItems(tx, userId);
           notify = {
             title: 'SVIP ended',
-            body: `Your SVIP ${m.level} has ended. Buy a level any time to join again.`,
+            body: `Your SVIP ${m.level} has ended. Recharge to unlock it again.`,
           };
         }
         return 'expired' as const;

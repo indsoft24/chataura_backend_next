@@ -34,14 +34,6 @@ export class SvipController {
     return this.svip.center(user.id);
   }
 
-  @Post('purchase')
-  purchase(
-    @CurrentUser() user: AuthUser,
-    @Body() body: { level?: number | string },
-  ) {
-    return this.svip.purchase(user.id, Number(body?.level));
-  }
-
   @Post('renew')
   renew(@CurrentUser() user: AuthUser) {
     return this.svip.renew(user.id);
