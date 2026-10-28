@@ -24,6 +24,7 @@ const MENU_GROUPS = [
       { name: 'SVIP', href: '/svip' },
       { name: 'Gold Mine', href: '/gold-mine' },
       { name: 'Musical Chair', href: '/musical-chair' },
+      { name: 'Battle', href: '/battle' },
     ]
   },
   {
