@@ -44,4 +44,27 @@ run('slot money flow (real DB)', () => {
     expect(await wallet()).toBe(5_000n);
     expect((await svc.state(uid)).today_win).toBeGreaterThanOrEqual(0);
   });
+
+  it('refuses bad bets and bad admin settings', async () => {
+    await sleep(800);
+    for (const bad of ['10000', '0x2710', ' 10000', 10000.5, -10000, null, {}, [10000]])
+      await expect(svc.spin(uid, bad, randomUUID())).rejects.toBeTruthy();
+    for (const patch of [
+      { slot_rtp_preset: 99 },
+      { slot_rtp_preset: '97' },
+      { slot_bet_levels: [] },
+      { slot_bet_levels: [7] },
+      { slot_bet_levels: [50_000, 10_000] },
+      { slot_bet_levels: [5, 10, 15, 20, 25, 30, 35, 40, 45] },
+      { slot_bet_levels: ['10000'] },
+      { slot_big_win_x: 0 },
+      { slot_big_win_x: 5000 },
+      { slot_big_win_x: 1.5 },
+    ])
+      await expect(svc.updateSettings(patch, uid)).rejects.toBeTruthy();
+    const ok = await svc.updateSettings({ slot_rtp_preset: 96, slot_big_win_x: 20 }, uid);
+    expect(ok.slot_rtp_preset).toBe(96);
+    expect(ok.slot_enabled).toBe(true); // a partial update keeps the other values
+    await svc.updateSettings({ slot_rtp_preset: 94, slot_big_win_x: 10 }, uid);
+  });
 });

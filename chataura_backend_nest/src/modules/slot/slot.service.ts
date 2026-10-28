@@ -99,7 +99,8 @@ export class SlotService {
   async spin(userId: bigint, betRaw: unknown, requestId: unknown) {
     const settings = await this.settings();
     if (!settings.enabled) fail('DISABLED', 'Lucky Slots is not available yet');
-    const bet = Number(betRaw);
+    // A number only: strings like '0x2710' or ' 10000' must not be coerced into a valid bet.
+    const bet = typeof betRaw === 'number' ? betRaw : NaN;
     if (!settings.betLevels.includes(bet)) fail('BAD_BET', 'Choose one of the bet levels');
     if (typeof requestId !== 'string' || !UUID_RE.test(requestId)) fail('BAD_REQUEST', 'request_id must be a uuid');
     const id = requestId.toLowerCase();
