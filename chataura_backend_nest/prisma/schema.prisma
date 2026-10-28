@@ -653,8 +653,9 @@ model Room {
   rewardProgress   RoomRewardProgress?
   rewardGifting    RoomRewardGifting[]
 
-  diceRolls DiceRoll[]
+  diceRolls            DiceRoll[]
   musicalChairSessions MusicalChairSession[]
+  battles              RoomBattle[]
 
   @@index([isLive, lastActivityAt])
   @@index([ownerId])
@@ -1896,4 +1897,47 @@ model MusicalChairSession {
 
   @@index([roomId])
   @@map("musical_chair_sessions")
+}
+
+/// Room gifting battle: seats split into a red (left) and blue (right) team, higher gift total at endsAt wins.
+model RoomBattle {
+  id           BigInt    @id @default(autoincrement())
+  roomId       String    @map("room_id") @db.Uuid
+  initiatorId  BigInt    @map("initiator_id")
+  /// live | won | draw | cancelled
+  status       String    @default("live") @db.VarChar(10)
+  winnerSide   String?   @map("winner_side") @db.VarChar(4)
+  redTotal     BigInt    @default(0) @map("red_total")
+  blueTotal    BigInt    @default(0) @map("blue_total")
+  /// Admin percentages copied at start, so a later settings change never alters a live battle.
+  winnerPct    Float     @map("winner_pct")
+  initiatorPct Float     @map("initiator_pct")
+  version      Int       @default(1)
+  startedAt    DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  endsAt       DateTime  @map("ends_at") @db.Timestamptz(6)
+  endedAt      DateTime? @map("ended_at") @db.Timestamptz(6)
+  /// Set once every payout row has been credited to the wallets.
+  paidAt       DateTime? @map("paid_at") @db.Timestamptz(6)
+
+  room    Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  payouts BattlePayout[]
+
+  @@index([roomId])
+  @@index([status, endsAt])
+  @@map("room_battles")
+}
+
+model BattlePayout {
+  id        BigInt   @id @default(autoincrement())
+  battleId  BigInt   @map("battle_id")
+  userId    BigInt   @map("user_id")
+  /// winner | initiator
+  role      String   @db.VarChar(10)
+  amount    BigInt
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  battle RoomBattle @relation(fields: [battleId], references: [id], onDelete: Cascade)
+
+  @@unique([battleId, userId, role])
+  @@map("battle_payouts")
 }

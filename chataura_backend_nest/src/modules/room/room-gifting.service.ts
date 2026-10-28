@@ -23,6 +23,7 @@ import { GiftBroadcastService, resolveGiftVisualTier } from './gift-broadcast.se
 import { RedisService } from '../../common/redis/redis.service';
 import { RealtimeService } from '../../common/fcm/realtime.service';
 import { buildServerGiftCommand } from './server-gift-event';
+import { BattleService } from '../battle/battle.service';
 import { RoomRewardService } from './room-reward/room-reward.service';
 
 @Injectable()
@@ -38,6 +39,7 @@ export class RoomGiftingService {
     private readonly redis: RedisService,
     private readonly realtime: RealtimeService,
     private readonly rewards: RoomRewardService,
+    private readonly battle: BattleService,
   ) {}
 
   /**
@@ -246,6 +248,7 @@ export class RoomGiftingService {
 
     let result;
     let rewardRecorded = false;
+    let battleScored = false;
     try {
       result = await this.prisma.$transaction(async (tx) => {
       try {
@@ -328,6 +331,10 @@ export class RoomGiftingService {
           coins: cost,
           category: gift.category,
         });
+        battleScored = await this.battle.recordGiftTx(tx, {
+          roomId: room.id,
+          gifts: [{ receiverId, coins: cost }],
+        });
         return {
           transaction_id: ref,
           gift_id: Number(gift.id),
@@ -387,6 +394,7 @@ export class RoomGiftingService {
     const idempotencyKey = `gift_idem:${result.transaction_id}`;
     const isNew = await redisClient.set(idempotencyKey, '1', 'EX', 30, 'NX');
     if (!isNew) {
+      if (battleScored) void this.battle.announceScore(room.id);
       if (rewardRecorded) this.rewards.evaluateSoon(room.id);
       return { ...result, agency_cashback: agency.agency_cashback, rocket: null };
     }
@@ -414,6 +422,7 @@ export class RoomGiftingService {
       [receiverId],
       quantity,
     );
+    if (battleScored) void this.battle.announceScore(room.id);
     if (rewardRecorded) this.rewards.evaluateSoon(room.id);
     const rocket =
       gift.category === 'cp' || gift.category === 'bcp'
@@ -518,6 +527,7 @@ export class RoomGiftingService {
 
     let result;
     let rewardRecorded = false;
+    let battleScored = false;
     try {
       result = await this.prisma.$transaction(async (tx) => {
       try {
@@ -636,6 +646,10 @@ export class RoomGiftingService {
           coins: perCost * BigInt(txIds.length),
           category: gift.category,
         });
+        battleScored = await this.battle.recordGiftTx(tx, {
+          roomId: room.id,
+          gifts: eligibleIds.map((receiverId) => ({ receiverId, coins: perCost })),
+        });
 
         return {
           transaction_ids: txIds,
@@ -712,6 +726,7 @@ export class RoomGiftingService {
       eligibleIds,
       quantity,
     );
+    if (battleScored) void this.battle.announceScore(room.id);
     if (rewardRecorded) this.rewards.evaluateSoon(room.id);
     const agency = await resolveAgencyRoomMeta(
       this.prisma,

@@ -31,6 +31,7 @@ import { RewardsModule } from './modules/rewards/rewards.module';
 import { SvipModule } from './modules/svip/svip.module';
 import { MedalModule } from './modules/medal/medal.module';
 import { DiceModule } from './modules/dice/dice.module';
+import { BattleModule } from './modules/battle/battle.module';
 import { MusicalChairModule } from './modules/musical-chair/musical-chair.module';
 import { GoldMineModule } from './modules/gold-mine/gold-mine.module';
 
@@ -69,6 +70,7 @@ import { GoldMineModule } from './modules/gold-mine/gold-mine.module';
     MedalModule,
     DiceModule,
     MusicalChairModule,
+    BattleModule,
     GoldMineModule,
   ],
   controllers: [HealthController],
