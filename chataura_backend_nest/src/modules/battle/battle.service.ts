@@ -107,7 +107,24 @@ export class BattleService {
       min_minutes: settings.minMinutes,
       max_minutes: settings.maxMinutes,
       battle: live ? battleEvent(live, 'score') : null,
+      // Just finished (phones that missed the room event, or whose countdown hit zero first).
+      last_ended: live ? null : await this.lastEnded(roomId),
     };
+  }
+
+  private async lastEnded(roomId: string) {
+    const b = await this.prisma.roomBattle.findFirst({
+      where: {
+        roomId,
+        status: { in: ['won', 'draw', 'cancelled'] },
+        endedAt: { gt: new Date(Date.now() - 5 * 60_000) },
+      },
+      orderBy: { endedAt: 'desc' },
+      include: { payouts: true },
+    });
+    return b
+      ? battleEvent(b, 'ended', b.payouts.map((p) => ({ userId: p.userId, role: p.role as Payout['role'], amount: p.amount })))
+      : null;
   }
 
   async start(userId: bigint, roomRef: string, minutes: unknown) {
