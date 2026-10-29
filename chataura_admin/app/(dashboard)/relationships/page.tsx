@@ -383,33 +383,33 @@ export default function RelationshipsAdminPage() {
   const selectedType = types.find((t) => t.code === form.code);
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <style dangerouslySetInnerHTML={{ __html: REL_STYLES }} />
 
-      <div className="ad-header">
+      <div className="cp-header">
         <div>
           <h1>Relationships (CP / BCP)</h1>
           <p>Configure relationship types and decide which gifts count towards them, and how many points each gift is worth.</p>
         </div>
-        <div className="ad-header-actions">
-          <button type="button" className="ad-btn ad-btn-ghost ad-btn-lg" onClick={() => void load(form.code)} disabled={loading}>
+        <div className="cp-header-actions">
+          <button type="button" className="cp-btn cp-btn-ghost cp-btn-lg" onClick={() => void load(form.code)} disabled={loading}>
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
-          <button type="button" className="ad-btn ad-btn-ghost ad-btn-lg" onClick={askEnsureDefaults}>Ensure CP/BCP defaults</button>
-          <button type="button" className="ad-btn ad-btn-primary ad-btn-lg" onClick={askSync}>Sync rules from gift categories</button>
+          <button type="button" className="cp-btn cp-btn-ghost cp-btn-lg" onClick={askEnsureDefaults}>Ensure CP/BCP defaults</button>
+          <button type="button" className="cp-btn cp-btn-primary cp-btn-lg" onClick={askSync}>Sync rules from gift categories</button>
         </div>
       </div>
 
       {loadError && (
-        <div className="ad-alert" style={{ margin: '0 0 16px' }}>
+        <div className="cp-alert" style={{ margin: '0 0 16px' }}>
           {loadError}
-          <button type="button" className="ad-btn ad-btn-ghost" onClick={() => void load(form.code)}>Retry</button>
+          <button type="button" className="cp-btn cp-btn-ghost" onClick={() => void load(form.code)}>Retry</button>
         </div>
       )}
 
       <div className="rel-types">
         {loading && types.length === 0
-          ? [0, 1].map((i) => <div key={i} className="ad-skeleton" style={{ height: 150 }} />)
+          ? [0, 1].map((i) => <div key={i} className="cp-skeleton" style={{ height: 150 }} />)
           : types.map((t) => {
               const active = t.code === form.code;
               const color = typeColor(t);
@@ -419,9 +419,9 @@ export default function RelationshipsAdminPage() {
                     <span className="rel-swatch" style={{ background: color }} />
                     <div style={{ minWidth: 0, textAlign: 'left' }}>
                       <div className="rel-type-name">{t.name}</div>
-                      <div className="ad-sub">Code: {t.code}</div>
+                      <div className="cp-sub">Code: {t.code}</div>
                     </div>
-                    <span className={`ad-badge ${t.enabled ? 'green' : 'gray'}`} style={{ marginLeft: 'auto' }}>{t.enabled ? 'Enabled' : 'Disabled'}</span>
+                    <span className={`cp-badge ${t.enabled ? 'green' : 'gray'}`} style={{ marginLeft: 'auto' }}>{t.enabled ? 'Enabled' : 'Disabled'}</span>
                   </div>
                   <div className="rel-type-stats">
                     <div><span>Levels</span><strong>{t.levels_enabled ? 'On' : 'Off'}</strong></div>
@@ -437,8 +437,8 @@ export default function RelationshipsAdminPage() {
             })}
       </div>
 
-      <div className="ad-card">
-        <div className="ad-card-head">
+      <div className="cp-card">
+        <div className="cp-card-head">
           <div>
             <h2>
               Edit type: <span style={{ color: form.color }}>{form.name || form.code.toUpperCase()}</span>
@@ -450,23 +450,23 @@ export default function RelationshipsAdminPage() {
               Changes apply to the app as soon as you save.
             </p>
           </div>
-          <div className="ad-actions">
-            {formDirty && <span className="ad-badge amber">Unsaved changes</span>}
+          <div className="cp-actions">
+            {formDirty && <span className="cp-badge amber">Unsaved changes</span>}
             <button
               type="button"
-              className="ad-btn ad-btn-ghost ad-btn-lg"
+              className="cp-btn cp-btn-ghost cp-btn-lg"
               disabled={!formDirty || savingType}
               onClick={() => setForm(savedForm)}
             >
               Discard
             </button>
-            <button type="button" className="ad-btn ad-btn-primary ad-btn-lg" disabled={!formDirty || savingType} onClick={() => void saveType()}>
+            <button type="button" className="cp-btn cp-btn-primary cp-btn-lg" disabled={!formDirty || savingType} onClick={() => void saveType()}>
               {savingType ? 'Saving…' : 'Save type'}
             </button>
           </div>
         </div>
 
-        <div className="ad-card-body rel-form">
+        <div className="cp-card-body rel-form">
           <section>
             <h3>Basics</h3>
             <div className="rel-grid">
@@ -554,8 +554,8 @@ export default function RelationshipsAdminPage() {
         </div>
       </div>
 
-      <div className="ad-card">
-        <div className="ad-card-head">
+      <div className="cp-card">
+        <div className="cp-card-head">
           <div>
             <h2>Gift rules</h2>
             <p>Which gifts count towards each relationship, and how many points they add. Edit points inline and press Enter to save.</p>
@@ -581,7 +581,7 @@ export default function RelationshipsAdminPage() {
               if (e.key === 'Enter') void addRule();
             }}
           />
-          <button type="button" className="ad-btn ad-btn-primary ad-btn-lg" disabled={savingRule || !newGiftId} onClick={() => void addRule()}>
+          <button type="button" className="cp-btn cp-btn-primary cp-btn-lg" disabled={savingRule || !newGiftId} onClick={() => void addRule()}>
             {savingRule ? 'Saving…' : 'Save rule'}
           </button>
         </div>
@@ -595,9 +595,9 @@ export default function RelationshipsAdminPage() {
           ]}
         />
 
-        <div className="ad-toolbar">
+        <div className="cp-toolbar">
           <SearchBox value={ruleSearch} onChange={setRuleSearch} placeholder="Search gift name, category or #ID…" />
-          <label className="ad-field">
+          <label className="cp-field">
             <span>Status</span>
             <select value={ruleEnabled} onChange={(e) => setRuleEnabled(e.target.value as '' | 'on' | 'off')}>
               <option value="">Any</option>
@@ -608,7 +608,7 @@ export default function RelationshipsAdminPage() {
           {rulesDirty && (
             <button
               type="button"
-              className="ad-btn ad-btn-ghost ad-btn-lg"
+              className="cp-btn cp-btn-ghost cp-btn-lg"
               onClick={() => {
                 setRuleSearch('');
                 setRuleType('');
@@ -620,21 +620,21 @@ export default function RelationshipsAdminPage() {
           )}
         </div>
 
-        <div className="ad-summary">
+        <div className="cp-summary">
           <strong>{fmt(filteredRules.length)}</strong> rule{filteredRules.length === 1 ? '' : 's'}
           {rulesDirty ? <> (of {fmt(rules.length)})</> : null}
         </div>
 
-        <div className="ad-table-wrap">
-          <table className="ad-table is-stack is-3up">
+        <div className="cp-table-wrap">
+          <table className="cp-table is-stack is-3up">
             <thead>
               <tr>
                 <SortTh column="gift" label="#" sort={ruleSort.sort} order={ruleSort.order} onSort={onRuleSort} defaultOrder="asc" />
                 <SortTh column="name" label="Gift" sort={ruleSort.sort} order={ruleSort.order} onSort={onRuleSort} defaultOrder="asc" />
                 <SortTh column="cost" label="Gift price" sort={ruleSort.sort} order={ruleSort.order} onSort={onRuleSort} align="right" />
-                <th className="ad-th">Type</th>
+                <th className="cp-th">Type</th>
                 <SortTh column="points" label="Points" sort={ruleSort.sort} order={ruleSort.order} onSort={onRuleSort} align="right" />
-                <th className="ad-th" style={{ textAlign: 'center' }}>Enabled</th>
+                <th className="cp-th" style={{ textAlign: 'center' }}>Enabled</th>
               </tr>
             </thead>
             <tbody>
@@ -652,10 +652,10 @@ export default function RelationshipsAdminPage() {
                   const color = t ? typeColor(t) : '#6b7280';
                   const editing = editingPoints[r.id];
                   return (
-                    <tr key={r.id} className={`ad-row ${busyRule === r.id ? 'is-busy' : ''} ${r.enabled ? '' : 'is-muted'}`}>
-                      <td className="ad-td ad-id is-hide-sm">#{r.gift_id}</td>
-                      <td className="ad-td is-main">
-                        <div className="ad-user">
+                    <tr key={r.id} className={`cp-row ${busyRule === r.id ? 'is-busy' : ''} ${r.enabled ? '' : 'is-muted'}`}>
+                      <td className="cp-td cp-id is-hide-sm">#{r.gift_id}</td>
+                      <td className="cp-td is-main">
+                        <div className="cp-user">
                           <div className="rel-gift-img">
                             {r.gift_image_url ? (
                               // eslint-disable-next-line @next/next/no-img-element
@@ -665,21 +665,21 @@ export default function RelationshipsAdminPage() {
                             )}
                           </div>
                           <div>
-                            <div className="ad-name">{r.gift_name ?? <span className="ad-hint">Unknown gift</span>}</div>
-                            <div className="ad-sub">
-                              <span className="ad-mobile-only">#{r.gift_id} · </span>
+                            <div className="cp-name">{r.gift_name ?? <span className="cp-hint">Unknown gift</span>}</div>
+                            <div className="cp-sub">
+                              <span className="cp-mobile-only">#{r.gift_id} · </span>
                               {r.gift_category ?? '—'}
-                              {r.gift_active === false && <span className="ad-badge gray" style={{ marginLeft: 6, padding: '1px 6px', fontSize: '0.62rem' }}>Gift inactive</span>}
+                              {r.gift_active === false && <span className="cp-badge gray" style={{ marginLeft: 6, padding: '1px 6px', fontSize: '0.62rem' }}>Gift inactive</span>}
                             </div>
                           </div>
                         </div>
-                        <span className="ad-mobile-only"><span className="ad-badge" style={{ background: `${color}1f`, color }}>{r.type_code.toUpperCase()}</span></span>
+                        <span className="cp-mobile-only"><span className="cp-badge" style={{ background: `${color}1f`, color }}>{r.type_code.toUpperCase()}</span></span>
                       </td>
-                      <td className="ad-td ad-num" data-label="Gift price">{r.gift_coin_cost != null ? <>🪙 {fmt(r.gift_coin_cost)}</> : '—'}</td>
-                      <td className="ad-td is-hide-sm">
-                        <span className="ad-badge" style={{ background: `${color}1f`, color }}>{r.type_code.toUpperCase()}</span>
+                      <td className="cp-td cp-num" data-label="Gift price">{r.gift_coin_cost != null ? <>🪙 {fmt(r.gift_coin_cost)}</> : '—'}</td>
+                      <td className="cp-td is-hide-sm">
+                        <span className="cp-badge" style={{ background: `${color}1f`, color }}>{r.type_code.toUpperCase()}</span>
                       </td>
-                      <td className="ad-td ad-num" data-label="Points">
+                      <td className="cp-td cp-num" data-label="Points">
                         <input
                           className={`rel-points ${editing !== undefined && Number(editing) !== r.point_value ? 'is-dirty' : ''}`}
                           type="number"
@@ -694,7 +694,7 @@ export default function RelationshipsAdminPage() {
                           aria-label={`Points for gift ${r.gift_id}`}
                         />
                       </td>
-                      <td className="ad-td" data-label="Enabled" style={{ textAlign: 'center' }}>
+                      <td className="cp-td" data-label="Enabled" style={{ textAlign: 'center' }}>
                         <label className="rel-switch" style={{ justifyContent: 'center' }} title={r.enabled ? 'Disable this rule' : 'Enable this rule'}>
                           <input type="checkbox" checked={r.enabled} onChange={() => void toggleRule(r)} />
                           <span className="rel-switch-track" />
@@ -728,9 +728,9 @@ export default function RelationshipsAdminPage() {
 
 const REL_STYLES = `
 .rel-types { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-bottom: 20px; }
-.ad-page .rel-type-card { display: flex; flex-direction: column; gap: 14px; text-align: left; background: #fff; color: #111827; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); cursor: pointer; width: auto; font-weight: 400; transition: border-color 0.15s, box-shadow 0.15s; }
-.ad-page .rel-type-card:hover { background: #fff; border-color: var(--rel-color); }
-.ad-page .rel-type-card.is-active { border-color: var(--rel-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rel-color) 18%, transparent); }
+.cp-page .rel-type-card { display: flex; flex-direction: column; gap: 14px; text-align: left; background: #fff; color: #111827; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); cursor: pointer; width: auto; font-weight: 400; transition: border-color 0.15s, box-shadow 0.15s; }
+.cp-page .rel-type-card:hover { background: #fff; border-color: var(--rel-color); }
+.cp-page .rel-type-card.is-active { border-color: var(--rel-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rel-color) 18%, transparent); }
 .rel-type-top { display: flex; align-items: center; gap: 12px; }
 .rel-swatch { width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08); }
 .rel-type-name { font-weight: 700; font-size: 1.05rem; }
@@ -768,7 +768,7 @@ const REL_STYLES = `
 .rel-add { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 16px 20px; background: #f9fafb; border-bottom: 1px solid #e5e7eb; }
 .rel-add-title { font-size: 0.8rem; font-weight: 700; color: #374151; text-transform: uppercase; letter-spacing: 0.03em; margin-right: 4px; }
 .rel-add-input { width: 130px !important; margin: 0; }
-.ad-page .rel-add select { min-width: 100px; }
+.cp-page .rel-add select { min-width: 100px; }
 
 .rel-gift-img { width: 36px; height: 36px; border-radius: 8px; background: #f3f4f6; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
 .rel-gift-img img { width: 100%; height: 100%; object-fit: contain; }
@@ -778,8 +778,8 @@ const REL_STYLES = `
   .rel-types { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .rel-grid, .rel-grid-2 { grid-template-columns: minmax(0, 1fr); }
   .rel-add { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 12px 14px; gap: 8px; }
-  .rel-add-title, .rel-add .ad-btn { grid-column: 1 / -1; }
-  .ad-page .rel-add-input, .ad-page .rel-add select { width: 100% !important; min-width: 0; }
-  .ad-page .rel-points { width: 100% !important; text-align: left; }
+  .rel-add-title, .rel-add .cp-btn { grid-column: 1 / -1; }
+  .cp-page .rel-add-input, .cp-page .rel-add select { width: 100% !important; min-width: 0; }
+  .cp-page .rel-points { width: 100% !important; text-align: left; }
 }
 `;

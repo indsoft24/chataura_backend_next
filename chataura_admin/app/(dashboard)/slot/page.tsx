@@ -61,25 +61,25 @@ export default function SlotPage() {
   }
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <PageHeader
         title="Lucky Slots"
         subtitle="A 3x3 slot machine with 5 paylines, played from the room games list. The bet is taken and the win paid in coins in one step."
       />
-      {msg && <div className={`ad-alert is-flush ${msg.ok ? 'is-success' : ''}`} style={{ marginBottom: 14 }}>{msg.text}</div>}
-      <section className="ad-card">
-        <div className="ad-card-head"><div><h2>Settings</h2></div></div>
-        <div className="ad-card-body">
-          <div className="ad-toggle-row">
+      {msg && <div className={`cp-alert is-flush ${msg.ok ? 'is-success' : ''}`} style={{ marginBottom: 14 }}>{msg.text}</div>}
+      <section className="cp-card">
+        <div className="cp-card-head"><div><h2>Settings</h2></div></div>
+        <div className="cp-card-body">
+          <div className="cp-toggle-row">
             <div>
-              <div className="ad-toggle-title">Lucky Slots</div>
-              <div className={`ad-toggle-hint ${enabled ? 'tone-green' : 'tone-red'}`}>
+              <div className="cp-toggle-title">Lucky Slots</div>
+              <div className={`cp-toggle-hint ${enabled ? 'tone-green' : 'tone-red'}`}>
                 {enabled ? 'On — players can spin' : 'Off — spinning is refused'}
               </div>
             </div>
             <Switch label="Lucky Slots enabled" checked={enabled} onChange={setEnabled} />
           </div>
-          <div className="ad-form-grid is-2up">
+          <div className="cp-form-grid is-2up">
             <Field label="Return to player (RTP)" hint="Share of all bets paid back over many spins. Higher = players win more.">
               <select value={rtp} onChange={(e) => setRtp(e.target.value)}>
                 <option value="90">90%</option>
@@ -88,14 +88,14 @@ export default function SlotPage() {
               </select>
             </Field>
             <Field label="Big win multiplier" hint="A win of this many times the bet shows the BIG WIN banner.">
-              <div className="ad-unit"><input type="number" min={1} max={1000} value={bigWin} onChange={(e) => setBigWin(e.target.value)} /><span>x</span></div>
+              <div className="cp-unit"><input type="number" min={1} max={1000} value={bigWin} onChange={(e) => setBigWin(e.target.value)} /><span>x</span></div>
             </Field>
             <Field label="Bet levels (coins)" hint="1–8 rising numbers, comma separated, each divisible by 5 (the bet is split over 5 lines).">
               <input value={levels} onChange={(e) => setLevels(e.target.value)} />
             </Field>
           </div>
-          <div className="ad-form-actions">
-            <button type="button" className="ad-btn ad-btn-primary ad-btn-lg" onClick={save} disabled={busy}>
+          <div className="cp-form-actions">
+            <button type="button" className="cp-btn cp-btn-primary cp-btn-lg" onClick={save} disabled={busy}>
               {busy ? 'Working…' : 'Save'}
             </button>
           </div>

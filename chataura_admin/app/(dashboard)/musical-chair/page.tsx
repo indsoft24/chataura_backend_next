@@ -41,23 +41,23 @@ export default function MusicalChairPage() {
   }
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <PageHeader title="Musical Chair" subtitle="A room game: the host, co-host or a room admin starts it, and a highlight moves over the seated members with music. Pause stops it on a seat." />
-      {msg && <div className={`ad-alert is-flush ${msg.ok ? 'is-success' : ''}`} style={{ marginBottom: 14 }}>{msg.text}</div>}
-      <section className="ad-card">
-        <div className="ad-card-head">
+      {msg && <div className={`cp-alert is-flush ${msg.ok ? 'is-success' : ''}`} style={{ marginBottom: 14 }}>{msg.text}</div>}
+      <section className="cp-card">
+        <div className="cp-card-head">
           <div><h2>Availability</h2></div>
-          <div className="ad-actions">
-            <button type="button" className="ad-btn ad-btn-primary" onClick={save} disabled={busy || enabled === saved}>
+          <div className="cp-actions">
+            <button type="button" className="cp-btn cp-btn-primary" onClick={save} disabled={busy || enabled === saved}>
               {busy ? 'Working…' : 'Save'}
             </button>
           </div>
         </div>
-        <div className="ad-card-body">
-          <div className="ad-toggle-row">
+        <div className="cp-card-body">
+          <div className="cp-toggle-row">
             <div>
-              <div className="ad-toggle-title">Musical Chair</div>
-              <div className={`ad-toggle-hint ${enabled ? 'tone-green' : 'tone-red'}`}>
+              <div className="cp-toggle-title">Musical Chair</div>
+              <div className={`cp-toggle-hint ${enabled ? 'tone-green' : 'tone-red'}`}>
                 {enabled ? 'On — rooms can start it' : 'Off — nobody can start it (a running game keeps going until it ends)'}
               </div>
             </div>

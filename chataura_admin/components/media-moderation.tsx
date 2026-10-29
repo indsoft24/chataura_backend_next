@@ -281,11 +281,11 @@ export function MediaModeration({ kind }: { kind: 'post' | 'reel' }) {
   function authorCell(m: MediaItem) {
     const name = m.user?.name || `User #${m.user?.id}`;
     return (
-      <div className="ad-user" style={{ minWidth: 160, maxWidth: 220 }}>
+      <div className="cp-user" style={{ minWidth: 160, maxWidth: 220 }}>
         <Avatar name={name} url={m.user?.avatar_url} size={30} />
         <div style={{ minWidth: 0 }}>
-          <div className="ad-name" title={name}>{name}</div>
-          <button type="button" className="ad-link" onClick={() => update({ user_id: String(m.user.id) })} title={`Only this user's ${noun}s`}>
+          <div className="cp-name" title={name}>{name}</div>
+          <button type="button" className="cp-link" onClick={() => update({ user_id: String(m.user.id) })} title={`Only this user's ${noun}s`}>
             ID {m.user?.id}
           </button>
         </div>
@@ -296,14 +296,14 @@ export function MediaModeration({ kind }: { kind: 'post' | 'reel' }) {
   function rowActions(m: MediaItem) {
     const busy = busyIds.has(m.id);
     return (
-      <div className="ad-actions">
-        <button type="button" className="ad-btn ad-btn-soft" disabled={busy} onClick={() => setPreviewIndex(items.indexOf(m))}>
+      <div className="cp-actions">
+        <button type="button" className="cp-btn cp-btn-soft" disabled={busy} onClick={() => setPreviewIndex(items.indexOf(m))}>
           {isReel ? 'Play' : 'View'}
         </button>
         {m.is_deleted ? (
-          <button type="button" className="ad-btn ad-btn-success-soft" disabled={busy} onClick={() => askRestore([m.id])}>Restore</button>
+          <button type="button" className="cp-btn cp-btn-success-soft" disabled={busy} onClick={() => askRestore([m.id])}>Restore</button>
         ) : (
-          <button type="button" className="ad-btn ad-btn-danger-soft" disabled={busy} onClick={() => askRemove([m.id])}>
+          <button type="button" className="cp-btn cp-btn-danger-soft" disabled={busy} onClick={() => askRemove([m.id])}>
             Remove
           </button>
         )}
@@ -312,10 +312,10 @@ export function MediaModeration({ kind }: { kind: 'post' | 'reel' }) {
   }
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <style dangerouslySetInnerHTML={{ __html: MEDIA_STYLES }} />
 
-      <div className="ad-header">
+      <div className="cp-header">
         <div>
           <h1>{isReel ? 'Video Reels Moderation' : 'Feed Posts Moderation'}</h1>
           <p>
@@ -324,19 +324,19 @@ export function MediaModeration({ kind }: { kind: 'post' | 'reel' }) {
               : 'Review public feed posts and remove policy-violating content. Removed posts can be restored.'}
           </p>
         </div>
-        <div className="ad-header-actions">
-          <div className="ad-seg" role="group" aria-label="View">
-            <button type="button" className={`ad-seg-btn ${filters.view === 'table' ? 'is-active' : ''}`} onClick={() => setFilters((f) => ({ ...f, view: 'table' }))}>
+        <div className="cp-header-actions">
+          <div className="cp-seg" role="group" aria-label="View">
+            <button type="button" className={`cp-seg-btn ${filters.view === 'table' ? 'is-active' : ''}`} onClick={() => setFilters((f) => ({ ...f, view: 'table' }))}>
               ☰ Table
             </button>
-            <button type="button" className={`ad-seg-btn ${filters.view === 'grid' ? 'is-active' : ''}`} onClick={() => setFilters((f) => ({ ...f, view: 'grid' }))}>
+            <button type="button" className={`cp-seg-btn ${filters.view === 'grid' ? 'is-active' : ''}`} onClick={() => setFilters((f) => ({ ...f, view: 'grid' }))}>
               ▦ Grid
             </button>
           </div>
         </div>
       </div>
 
-      <div className="ad-card">
+      <div className="cp-card">
         <Tabs
           value={filters.status}
           onChange={(v) => update({ status: v })}
@@ -347,18 +347,18 @@ export function MediaModeration({ kind }: { kind: 'post' | 'reel' }) {
           ]}
         />
 
-        <div className="ad-range-row">
+        <div className="cp-range-row">
           <DateRangeChips range={filters.range} from={filters.from} to={filters.to} onChange={(patch) => update(patch)} />
         </div>
 
-        <div className="ad-toolbar">
+        <div className="cp-toolbar">
           <SearchBox
             value={searchInput}
             onChange={setSearchInput}
             onEnter={() => update({ q: searchInput.trim() })}
             placeholder={`Search caption, ${isReel ? 'creator' : 'author'} name/email, #${noun} ID or user ID…`}
           />
-          <label className="ad-field">
+          <label className="cp-field">
             <span>Caption</span>
             <select value={filters.caption} onChange={(e) => update({ caption: e.target.value as Filters['caption'] })}>
               <option value="">Any</option>
@@ -366,7 +366,7 @@ export function MediaModeration({ kind }: { kind: 'post' | 'reel' }) {
               <option value="no">No caption</option>
             </select>
           </label>
-          <label className="ad-field">
+          <label className="cp-field">
             <span>Sort by</span>
             <select
               value={sortKnown ? sortValue : ''}
@@ -382,17 +382,17 @@ export function MediaModeration({ kind }: { kind: 'post' | 'reel' }) {
             </select>
           </label>
           {isDirty && (
-            <button type="button" className="ad-btn ad-btn-ghost ad-btn-lg" onClick={resetAll}>Reset filters</button>
+            <button type="button" className="cp-btn cp-btn-ghost cp-btn-lg" onClick={resetAll}>Reset filters</button>
           )}
         </div>
 
         {filters.user_id && (
-          <div className="ad-pills">
-            <span className="ad-pill">
+          <div className="cp-pills">
+            <span className="cp-pill">
               User #{filters.user_id}
               <button type="button" onClick={() => update({ user_id: '' })} aria-label="Remove user filter">×</button>
             </span>
-            <Link href={`/users?q=%23${filters.user_id}`} className="ad-link" style={{ alignSelf: 'center', marginLeft: 6 }}>
+            <Link href={`/users?q=%23${filters.user_id}`} className="cp-link" style={{ alignSelf: 'center', marginLeft: 6 }}>
               Open user in User Management →
             </Link>
           </div>
@@ -402,42 +402,42 @@ export function MediaModeration({ kind }: { kind: 'post' | 'reel' }) {
           <div className="mm-bulk">
             <strong>{selected.size}</strong> selected
             {selectedLive.length > 0 && (
-              <button type="button" className="ad-btn ad-btn-solid tone-danger" onClick={() => askRemove(selectedLive)}>
+              <button type="button" className="cp-btn cp-btn-solid tone-danger" onClick={() => askRemove(selectedLive)}>
                 Remove {selectedLive.length}
               </button>
             )}
             {selectedRemoved.length > 0 && (
-              <button type="button" className="ad-btn ad-btn-solid tone-success" onClick={() => askRestore(selectedRemoved)}>
+              <button type="button" className="cp-btn cp-btn-solid tone-success" onClick={() => askRestore(selectedRemoved)}>
                 Restore {selectedRemoved.length}
               </button>
             )}
-            <button type="button" className="ad-btn ad-btn-ghost" onClick={() => setSelected(new Set())}>Clear selection</button>
+            <button type="button" className="cp-btn cp-btn-ghost" onClick={() => setSelected(new Set())}>Clear selection</button>
           </div>
         ) : (
-          <div className="ad-summary">
+          <div className="cp-summary">
             {loading ? 'Loading…' : (
               <>
                 <strong>{fmt(total)}</strong> {noun}{total === 1 ? '' : 's'}
                 {filters.q ? <> matching “{filters.q}”</> : null}
-                <span className="ad-hint"> · Click a thumbnail to preview · ← → to browse</span>
+                <span className="cp-hint"> · Click a thumbnail to preview · ← → to browse</span>
               </>
             )}
           </div>
         )}
 
         {loadError && (
-          <div className="ad-alert">
+          <div className="cp-alert">
             {loadError}
-            <button type="button" className="ad-btn ad-btn-ghost" onClick={() => void load()}>Retry</button>
+            <button type="button" className="cp-btn cp-btn-ghost" onClick={() => void load()}>Retry</button>
           </div>
         )}
 
         {filters.view === 'table' ? (
-          <div className="ad-table-wrap">
-            <table className="ad-table is-stack is-3up">
+          <div className="cp-table-wrap">
+            <table className="cp-table is-stack is-3up">
               <thead>
                 <tr>
-                  <th className="ad-th" style={{ width: 36 }}>
+                  <th className="cp-th" style={{ width: 36 }}>
                     <input
                       type="checkbox"
                       className="mm-check"
@@ -447,13 +447,13 @@ export function MediaModeration({ kind }: { kind: 'post' | 'reel' }) {
                     />
                   </th>
                   <SortTh column="id" label={isReel ? 'Video' : 'Preview'} sort={filters.sort} order={filters.order} onSort={onSort} />
-                  <th className="ad-th">{isReel ? 'Creator' : 'Author'}</th>
-                  <th className="ad-th">Caption</th>
+                  <th className="cp-th">{isReel ? 'Creator' : 'Author'}</th>
+                  <th className="cp-th">Caption</th>
                   {isReel && <SortTh column="views" label="Views" sort={filters.sort} order={filters.order} onSort={onSort} align="right" />}
                   <SortTh column="likes" label="Likes" sort={filters.sort} order={filters.order} onSort={onSort} align="right" />
                   <SortTh column="comments" label="Comments" sort={filters.sort} order={filters.order} onSort={onSort} align="right" />
-                  <th className="ad-th">Posted</th>
-                  <th className="ad-th" style={{ textAlign: 'right' }}>Actions</th>
+                  <th className="cp-th">Posted</th>
+                  <th className="cp-th" style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody className={loading && items.length > 0 ? 'is-loading' : ''}>
@@ -463,33 +463,33 @@ export function MediaModeration({ kind }: { kind: 'post' | 'reel' }) {
                   <EmptyRow cols={isReel ? 9 : 8} title={`No ${noun}s found`} hint="Try another tab or clear filters." onReset={isDirty ? resetAll : undefined} />
                 ) : (
                   items.map((m) => (
-                    <tr key={m.id} className={`ad-row ${busyIds.has(m.id) ? 'is-busy' : ''} ${selected.has(m.id) ? 'mm-selected' : ''}`}>
-                      <td className="ad-td is-hide-sm">
+                    <tr key={m.id} className={`cp-row ${busyIds.has(m.id) ? 'is-busy' : ''} ${selected.has(m.id) ? 'mm-selected' : ''}`}>
+                      <td className="cp-td is-hide-sm">
                         <input type="checkbox" className="mm-check" checked={selected.has(m.id)} onChange={() => toggleSelect(m.id)} aria-label={`Select ${noun} ${m.id}`} />
                       </td>
-                      <td className="ad-td is-main">
+                      <td className="cp-td is-main">
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           {thumb(m, isReel ? 'mm-thumb mm-thumb-tall' : 'mm-thumb')}
-                          <span className="ad-id">#{m.id}</span>
+                          <span className="cp-id">#{m.id}</span>
                         </div>
-                        <span className="ad-mobile-only">
+                        <span className="cp-mobile-only">
                           <input type="checkbox" className="mm-check" checked={selected.has(m.id)} onChange={() => toggleSelect(m.id)} aria-label={`Select ${noun} ${m.id}`} />
                         </span>
                       </td>
-                      <td className="ad-td is-full" data-label={isReel ? 'Creator' : 'Author'}>{authorCell(m)}</td>
-                      <td className="ad-td is-full" data-label="Caption">
+                      <td className="cp-td is-full" data-label={isReel ? 'Creator' : 'Author'}>{authorCell(m)}</td>
+                      <td className="cp-td is-full" data-label="Caption">
                         <div className="mm-caption" title={m.caption ?? ''}>
-                          {m.caption || <span className="ad-hint" style={{ fontStyle: 'italic' }}>No caption</span>}
+                          {m.caption || <span className="cp-hint" style={{ fontStyle: 'italic' }}>No caption</span>}
                         </div>
                       </td>
-                      {isReel && <td className="ad-td ad-num" data-label="Views">{fmt(m.views_count)}</td>}
-                      <td className="ad-td ad-num" data-label="Likes">{fmt(m.likes_count)}</td>
-                      <td className="ad-td ad-num" data-label="Comments">{fmt(m.comments_count)}</td>
-                      <td className="ad-td ad-nowrap" data-label="Posted">
+                      {isReel && <td className="cp-td cp-num" data-label="Views">{fmt(m.views_count)}</td>}
+                      <td className="cp-td cp-num" data-label="Likes">{fmt(m.likes_count)}</td>
+                      <td className="cp-td cp-num" data-label="Comments">{fmt(m.comments_count)}</td>
+                      <td className="cp-td cp-nowrap" data-label="Posted">
                         <div>{formatDate(m.created_at)}</div>
-                        <div className="ad-sub">{formatTime(m.created_at)}</div>
+                        <div className="cp-sub">{formatTime(m.created_at)}</div>
                       </td>
-                      <td className="ad-td is-actions" style={{ textAlign: 'right' }}>{rowActions(m)}</td>
+                      <td className="cp-td is-actions" style={{ textAlign: 'right' }}>{rowActions(m)}</td>
                     </tr>
                   ))
                 )}
@@ -499,10 +499,10 @@ export function MediaModeration({ kind }: { kind: 'post' | 'reel' }) {
         ) : (
           <div className={`mm-grid ${loading && items.length > 0 ? 'is-loading' : ''}`}>
             {loading && items.length === 0 ? (
-              Array.from({ length: 8 }).map((_, i) => <div key={i} className="ad-skeleton" style={{ height: isReel ? 320 : 260 }} />)
+              Array.from({ length: 8 }).map((_, i) => <div key={i} className="cp-skeleton" style={{ height: isReel ? 320 : 260 }} />)
             ) : items.length === 0 ? (
-              <div className="ad-empty" style={{ gridColumn: '1 / -1' }}>
-                <div className="ad-empty-title">No {noun}s found</div>
+              <div className="cp-empty" style={{ gridColumn: '1 / -1' }}>
+                <div className="cp-empty-title">No {noun}s found</div>
                 <div>Try another tab or clear filters.</div>
               </div>
             ) : (
@@ -515,9 +515,9 @@ export function MediaModeration({ kind }: { kind: 'post' | 'reel' }) {
                   <div className="mm-card-body">
                     {authorCell(m)}
                     <div className="mm-caption" style={{ maxWidth: 'none' }} title={m.caption ?? ''}>
-                      {m.caption || <span className="ad-hint" style={{ fontStyle: 'italic' }}>No caption</span>}
+                      {m.caption || <span className="cp-hint" style={{ fontStyle: 'italic' }}>No caption</span>}
                     </div>
-                    <div className="ad-sub">
+                    <div className="cp-sub">
                       {isReel ? `👁 ${fmt(m.views_count)} · ` : ''}❤️ {fmt(m.likes_count)} · 💬 {fmt(m.comments_count)} · {formatDate(m.created_at)}
                     </div>
                     {rowActions(m)}
@@ -557,18 +557,18 @@ export function MediaModeration({ kind }: { kind: 'post' | 'reel' }) {
               )}
             </div>
             <aside className="mm-lightbox-side">
-              <div className="ad-drawer-head">
+              <div className="cp-drawer-head">
                 <div>
-                  <div className="ad-sub">{Noun} #{preview.id} · {previewIndex! + 1} of {items.length} on this page</div>
-                  {preview.is_deleted && <span className="ad-badge red" style={{ marginTop: 6 }}>Removed</span>}
+                  <div className="cp-sub">{Noun} #{preview.id} · {previewIndex! + 1} of {items.length} on this page</div>
+                  {preview.is_deleted && <span className="cp-badge red" style={{ marginTop: 6 }}>Removed</span>}
                 </div>
-                <button type="button" className="ad-close" onClick={() => setPreviewIndex(null)} aria-label="Close">×</button>
+                <button type="button" className="cp-close" onClick={() => setPreviewIndex(null)} aria-label="Close">×</button>
               </div>
               {authorCell(preview)}
               <div className="mm-full-caption">
-                {preview.caption || <span className="ad-hint" style={{ fontStyle: 'italic' }}>No caption</span>}
+                {preview.caption || <span className="cp-hint" style={{ fontStyle: 'italic' }}>No caption</span>}
               </div>
-              <dl className="ad-dl">
+              <dl className="cp-dl">
                 {isReel && (<><dt>Views</dt><dd>{fmt(preview.views_count)}</dd></>)}
                 <dt>Likes</dt><dd>{fmt(preview.likes_count)}</dd>
                 <dt>Comments</dt><dd>{fmt(preview.comments_count)}</dd>
@@ -579,13 +579,13 @@ export function MediaModeration({ kind }: { kind: 'post' | 'reel' }) {
               </dl>
               <div style={{ display: 'grid', gap: 8, marginTop: 'auto' }}>
                 {preview.is_deleted ? (
-                  <button type="button" className="ad-btn ad-btn-solid tone-success ad-btn-lg" onClick={() => askRestore([preview.id])}>Restore {noun}</button>
+                  <button type="button" className="cp-btn cp-btn-solid tone-success cp-btn-lg" onClick={() => askRestore([preview.id])}>Restore {noun}</button>
                 ) : (
-                  <button type="button" className="ad-btn ad-btn-solid tone-danger ad-btn-lg" onClick={() => askRemove([preview.id])}>Remove {noun}</button>
+                  <button type="button" className="cp-btn cp-btn-solid tone-danger cp-btn-lg" onClick={() => askRemove([preview.id])}>Remove {noun}</button>
                 )}
                 <button
                   type="button"
-                  className="ad-btn ad-btn-ghost ad-btn-lg"
+                  className="cp-btn cp-btn-ghost cp-btn-lg"
                   onClick={() => {
                     update({ user_id: String(preview.user.id) });
                     setPreviewIndex(null);
@@ -626,14 +626,14 @@ const MEDIA_STYLES = `
 .mm-card-media-tall { aspect-ratio: 9 / 14; background: #111827; }
 .mm-card-media .mm-play { font-size: 2rem; }
 .mm-card-body { padding: 12px; display: grid; gap: 8px; }
-.mm-card-body .ad-actions { justify-content: flex-start; }
+.mm-card-body .cp-actions { justify-content: flex-start; }
 
 .mm-lightbox { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 70; display: flex; align-items: center; justify-content: center; padding: 24px; }
 .mm-lightbox-inner { display: flex; width: 100%; max-width: 1100px; height: min(86vh, 820px); background: #fff; border-radius: 14px; overflow: hidden; }
 .mm-lightbox-media { position: relative; flex: 1; background: #000; display: flex; align-items: center; justify-content: center; min-width: 0; }
 .mm-lightbox-media img, .mm-lightbox-media video { max-width: 100%; max-height: 100%; object-fit: contain; }
-.ad-page .mm-nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.15); color: #fff; font-size: 2rem; line-height: 1; padding: 6px 14px; border-radius: 999px; width: auto; }
-.ad-page .mm-nav:hover { background: rgba(255,255,255,0.3); }
+.cp-page .mm-nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.15); color: #fff; font-size: 2rem; line-height: 1; padding: 6px 14px; border-radius: 999px; width: auto; }
+.cp-page .mm-nav:hover { background: rgba(255,255,255,0.3); }
 .mm-nav-prev { left: 12px; }
 .mm-nav-next { right: 12px; }
 .mm-lightbox-side { width: 340px; flex-shrink: 0; padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; box-sizing: border-box; }
@@ -647,7 +647,7 @@ const MEDIA_STYLES = `
 @media (max-width: 640px) {
   .mm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 4px 12px 12px; }
   .mm-card-body { padding: 8px; gap: 6px; }
-  .mm-card-body .ad-btn { padding: 6px 8px; font-size: 0.74rem; }
-  .ad-table.is-stack .mm-caption { max-width: none; white-space: normal; }
+  .mm-card-body .cp-btn { padding: 6px 8px; font-size: 0.74rem; }
+  .cp-table.is-stack .mm-caption { max-width: none; white-space: normal; }
 }
 `;

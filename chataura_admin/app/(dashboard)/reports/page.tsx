@@ -84,11 +84,11 @@ export default function ReportsPage() {
   }
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <PageHeader title="Reports" subtitle={`Quick reports from users · ${reports.length} open. Dismiss false alarms or suspend the reported user.`} />
 
-      <section className="ad-card">
-        <div className="ad-toolbar">
+      <section className="cp-card">
+        <div className="cp-toolbar">
           <SearchBox value={q} onChange={setQ} placeholder="Search user, ID or details" />
           <Field label="Reason">
             <select value={reason} onChange={(e) => setReason(e.target.value)}>
@@ -99,17 +99,17 @@ export default function ReportsPage() {
             </select>
           </Field>
         </div>
-        <div className="ad-summary">Showing <strong>{visible.length}</strong> of <strong>{reports.length}</strong> open reports</div>
-        <div className="ad-table-wrap">
-          <table className="ad-table is-stack">
+        <div className="cp-summary">Showing <strong>{visible.length}</strong> of <strong>{reports.length}</strong> open reports</div>
+        <div className="cp-table-wrap">
+          <table className="cp-table is-stack">
             <thead>
               <tr>
-                <th className="ad-th">Reported user</th>
-                <th className="ad-th">Reason</th>
-                <th className="ad-th">Reporter</th>
-                <th className="ad-th">Details</th>
-                <th className="ad-th">Date</th>
-                <th className="ad-th ad-num">Actions</th>
+                <th className="cp-th">Reported user</th>
+                <th className="cp-th">Reason</th>
+                <th className="cp-th">Reporter</th>
+                <th className="cp-th">Details</th>
+                <th className="cp-th">Date</th>
+                <th className="cp-th cp-num">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -119,27 +119,27 @@ export default function ReportsPage() {
                 <EmptyRow cols={6} title={reports.length ? 'No reports match' : 'All clear'} hint={reports.length ? 'Try a different search.' : 'There are no open reports.'} />
               ) : (
                 visible.map((r) => (
-                  <tr key={r.id} className={`ad-row ${busyId === r.id ? 'is-busy' : ''}`}>
-                    <td className="ad-td is-main">
+                  <tr key={r.id} className={`cp-row ${busyId === r.id ? 'is-busy' : ''}`}>
+                    <td className="cp-td is-main">
                       <div>
-                        <div className="ad-name tone-red">{r.reported?.name ?? `User #${r.reported_id}`}</div>
-                        <div className="ad-sub">#{r.reported_id} · report #{r.id}</div>
+                        <div className="cp-name tone-red">{r.reported?.name ?? `User #${r.reported_id}`}</div>
+                        <div className="cp-sub">#{r.reported_id} · report #{r.id}</div>
                       </div>
-                      <span className="ad-mobile-only"><span className="ad-badge red">{r.reason}</span></span>
+                      <span className="cp-mobile-only"><span className="cp-badge red">{r.reason}</span></span>
                     </td>
-                    <td className="ad-td is-hide-sm"><span className="ad-badge red">{r.reason}</span></td>
-                    <td className="ad-td" data-label="Reporter">
+                    <td className="cp-td is-hide-sm"><span className="cp-badge red">{r.reason}</span></td>
+                    <td className="cp-td" data-label="Reporter">
                       <div style={{ fontWeight: 600 }}>{r.reporter?.name ?? `User #${r.reporter_id}`}</div>
-                      <div className="ad-sub">#{r.reporter_id}</div>
+                      <div className="cp-sub">#{r.reporter_id}</div>
                     </td>
-                    <td className="ad-td is-full" data-label="Details" style={{ maxWidth: 320, color: '#4b5563' }}>
-                      {r.description || <span className="ad-hint" style={{ fontStyle: 'italic' }}>No description</span>}
+                    <td className="cp-td is-full" data-label="Details" style={{ maxWidth: 320, color: '#4b5563' }}>
+                      {r.description || <span className="cp-hint" style={{ fontStyle: 'italic' }}>No description</span>}
                     </td>
-                    <td className="ad-td" data-label="Date">{formatDate(r.created_at)}</td>
-                    <td className="ad-td ad-num is-actions is-fill">
-                      <div className="ad-actions">
-                        <button type="button" className="ad-btn ad-btn-ghost" onClick={() => void dismiss(r)}>Dismiss</button>
-                        <button type="button" className="ad-btn ad-btn-danger-soft" onClick={() => suspend(r)}>Suspend user</button>
+                    <td className="cp-td" data-label="Date">{formatDate(r.created_at)}</td>
+                    <td className="cp-td cp-num is-actions is-fill">
+                      <div className="cp-actions">
+                        <button type="button" className="cp-btn cp-btn-ghost" onClick={() => void dismiss(r)}>Dismiss</button>
+                        <button type="button" className="cp-btn cp-btn-danger-soft" onClick={() => suspend(r)}>Suspend user</button>
                       </div>
                     </td>
                   </tr>

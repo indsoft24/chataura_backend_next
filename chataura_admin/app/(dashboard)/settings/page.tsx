@@ -217,7 +217,7 @@ export default function SettingsPage() {
   const tab = TABS.find((t) => t.id === activeTab) ?? TABS[0];
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <style dangerouslySetInnerHTML={{ __html: SET_STYLES }} />
       <PageHeader
         title="Platform Settings"
@@ -225,7 +225,7 @@ export default function SettingsPage() {
       />
 
       <form
-        className="ad-card"
+        className="cp-card"
         onSubmit={(e) => {
           e.preventDefault();
           void save();
@@ -233,11 +233,11 @@ export default function SettingsPage() {
       >
         <Tabs value={activeTab} onChange={setActiveTab} tabs={TABS.map((t) => ({ value: t.id, label: t.label }))} />
         {loading ? (
-          <div className="ad-card-body" style={{ display: 'grid', gap: 12 }}>
-            <div className="ad-skeleton" /><div className="ad-skeleton" /><div className="ad-skeleton" />
+          <div className="cp-card-body" style={{ display: 'grid', gap: 12 }}>
+            <div className="cp-skeleton" /><div className="cp-skeleton" /><div className="cp-skeleton" />
           </div>
         ) : (
-          <div className="ad-card-body set-body">
+          <div className="cp-card-body set-body">
             {tab.groups.map((g, gi) => (
               <section key={gi} className="set-group">
                 {g.title ? (
@@ -249,10 +249,10 @@ export default function SettingsPage() {
                 <div className={`set-grid cols-${g.cols ?? 2}`}>
                   {g.items.map((it, i) =>
                     it.kind === 'toggle' ? (
-                      <div key={it.key} className="ad-toggle-row is-wide">
+                      <div key={it.key} className="cp-toggle-row is-wide">
                         <div>
-                          <div className="ad-toggle-title">{it.label}</div>
-                          {it.hint ? <div className="ad-toggle-hint">{it.hint}</div> : null}
+                          <div className="cp-toggle-title">{it.label}</div>
+                          {it.hint ? <div className="cp-toggle-hint">{it.hint}</div> : null}
                         </div>
                         <Switch
                           label={it.label}
@@ -261,10 +261,10 @@ export default function SettingsPage() {
                         />
                       </div>
                     ) : it.kind === 'note' ? (
-                      <div key={i} className="ad-note is-wide">{it.text}</div>
+                      <div key={i} className="cp-note is-wide">{it.text}</div>
                     ) : (
                       <Field key={it.key} label={it.label} hint={it.hint}>
-                        <div className="ad-unit">
+                        <div className="cp-unit">
                           <input
                             type="number"
                             inputMode="decimal"
@@ -286,7 +286,7 @@ export default function SettingsPage() {
         )}
         <div className={`set-savebar ${dirty ? 'is-dirty' : ''}`}>
           <span>{dirty ? 'You have unsaved changes' : 'All changes saved'}</span>
-          <button type="submit" className="ad-btn ad-btn-accent ad-btn-lg" disabled={saving || loading || !dirty}>
+          <button type="submit" className="cp-btn cp-btn-accent cp-btn-lg" disabled={saving || loading || !dirty}>
             {saving ? 'Saving…' : 'Save changes'}
           </button>
         </div>

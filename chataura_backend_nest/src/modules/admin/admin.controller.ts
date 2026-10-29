@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -17,6 +18,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { MinTier } from '../../common/decorators/min-tier.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
+import { tierOf } from '../../common/admin-tier';
 import { MediaService } from '../media/media.service';
 import { RocketLaunchService } from '../room/rocket-launch.service';
 import { assetKeyFor, AssetSlot, LevelInput, sniffAsset } from '../room/rocket-levels';
@@ -47,6 +49,23 @@ import {
   UpdateRoomThemeDto,
   UpdateStickerDto,
 } from './dto/admin.dto';
+
+/** Settings keys a CEO may read/write: Party Room Bonuses, Staff Commissions, coin-seller template. */
+const CEO_SETTING_KEYS = [
+  'spin_cost',
+  'coin_to_xp_ratio',
+  'gift_commission_pct',
+  'star_chat_commission_pct',
+  'gems_per_coin',
+  'cashout_enabled',
+  'earnings_purchase_enabled',
+  'coin_seller_message_template',
+];
+
+/** Largest coin/gem adjustment a non-superadmin may make in one action. */
+const CEO_MAX_ADJUST = 1_000_000;
+
+const isSuperadmin = (u: AuthUser) => tierOf(u.role, u.staffBadgeType) === 'superadmin';
 
 function parseId(id: string): bigint {
   if (!/^\d{1,18}$/.test(id)) throw new BadRequestException('Invalid id');
@@ -101,37 +120,44 @@ export class AdminController {
 
   // ---- Room Reward Levels ----
 
+  @MinTier('manager')
   @Get('room-rewards/overview')
   roomRewardOverview() {
     return this.roomRewards.overview();
   }
 
+  @MinTier('manager')
   @Get('room-rewards/levels')
   roomRewardLevels() {
     return this.roomRewards.levels();
   }
 
   /** Validate + show how many rooms would complete each level right away. Writes nothing. */
+  @MinTier('manager')
   @Post('room-rewards/levels/preview')
   roomRewardPreview(@Body() body: { levels?: [] }) {
     return this.roomRewards.preview(body);
   }
 
+  @MinTier('manager')
   @Put('room-rewards/levels')
   saveRoomRewardLevels(@CurrentUser() user: AuthUser, @Body() body: { levels?: [] }) {
     return this.roomRewards.saveLevels(body, user.id);
   }
 
+  @MinTier('manager')
   @Get('room-rewards/settings')
   roomRewardSettings() {
     return this.roomRewards.settings();
   }
 
+  @MinTier('manager')
   @Patch('room-rewards/settings')
   updateRoomRewardSettings(@CurrentUser() user: AuthUser, @Body() body: Record<string, unknown>) {
     return this.roomRewards.updateSettings(body, user.id);
   }
 
+  @MinTier('manager')
   @Get('room-rewards/rooms')
   roomRewardRooms(
     @Query() q: { search?: string; pending?: string; page?: string; limit?: string },
@@ -139,6 +165,7 @@ export class AdminController {
     return this.roomRewards.rooms(q);
   }
 
+  @MinTier('manager')
   @Get('room-rewards/payouts')
   roomRewardPayouts(
     @Query() q: { room?: string; user?: string; page?: string; limit?: string },
@@ -168,6 +195,7 @@ export class AdminController {
 
   /** Re-import FX pack from a server directory containing MANIFEST.json. */
   @Throttle({ default: { limit: 2, ttl: seconds(300) } })
+  @MinTier('manager')
   @Post('fx-assets/import')
   async importFxAssets(@Body() body: { dir?: string; out?: string }) {
     const dir = body?.dir?.trim();
@@ -191,6 +219,7 @@ export class AdminController {
     };
   }
 
+  @MinTier('ceo')
   @Get('dashboard')
   dashboard(
     @Query('period') period?: string,
@@ -200,6 +229,7 @@ export class AdminController {
     return this.admin.dashboard(period, from, to);
   }
 
+  @MinTier('ceo')
   @Get('users/:id/analytics')
   userAnalytics(@Param('id') id: string) {
     return this.admin.userAnalytics(BigInt(id));
@@ -227,6 +257,7 @@ export class AdminController {
     });
   }
 
+  @MinTier('manager')
   @Post('users/:id/restore')
   restore(@Param('id') id: string) {
     return this.admin.restoreUser(BigInt(id));
@@ -246,11 +277,13 @@ export class AdminController {
     return this.admin.unsuspend(actor, BigInt(id));
   }
 
+  @MinTier('manager')
   @Post('users/:id/star')
   star(@Param('id') id: string, @Body() body?: StarDto) {
     return this.admin.setStar(BigInt(id), body?.is_star !== false);
   }
 
+  @MinTier('manager')
   @Post('users/:id/deactivate')
   deactivate(
     @CurrentUser() actor: AuthUser,
@@ -260,15 +293,25 @@ export class AdminController {
     return this.admin.deactivate(actor, BigInt(id), body?.reason);
   }
 
+  @MinTier('ceo')
   @Post('users/:id/adjust-balance')
   adjustBalance(
     @CurrentUser() admin: AuthUser,
     @Param('id') id: string,
     @Body() body: AdjustBalanceDto,
   ) {
+    if (!isSuperadmin(admin)) {
+      const deny = (message: string) =>
+        new ForbiddenException({ success: false, error: { code: 'FORBIDDEN', message } });
+      if (String(admin.id) === id) throw deny('You cannot adjust your own balance.');
+      if (Number(body?.amount) > CEO_MAX_ADJUST) {
+        throw deny(`Max ${CEO_MAX_ADJUST.toLocaleString('en-US')} per adjustment; ask the superadmin for more.`);
+      }
+    }
     return this.admin.adjustBalance(BigInt(id), body, admin.id);
   }
 
+  @MinTier('manager')
   @Post('users/:id/link')
   link(
     @CurrentUser() actor: AuthUser,
@@ -278,6 +321,7 @@ export class AdminController {
     return this.admin.linkExistingUser(actor, BigInt(id), body ?? {});
   }
 
+  @MinTier('manager')
   @Get('staff')
   staff() {
     return this.admin.staff();
@@ -322,41 +366,49 @@ export class AdminController {
     return this.admin.resolveReport(BigInt(id));
   }
 
+  @MinTier('manager')
   @Get('gifts')
   gifts() {
     return this.catalog.gifts();
   }
 
+  @MinTier('manager')
   @Post('gifts')
   createGift(@Body() body: CreateGiftDto) {
     return this.catalog.createGift(body);
   }
 
+  @MinTier('manager')
   @Patch('gifts/:id')
   updateGift(@Param('id') id: string, @Body() body: UpdateGiftDto) {
     return this.catalog.updateGift(BigInt(id), body);
   }
 
+  @MinTier('manager')
   @Delete('gifts/:id')
   deleteGift(@Param('id') id: string) {
     return this.catalog.deleteGift(BigInt(id));
   }
 
+  @MinTier('manager')
   @Get('banners')
   banners() {
     return this.catalog.bannersAdmin();
   }
 
+  @MinTier('manager')
   @Post('banners')
   createBanner(@Body() body: Record<string, unknown>) {
     return this.catalog.createBanner(body);
   }
 
+  @MinTier('manager')
   @Patch('banners/:id')
   updateBanner(@Param('id') id: string, @Body() body: Record<string, unknown>) {
     return this.catalog.updateBanner(BigInt(id), body);
   }
 
+  @MinTier('manager')
   @Delete('banners/:id')
   deleteBanner(@Param('id') id: string) {
     return this.catalog.deleteBanner(BigInt(id));
@@ -384,134 +436,168 @@ export class AdminController {
   }
 
   // Levels
+  @MinTier('manager')
   @Get('levels')
   levels() {
     return this.catalog.levels();
   }
 
+  @MinTier('manager')
   @Post('levels')
   createLevel(@Body() body: CreateLevelDto) {
     return this.catalog.createLevel(body);
   }
 
+  @MinTier('manager')
   @Patch('levels/:id')
   updateLevel(@Param('id') id: string, @Body() body: UpdateLevelDto) {
     return this.catalog.updateLevel(Number(id), body);
   }
 
+  @MinTier('manager')
   @Delete('levels/:id')
   deleteLevel(@Param('id') id: string) {
     return this.catalog.deleteLevel(Number(id));
   }
 
   // Frames & Role Frames
+  @MinTier('manager')
   @Get('frames')
   frames(@Query('category') category?: string) {
     return this.catalog.frames(category);
   }
 
+  @MinTier('manager')
   @Post('frames')
   createFrame(@Body() body: CreateFrameDto) {
     return this.catalog.createFrame(body);
   }
 
+  @MinTier('manager')
   @Patch('frames/:id')
   updateFrame(@Param('id') id: string, @Body() body: UpdateFrameDto) {
     return this.catalog.updateFrame(BigInt(id), body);
   }
 
+  @MinTier('manager')
   @Delete('frames/:id')
   deleteFrame(@Param('id') id: string) {
     return this.catalog.deleteFrame(BigInt(id));
   }
 
   // Entry Bars
+  @MinTier('manager')
   @Get('entry-bars')
   entryBars() {
     return this.catalog.entryBars();
   }
 
+  @MinTier('manager')
   @Post('entry-bars')
   createEntryBar(@Body() body: CreateEntryBarDto) {
     return this.catalog.createEntryBar(body);
   }
 
+  @MinTier('manager')
   @Patch('entry-bars/:id')
   updateEntryBar(@Param('id') id: string, @Body() body: UpdateEntryBarDto) {
     return this.catalog.updateEntryBar(BigInt(id), body);
   }
 
+  @MinTier('manager')
   @Delete('entry-bars/:id')
   deleteEntryBar(@Param('id') id: string) {
     return this.catalog.deleteEntryBar(BigInt(id));
   }
 
   // Room Themes
+  @MinTier('manager')
   @Get('room-themes')
   roomThemes() {
     return this.catalog.roomThemes();
   }
 
+  @MinTier('manager')
   @Post('room-themes')
   createRoomTheme(@Body() body: CreateRoomThemeDto) {
     return this.catalog.createRoomTheme(body);
   }
 
+  @MinTier('manager')
   @Patch('room-themes/:id')
   updateRoomTheme(@Param('id') id: string, @Body() body: UpdateRoomThemeDto) {
     return this.catalog.updateRoomTheme(BigInt(id), body);
   }
 
+  @MinTier('manager')
   @Delete('room-themes/:id')
   deleteRoomTheme(@Param('id') id: string) {
     return this.catalog.deleteRoomTheme(BigInt(id));
   }
 
   // Stickers
+  @MinTier('manager')
   @Get('stickers')
   stickers() {
     return this.catalog.stickers();
   }
 
+  @MinTier('manager')
   @Post('stickers')
   createSticker(@Body() body: CreateStickerDto) {
     return this.catalog.createSticker(body);
   }
 
+  @MinTier('manager')
   @Patch('stickers/:id')
   updateSticker(@Param('id') id: string, @Body() body: UpdateStickerDto) {
     return this.catalog.updateSticker(BigInt(id), body);
   }
 
+  @MinTier('manager')
   @Delete('stickers/:id')
   deleteSticker(@Param('id') id: string) {
     return this.catalog.deleteSticker(BigInt(id));
   }
 
   // Settings
-  @MinTier('superadmin')
+  // CEOs see and edit only CEO_SETTING_KEYS (bonuses, commissions, coin-seller template); the rest is superadmin-only.
+  @MinTier('ceo')
   @Get('settings')
-  settings() {
-    return this.catalog.settings();
+  async settings(@CurrentUser() actor: AuthUser) {
+    const res = await this.catalog.settings();
+    if (isSuperadmin(actor)) return res;
+    const s = res.settings as Record<string, unknown>;
+    return { settings: Object.fromEntries(CEO_SETTING_KEYS.filter((k) => k in s).map((k) => [k, s[k]])) };
   }
 
-  @MinTier('superadmin')
+  @MinTier('ceo')
   @Patch('settings')
-  updateSettings(@Body() body: Record<string, unknown>) {
+  updateSettings(@CurrentUser() actor: AuthUser, @Body() body: Record<string, unknown>) {
+    const blocked = Object.keys(body ?? {}).filter((k) => !CEO_SETTING_KEYS.includes(k));
+    if (!isSuperadmin(actor) && blocked.length) {
+      throw new ForbiddenException({
+        success: false,
+        error: { code: 'FORBIDDEN', message: `Only the superadmin can change: ${blocked.join(', ')}` },
+      });
+    }
     return this.catalog.updateSettings(body);
   }
 
   // Countries
+  @MinTier('manager')
   @Get('countries')
   countries() {
     return this.catalog.countries();
   }
 
+  @MinTier('manager')
   @Post('countries')
   createCountry(@Body() body: { id: string; name: string; flag_emoji?: string; flag_url?: string }) {
     return this.catalog.createCountry(body);
   }
 
+  @MinTier('manager')
   @Patch('countries/:id')
   updateCountry(
     @Param('id') id: string,
@@ -520,22 +606,26 @@ export class AdminController {
     return this.catalog.updateCountry(id, body);
   }
 
+  @MinTier('manager')
   @Delete('countries/:id')
   deleteCountry(@Param('id') id: string) {
     return this.catalog.deleteCountry(id);
   }
 
+  @MinTier('manager')
   @Post('countries/:id/approve')
   approveCountry(@Param('id') id: string) {
     return this.catalog.approveCountry(id);
   }
 
+  @MinTier('manager')
   @Post('countries/:id/reject')
   rejectCountry(@Param('id') id: string) {
     return this.catalog.rejectCountry(id);
   }
 
   // Agencies
+  @MinTier('manager')
   @Get('agencies')
   agencies(
     @Query('page') page?: string,
@@ -545,17 +635,20 @@ export class AdminController {
     return this.admin.agencies(Number(page ?? 1), Number(limit ?? 20), status);
   }
 
+  @MinTier('manager')
   @Post('agencies/affiliations/:id/clear-cooldown')
   clearAgencyCooldown(@Param('id') id: string) {
     return this.admin.clearAgencyCooldown(BigInt(id));
   }
 
   // Star Accounts
+  @MinTier('manager')
   @Get('star-accounts')
   starAccounts() {
     return this.admin.starAccounts();
   }
 
+  @MinTier('manager')
   @Post('star-accounts/:id/update')
   updateStarAccount(
     @Param('id') id: string,
@@ -564,16 +657,19 @@ export class AdminController {
     return this.admin.updateStarAccount(BigInt(id), body);
   }
 
+  @MinTier('manager')
   @Post('star-accounts/:id/support-frame')
   setStarSupportFrame(@Param('id') id: string, @Body() body: { enabled?: boolean }) {
     return this.admin.setStarSupportFrame(BigInt(id), body?.enabled !== false);
   }
 
+  @MinTier('manager')
   @Post('star-accounts/:id/remove')
   removeStarAccount(@Param('id') id: string) {
     return this.admin.removeStarAccount(BigInt(id));
   }
 
+  @MinTier('manager')
   @Post('star-accounts/reorder')
   reorderStarAccounts(@Body() body: { ranks: Array<{ user_id: number; star_rank: number }> }) {
     return this.admin.reorderStarAccounts(body.ranks ?? []);
@@ -735,6 +831,7 @@ export class AdminController {
     return this.recharges.exportExcel(query);
   }
 
+  @MinTier('ceo')
   @Get('recharges/gst-config')
   rechargeGstConfig() {
     return this.recharges.gstConfig().then((config) => ({ config }));
@@ -781,11 +878,13 @@ export class AdminController {
   }
 
   // Rockit crowdfund campaigns + Rocket ladder levels
+  @MinTier('manager')
   @Get('rockit/campaigns')
   listRockitCampaigns() {
     return this.rockets.listCampaigns();
   }
 
+  @MinTier('manager')
   @Post('rockit/campaigns')
   upsertRockitCampaign(
     @CurrentUser() user: AuthUser,
@@ -811,11 +910,13 @@ export class AdminController {
     return this.rockets.upsertCampaign(body, user.id);
   }
 
+  @MinTier('manager')
   @Delete('rockit/campaigns/:id')
   deleteRockitCampaign(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.rockets.deleteCampaign(parseId(id), user.id);
   }
 
+  @MinTier('manager')
   @Put('rockit/campaigns/:id/levels')
   saveRockitLevels(
     @CurrentUser() user: AuthUser,
@@ -827,6 +928,7 @@ export class AdminController {
 
   /** Multipart upload of a level's launch/station video or badge image → GCS + FX catalog. */
   @Throttle({ default: { limit: 20, ttl: seconds(60) } })
+  @MinTier('manager')
   @Post('rockit/campaigns/:id/levels/:level/assets/:slot')
   async uploadRockitLevelAsset(
     @CurrentUser() user: AuthUser,
@@ -875,11 +977,13 @@ export class AdminController {
     return { asset, ...result };
   }
 
+  @MinTier('manager')
   @Get('rockit/audit')
   rockitAudit(@Query('campaign_id') campaignId?: string, @Query('limit') limit?: string) {
     return this.rockets.auditLog(campaignId ? parseId(campaignId) : undefined, Number(limit) || 50);
   }
 
+  @MinTier('manager')
   @Post('rockit/audit/:id/restore')
   restoreRockitAudit(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.rockets.restoreFromAudit(parseId(id), user.id);

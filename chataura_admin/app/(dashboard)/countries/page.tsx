@@ -138,18 +138,18 @@ export default function CountriesPage() {
       // eslint-disable-next-line @next/next/no-img-element
       <img src={c.flag_url} alt="" style={{ width: 30, height: 21, objectFit: 'cover', borderRadius: 3 }} />
     ) : (
-      <span className="ad-hint">—</span>
+      <span className="cp-hint">—</span>
     );
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <PageHeader
         title="Countries"
         subtitle="Country codes and flags users pick on their profile."
-        actions={<button type="button" className="ad-btn ad-btn-accent ad-btn-lg" onClick={() => { setFormError(''); setDraft({ editing: false, id: '', name: '', emoji: '', url: '' }); }}>+ Add country</button>}
+        actions={<button type="button" className="cp-btn cp-btn-accent cp-btn-lg" onClick={() => { setFormError(''); setDraft({ editing: false, id: '', name: '', emoji: '', url: '' }); }}>+ Add country</button>}
       />
 
-      <section className="ad-card">
+      <section className="cp-card">
         <Tabs
           value={approval}
           onChange={setApproval}
@@ -160,18 +160,18 @@ export default function CountriesPage() {
             { value: 'rejected', label: 'Rejected', count: counts.rejected ?? 0, tone: 'red' },
           ]}
         />
-        <div className="ad-toolbar">
+        <div className="cp-toolbar">
           <SearchBox value={search} onChange={setSearch} placeholder="Search country name or code" />
         </div>
-        <div className="ad-summary">Showing <strong>{filtered.length}</strong> of <strong>{countries.length}</strong></div>
-        <div className="ad-table-wrap">
-          <table className="ad-table is-stack">
+        <div className="cp-summary">Showing <strong>{filtered.length}</strong> of <strong>{countries.length}</strong></div>
+        <div className="cp-table-wrap">
+          <table className="cp-table is-stack">
             <thead>
               <tr>
-                <th className="ad-th">Country</th>
-                <th className="ad-th">Approval</th>
-                <th className="ad-th">Active</th>
-                <th className="ad-th ad-num">Actions</th>
+                <th className="cp-th">Country</th>
+                <th className="cp-th">Approval</th>
+                <th className="cp-th">Active</th>
+                <th className="cp-th cp-num">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -181,29 +181,29 @@ export default function CountriesPage() {
                 <EmptyRow cols={4} title="No countries found" hint={countries.length ? 'Try a different search or tab.' : 'Add the first country.'} />
               ) : (
                 pageItems.map((c) => (
-                  <tr key={c.id} className={`ad-row ${busyId === c.id ? 'is-busy' : ''}`}>
-                    <td className="ad-td is-main">
-                      <div className="ad-user">
+                  <tr key={c.id} className={`cp-row ${busyId === c.id ? 'is-busy' : ''}`}>
+                    <td className="cp-td is-main">
+                      <div className="cp-user">
                         <div style={{ width: 34, display: 'flex', justifyContent: 'center', flexShrink: 0 }}>{flag(c)}</div>
                         <div>
-                          <div className="ad-name">{c.name}</div>
-                          <div className="ad-sub ad-mono">{c.id}</div>
+                          <div className="cp-name">{c.name}</div>
+                          <div className="cp-sub cp-mono">{c.id}</div>
                         </div>
                       </div>
-                      <span className="ad-mobile-only"><span className={`ad-badge ${APPROVAL_TONE[c.approval_status] ?? 'gray'}`}>{c.approval_status}</span></span>
+                      <span className="cp-mobile-only"><span className={`cp-badge ${APPROVAL_TONE[c.approval_status] ?? 'gray'}`}>{c.approval_status}</span></span>
                     </td>
-                    <td className="ad-td is-hide-sm"><span className={`ad-badge ${APPROVAL_TONE[c.approval_status] ?? 'gray'}`}>{c.approval_status}</span></td>
-                    <td className="ad-td" data-label="Active">{c.is_active ? <span className="tone-green" style={{ fontWeight: 600 }}>Yes</span> : <span className="ad-hint">No</span>}</td>
-                    <td className="ad-td ad-num is-actions is-half">
-                      <div className="ad-actions">
+                    <td className="cp-td is-hide-sm"><span className={`cp-badge ${APPROVAL_TONE[c.approval_status] ?? 'gray'}`}>{c.approval_status}</span></td>
+                    <td className="cp-td" data-label="Active">{c.is_active ? <span className="tone-green" style={{ fontWeight: 600 }}>Yes</span> : <span className="cp-hint">No</span>}</td>
+                    <td className="cp-td cp-num is-actions is-half">
+                      <div className="cp-actions">
                         {c.approval_status !== 'approved' && (
-                          <button type="button" className="ad-btn ad-btn-success-soft" onClick={() => void setStatus(c, 'approve')}>Approve</button>
+                          <button type="button" className="cp-btn cp-btn-success-soft" onClick={() => void setStatus(c, 'approve')}>Approve</button>
                         )}
                         {c.approval_status === 'pending' && (
-                          <button type="button" className="ad-btn ad-btn-ghost" onClick={() => void setStatus(c, 'reject')}>Reject</button>
+                          <button type="button" className="cp-btn cp-btn-ghost" onClick={() => void setStatus(c, 'reject')}>Reject</button>
                         )}
-                        <button type="button" className="ad-btn ad-btn-ghost" onClick={() => { setFormError(''); setDraft({ editing: true, id: c.id, name: c.name, emoji: c.flag_emoji ?? '', url: c.flag_url ?? '' }); }}>Edit</button>
-                        <button type="button" className="ad-btn ad-btn-danger-soft ad-icon-btn" aria-label={`Delete ${c.name}`} title="Delete" onClick={() => remove(c)}>✕</button>
+                        <button type="button" className="cp-btn cp-btn-ghost" onClick={() => { setFormError(''); setDraft({ editing: true, id: c.id, name: c.name, emoji: c.flag_emoji ?? '', url: c.flag_url ?? '' }); }}>Edit</button>
+                        <button type="button" className="cp-btn cp-btn-danger-soft cp-icon-btn" aria-label={`Delete ${c.name}`} title="Delete" onClick={() => remove(c)}>✕</button>
                       </div>
                     </td>
                   </tr>
@@ -223,12 +223,12 @@ export default function CountriesPage() {
           onSubmit={() => void save()}
           footer={
             <>
-              <button type="button" className="ad-btn ad-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
-              <button type="submit" className="ad-btn ad-btn-primary" disabled={saving || !draft.name || !draft.id}>{saving ? 'Saving…' : 'Save'}</button>
+              <button type="button" className="cp-btn cp-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
+              <button type="submit" className="cp-btn cp-btn-primary" disabled={saving || !draft.name || !draft.id}>{saving ? 'Saving…' : 'Save'}</button>
             </>
           }
         >
-          <div className="ad-form-grid is-2up">
+          <div className="cp-form-grid is-2up">
             <Field label="Country code" hint="ISO 2-letter, e.g. IN, US, AE.">
               <input required maxLength={10} disabled={draft.editing} placeholder="IN" value={draft.id} onChange={(e) => setDraft({ ...draft, id: e.target.value.toUpperCase() })} />
             </Field>
@@ -247,7 +247,7 @@ export default function CountriesPage() {
             placeholder="https://.../flag.png"
             helpText="Optional image used when there is no emoji."
           />
-          {formError && <div className="ad-alert">{formError}</div>}
+          {formError && <div className="cp-alert">{formError}</div>}
         </Modal>
       )}
       {confirmNode}
