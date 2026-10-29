@@ -1,3 +1,5 @@
+import { recordVisit } from '../svip/svip-visits';
+import { wornMedals } from '../medal/medal.rules';
 import { withUniqueDisplayId } from './display-id';
 import {
   BadRequestException,
@@ -277,6 +279,7 @@ export class UserService {
         selectedFrame: true,
         selectedRoleFrame: true,
         selectedEntryBar: true,
+        svip: true,
       },
     });
     if (!user.displayId) {
@@ -287,13 +290,15 @@ export class UserService {
           selectedFrame: true,
           selectedRoleFrame: true,
           selectedEntryBar: true,
+          svip: true,
         },
       }));
     }
-    const counts = await this.countsFor(userId);
+    const [counts, medals] = await Promise.all([this.countsFor(userId), wornMedals(this.prisma, userId)]);
     return {
       ...userForApi(user, user.selectedFrame, user.selectedRoleFrame),
       ...counts,
+      worn_medals: medals,
     };
   }
 
@@ -301,11 +306,11 @@ export class UserService {
     const bands = await ensureLaravelLevelBands(this.prisma);
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      include: { selectedFrame: true, selectedRoleFrame: true },
+      include: { selectedFrame: true, selectedRoleFrame: true, svip: true },
     });
-    const counts = await this.rawCounts(userId);
+    const [counts, medals] = await Promise.all([this.rawCounts(userId), wornMedals(this.prisma, userId)]);
     const band = bandForXp(Number(user.xp), bands);
-    return profileForApi(user, counts, band);
+    return { ...profileForApi(user, counts, band), worn_medals: medals };
   }
 
   async updateMe(
@@ -621,16 +626,16 @@ export class UserService {
       user =
         (await this.prisma.user.findFirst({
           where: { id: BigInt(raw), deletedAt: null },
-          include: { selectedFrame: true, selectedRoleFrame: true },
+          include: { selectedFrame: true, selectedRoleFrame: true, svip: true },
         })) ??
         (await this.prisma.user.findFirst({
           where: { displayId: raw, deletedAt: null },
-          include: { selectedFrame: true, selectedRoleFrame: true },
+          include: { selectedFrame: true, selectedRoleFrame: true, svip: true },
         }));
     } else {
       user = await this.prisma.user.findFirst({
         where: { displayId: raw, deletedAt: null },
-        include: { selectedFrame: true, selectedRoleFrame: true },
+        include: { selectedFrame: true, selectedRoleFrame: true, svip: true },
       });
     }
     if (!user) {
@@ -641,7 +646,13 @@ export class UserService {
     }
 
     const resolvedTargetId = user.id;
-    const counts = await this.rawCounts(resolvedTargetId);
+    if (viewerId && viewerId !== resolvedTargetId) {
+      await recordVisit(this.prisma, resolvedTargetId, viewerId).catch(() => undefined);
+    }
+    const [counts, medals] = await Promise.all([
+      this.rawCounts(resolvedTargetId),
+      wornMedals(this.prisma, resolvedTargetId),
+    ]);
     let isFollowing = false;
     let isFriend = false;
     let relationshipStatus = 'none';
@@ -731,6 +742,7 @@ export class UserService {
       follow_request_pending: followRequestPending,
       private_profile_limited: privateLimited,
       is_private: user.isPrivate || user.privateAccount,
+      worn_medals: medals,
     };
   }
 

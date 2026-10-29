@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import FileUploadInput from '@/app/components/FileUploadInput';
-import MediaThumb from '@/app/components/MediaThumb';
+import MediaThumb, { compositeForAnimation } from '@/app/components/MediaThumb';
 import { Field, MediaCard, MediaSkeleton, Modal, PageHeader, SearchBox, Switch, errorText, useConfirm, useToasts } from '@/components/admin-ui';
 
 type EntryBar = {
@@ -13,11 +13,24 @@ type EntryBar = {
   level_required: number;
   image_url: string | null;
   animation_url?: string | null;
+  svip_level?: number;
+  composite_mode?: 'alpha' | 'screen';
+  sort_order?: number;
   is_active: boolean;
 };
 
-type Draft = { id?: number; name: string; levelReq: string; imageUrl: string; animationUrl: string; isActive: boolean };
-const NEW_DRAFT: Draft = { name: '', levelReq: '5', imageUrl: '', animationUrl: '', isActive: true };
+type Draft = {
+  id?: number;
+  name: string;
+  levelReq: string;
+  svipLevel: string;
+  imageUrl: string;
+  animationUrl: string;
+  composite: 'alpha' | 'screen';
+  sortOrder: string;
+  isActive: boolean;
+};
+const NEW_DRAFT: Draft = { name: '', levelReq: '5', svipLevel: '0', imageUrl: '', animationUrl: '', composite: 'alpha', sortOrder: '0', isActive: true };
 
 export default function EntryBarsPage() {
   const { token } = useAdminAuth();
@@ -69,8 +82,11 @@ export default function EntryBarsPage() {
     const body = {
       name: draft.name.trim(),
       level_required: Number(draft.levelReq) || 1,
+      svip_level: Math.max(0, Number(draft.svipLevel) || 0),
       image_url: draft.imageUrl.trim() || undefined,
       animation_url: draft.animationUrl.trim() || undefined,
+      composite_mode: draft.composite,
+      sort_order: Number(draft.sortOrder) || 0,
     };
     try {
       if (draft.id) {
@@ -120,15 +136,15 @@ export default function EntryBarsPage() {
   const set = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <PageHeader
         title="Entry Bars"
-        subtitle="Arrival banners announced when users enter party rooms, unlocked by user level."
-        actions={<button type="button" className="ad-btn ad-btn-accent ad-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New entry bar</button>}
+        subtitle="Arrival effects shown when users enter party rooms, unlocked by user level or SVIP level. A video plays full screen over the room."
+        actions={<button type="button" className="cp-btn cp-btn-accent cp-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New entry bar</button>}
       />
 
-      <section className="ad-card">
-        <div className="ad-toolbar">
+      <section className="cp-card">
+        <div className="cp-toolbar">
           <SearchBox value={q} onChange={setQ} placeholder="Search name or ID" />
           <Field label="Status">
             <select value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -145,22 +161,27 @@ export default function EntryBarsPage() {
             </select>
           </Field>
         </div>
-        <div className="ad-summary">Showing <strong>{visible.length}</strong> of <strong>{bars.length}</strong></div>
+        <div className="cp-summary">Showing <strong>{visible.length}</strong> of <strong>{bars.length}</strong></div>
         {loading && bars.length === 0 ? (
           <MediaSkeleton count={4} />
         ) : visible.length === 0 ? (
-          <div className="ad-empty">
-            <div className="ad-empty-title">{bars.length ? 'No entry bars match' : 'No entry bars yet'}</div>
+          <div className="cp-empty">
+            <div className="cp-empty-title">{bars.length ? 'No entry bars match' : 'No entry bars yet'}</div>
             {bars.length ? 'Try a different filter.' : 'Add the first arrival banner.'}
           </div>
         ) : (
-          <div className="ad-media-grid is-wide">
+          <div className="cp-media-grid is-wide">
             {visible.map((b) => (
               <MediaCard
                 key={b.id}
                 thumbClass="is-wide is-dark"
-                thumb={<MediaThumb imageUrl={b.image_url} animationUrl={b.animation_url} alt={b.name} fallback="🚀" />}
-                flags={<><span className="ad-badge amber">Lv {b.level_required}+</span><span /></>}
+                thumb={<MediaThumb imageUrl={b.image_url} animationUrl={b.animation_url} composite={b.composite_mode} alt={b.name} fallback="🚀" />}
+                flags={
+                  <>
+                    <span className="cp-badge amber">{b.svip_level ? `SVIP ${b.svip_level}+` : `Lv ${b.level_required}+`}</span>
+                    <span />
+                  </>
+                }
                 title={b.name}
                 meta={`#${b.id}`}
                 active={b.is_active}
@@ -168,7 +189,17 @@ export default function EntryBarsPage() {
                 onToggle={() => void toggleActive(b)}
                 onEdit={() => {
                   setFormError('');
-                  setDraft({ id: b.id, name: b.name, levelReq: String(b.level_required), imageUrl: b.image_url ?? '', animationUrl: b.animation_url ?? '', isActive: b.is_active });
+                  setDraft({
+                    id: b.id,
+                    name: b.name,
+                    levelReq: String(b.level_required),
+                    svipLevel: String(b.svip_level ?? 0),
+                    imageUrl: b.image_url ?? '',
+                    animationUrl: b.animation_url ?? '',
+                    composite: b.composite_mode === 'screen' ? 'screen' : 'alpha',
+                    sortOrder: String(b.sort_order ?? 0),
+                    isActive: b.is_active,
+                  });
                 }}
                 onDelete={() => remove(b)}
               />
@@ -186,17 +217,23 @@ export default function EntryBarsPage() {
           onSubmit={() => void save()}
           footer={
             <>
-              <button type="button" className="ad-btn ad-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
-              <button type="submit" className="ad-btn ad-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create entry bar'}</button>
+              <button type="button" className="cp-btn cp-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
+              <button type="submit" className="cp-btn cp-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create entry bar'}</button>
             </>
           }
         >
-          <div className="ad-form-grid is-2up">
+          <div className="cp-form-grid is-2up">
             <Field label="Name *">
               <input autoFocus placeholder="e.g. Phoenix Dragon Entrance" value={draft.name} onChange={(e) => set({ name: e.target.value })} />
             </Field>
             <Field label="Unlock level">
               <input type="number" inputMode="numeric" value={draft.levelReq} onChange={(e) => set({ levelReq: e.target.value })} />
+            </Field>
+            <Field label="SVIP level (0 = not SVIP)">
+              <input type="number" inputMode="numeric" min={0} value={draft.svipLevel} onChange={(e) => set({ svipLevel: e.target.value })} />
+            </Field>
+            <Field label="Sort order (lowest = SVIP default)">
+              <input type="number" inputMode="numeric" value={draft.sortOrder} onChange={(e) => set({ sortOrder: e.target.value })} />
             </Field>
           </div>
           <FileUploadInput
@@ -210,18 +247,24 @@ export default function EntryBarsPage() {
           <FileUploadInput
             label="Entry effect (.json, .svga, .mp4, .webm)"
             value={draft.animationUrl}
-            onChange={(url) => set({ animationUrl: url })}
+            onChange={(url) => set({ animationUrl: url, composite: compositeForAnimation(url) })}
             accept=".svga,.json,.gif,.webp,.mp4,.webm,video/mp4,video/webm,image/gif,image/webp"
             placeholder="https://.../entry_effect.json"
-            helpText="Played when the user joins a room. Max 50MB for video."
+            helpText="Video (.mp4 / .webm) plays full screen over the room with sound, about 4 s, 1080×1920."
           />
+          <Field label="Video composite" wide>
+            <select value={draft.composite} onChange={(e) => set({ composite: e.target.value === 'screen' ? 'screen' : 'alpha' })}>
+              <option value="screen">Screen — black background drops out (.mp4 on pure black)</option>
+              <option value="alpha">Alpha — video has its own transparency (.webm)</option>
+            </select>
+          </Field>
           {draft.id ? (
-            <div className="ad-toggle-row">
-              <div className="ad-toggle-title">Active</div>
+            <div className="cp-toggle-row">
+              <div className="cp-toggle-title">Active</div>
               <Switch label="Active" checked={draft.isActive} onChange={(v) => set({ isActive: v })} />
             </div>
           ) : null}
-          {formError && <div className="ad-alert">{formError}</div>}
+          {formError && <div className="cp-alert">{formError}</div>}
         </Modal>
       )}
       {confirmNode}

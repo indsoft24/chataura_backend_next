@@ -1,0 +1,111 @@
+# Test server (staging) — served at https://chataura.in/test (API) and /test/nextadmin (admin).
+# Its own database, Redis and uploads; never touches the production containers or volumes.
+#   cd /var/www/chataura_staging && docker compose -f docker-compose.staging.yml up -d --build
+# See scripts/deploy-staging.sh.
+name: chataura_staging
+
+services:
+  api:
+    build:
+      context: ./chataura_backend_nest
+      dockerfile: docker/Dockerfile
+      target: production
+    container_name: chataura_stg_api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3015:3000"
+    env_file:
+      - ./chataura_backend_nest/.env.staging
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - API_PREFIX=api/v2
+      - PUBLIC_BASE_URL=https://chataura.in/test
+      - DATABASE_URL=postgresql://chataura_user:${STG_DB_PASSWORD:?set STG_DB_PASSWORD}@postgres:5432/chataura_staging?schema=public&connection_limit=10
+      - REDIS_URL=redis://redis:6379
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - NODE_OPTIONS=--max-old-space-size=600
+    deploy:
+      resources:
+        limits:
+          memory: 800M
+    volumes:
+      - stg_uploads:/app/uploads
+      - ./secrets/gcs-service-account.json:/run/secrets/gcs-service-account.json:ro
+      - ./secrets/firebase-adminsdk.json:/run/secrets/firebase-adminsdk.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - stg_net
+
+  admin:
+    build:
+      context: ./chataura_admin
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: /test/api/v2
+        NEXT_PUBLIC_BASE_PATH: /test/nextadmin
+    container_name: chataura_stg_admin
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3110:3100"
+    environment:
+      - NEXT_PUBLIC_API_URL=/test/api/v2
+      - NEXT_PUBLIC_BASE_PATH=/test/nextadmin
+    depends_on:
+      - api
+    networks:
+      - stg_net
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: chataura_stg_postgres
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5434:5432"
+    environment:
+      POSTGRES_USER: chataura_user
+      POSTGRES_PASSWORD: ${STG_DB_PASSWORD:?set STG_DB_PASSWORD}
+      POSTGRES_DB: chataura_staging
+    volumes:
+      - stg_postgres:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 700M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chataura_user -d chataura_staging"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - stg_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: chataura_stg_redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - stg_net
+
+volumes:
+  stg_postgres:
+  stg_uploads:
+
+networks:
+  stg_net:
+    driver: bridge

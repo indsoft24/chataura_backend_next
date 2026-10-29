@@ -22,6 +22,17 @@ const now = new Date('2026-10-16T12:00:00Z');
 const base = { frames, unlocks: [], role: 'user', staffBadgeType: null, isStarAccount: false, relationships: [], now };
 
 describe('eligibleFrames', () => {
+  it('SVIP frame: only from an SVIP grant, and only until it expires', () => {
+    const svip = [...frames, f(10, 'svip', 'svip1_frame')];
+    const until = new Date(now.getTime() + 86400000);
+    const granted = eligibleFrames({ ...base, frames: svip, unlocks: [{ frameId: 10n, expiresAt: until, coinsPaid: 0, unlockType: 'svip' }] });
+    expect(granted.get('10')).toBe('svip');
+    const levelRow = eligibleFrames({ ...base, frames: svip, unlocks: [{ frameId: 10n, expiresAt: null, coinsPaid: 0, unlockType: 'level' }] });
+    expect(levelRow.has('10')).toBe(false);
+    const expired = eligibleFrames({ ...base, frames: svip, unlocks: [{ frameId: 10n, expiresAt: now, coinsPaid: 0, unlockType: 'svip' }] });
+    expect(expired.has('10')).toBe(false);
+  });
+
   it('normal user: owned paid / free / reward frames, skipping expired ones', () => {
     const out = eligibleFrames({
       ...base,

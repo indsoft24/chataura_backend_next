@@ -1,3 +1,4 @@
+import { assertSvipLevel, SVIP_PRIVILEGE_LEVEL } from '../svip/svip-gates';
 import {
   BadRequestException,
   ForbiddenException,
@@ -546,6 +547,10 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     if (type === 'image') {
       if (!media) this.badRequest('MEDIA_REQUIRED', 'Image message needs an uploaded image');
       this.assertMediaUrl(media, 'image_url');
+      // SVIP privilege: pictures in 1-on-1 messages. Group chats are unchanged.
+      if (this.isDirectType(part.conversation.type)) {
+        await assertSvipLevel(this.prisma, userId, SVIP_PRIVILEGE_LEVEL, 'send pictures in messages');
+      }
     }
     const clientUuid = cleanText(body.client_uuid)?.slice(0, 64) ?? null;
 
@@ -1621,7 +1626,8 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       sender_avatar: s?.avatarUrl ?? null,
       message_type: m.messageType,
       message_text: m.messageText,
-      message: m.messageText,
+      // Never null: a picture without caption has no text, and app versions expect a string here.
+      message: m.messageText ?? '',
       message_media: m.messageMedia,
       image_url: m.messageMedia,
       gift_id: m.giftId ? Number(m.giftId) : null,

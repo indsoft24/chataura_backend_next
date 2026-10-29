@@ -143,13 +143,13 @@ export default function RoomRewardsPage() {
   }, []);
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <style dangerouslySetInnerHTML={{ __html: RR_STYLES }} />
       <PageHeader
         title="Room Reward Levels"
         subtitle="Lifetime room gifting milestones (never reset). Each level pays the room owner and the top partners once per room; partners rank by gifting toward the level, then time in the room."
       />
-      <div className="ad-card rr-nav">
+      <div className="cp-card rr-nav">
         <Tabs
           value={tab}
           onChange={setTab}
@@ -162,7 +162,7 @@ export default function RoomRewardsPage() {
         />
       </div>
 
-      {msg && <div className={`ad-alert is-flush ${msg.ok ? 'is-success' : ''}`} style={{ marginBottom: 14 }}>{msg.text}</div>}
+      {msg && <div className={`cp-alert is-flush ${msg.ok ? 'is-success' : ''}`} style={{ marginBottom: 14 }}>{msg.text}</div>}
 
       {token && tab === 'overview' && <OverviewTab token={token} flash={flash} confirm={confirm} />}
       {token && tab === 'levels' && <LevelsTab token={token} flash={flash} confirm={confirm} />}
@@ -228,12 +228,12 @@ function OverviewTab({ token, flash, confirm }: { token: string; flash: Flash; c
   }
 
   if (!data) {
-    return <div className="ad-kpis">{[0, 1, 2, 3, 4].map((i) => <div key={i} className="ad-skeleton" style={{ height: 84 }} />)}</div>;
+    return <div className="cp-kpis">{[0, 1, 2, 3, 4].map((i) => <div key={i} className="cp-skeleton" style={{ height: 84 }} />)}</div>;
   }
 
   return (
     <>
-      <div className="ad-kpis rr-kpis">
+      <div className="cp-kpis rr-kpis">
         <Kpi label="Coins paid" value={fmt(data.total_paid)} sub="All time" tone="amber" />
         <Kpi label="Levels completed" value={fmt(data.payouts)} />
         <Kpi label="People paid" value={fmt(data.recipients)} />
@@ -243,26 +243,26 @@ function OverviewTab({ token, flash, confirm }: { token: string; flash: Flash; c
 
       <Section title="Settings" className="rr-settings">
         <div style={{ display: 'grid', gap: 16 }}>
-          <div className="ad-toggle-row">
+          <div className="cp-toggle-row">
             <div>
-              <div className="ad-toggle-title">Room Reward Levels</div>
-              <div className={`ad-toggle-hint ${enabled ? 'tone-green' : 'tone-red'}`}>
+              <div className="cp-toggle-title">Room Reward Levels</div>
+              <div className={`cp-toggle-hint ${enabled ? 'tone-green' : 'tone-red'}`}>
                 {enabled ? 'On — counting gifts and paying levels' : 'Off — nothing is counted or paid'}
               </div>
             </div>
             <Switch label="Room Reward Levels enabled" checked={enabled} onChange={setEnabled} />
           </div>
-          <div className="ad-form-grid is-2up">
+          <div className="cp-form-grid is-2up">
             <Field label="Presence required" hint="Continuous stay before a visitor counts (owner never counts).">
-              <div className="ad-unit"><input type="number" min={0} max={240} value={presence} onChange={(e) => setPresence(e.target.value)} /><span>min</span></div>
+              <div className="cp-unit"><input type="number" min={0} max={240} value={presence} onChange={(e) => setPresence(e.target.value)} /><span>min</span></div>
             </Field>
             <Field label="Allowed drop" hint="Shorter disconnects keep the stay continuous.">
-              <div className="ad-unit"><input type="number" min={0} max={30} value={gap} onChange={(e) => setGap(e.target.value)} /><span>min</span></div>
+              <div className="cp-unit"><input type="number" min={0} max={30} value={gap} onChange={(e) => setGap(e.target.value)} /><span>min</span></div>
             </Field>
           </div>
         </div>
-        <div className="ad-form-actions">
-          <button type="button" className="ad-btn ad-btn-primary ad-btn-lg" onClick={save} disabled={saving}>
+        <div className="cp-form-actions">
+          <button type="button" className="cp-btn cp-btn-primary cp-btn-lg" onClick={save} disabled={saving}>
             {saving ? 'Saving…' : 'Save settings'}
           </button>
         </div>
@@ -411,7 +411,7 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
   const cell = (i: number, field: keyof LevelRow, r: LevelRow, label: string, cls = '') => {
     const err = issuesByCell.get(`${r.level}:${field}`);
     return (
-      <td className={`ad-td ${cls}`} data-label={label}>
+      <td className={`cp-td ${cls}`} data-label={label}>
         <input
           className={`rr-cell ${err ? 'has-error' : ''}`}
           value={r[field] as string}
@@ -426,23 +426,23 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
   };
 
   return (
-    <section className="ad-card">
-      <div className="ad-card-head">
+    <section className="cp-card">
+      <div className="cp-card-head">
         <div>
           <h2>Levels {rows ? `(${rows.length})` : ''}</h2>
           <p>Partner reward is paid to each partner: total = owner + partner × partners. Coin targets must rise level by level; paid levels are final.</p>
         </div>
-        <div className="ad-actions">
-          <button type="button" className="ad-btn ad-btn-soft" onClick={addLevel} disabled={!rows}>+ Add level</button>
-          <button type="button" className="ad-btn ad-btn-ghost" onClick={() => void runPreview()} disabled={busy || !rows}>Check</button>
-          <button type="button" className="ad-btn ad-btn-primary" onClick={() => void save()} disabled={busy || !dirty}>
+        <div className="cp-actions">
+          <button type="button" className="cp-btn cp-btn-soft" onClick={addLevel} disabled={!rows}>+ Add level</button>
+          <button type="button" className="cp-btn cp-btn-ghost" onClick={() => void runPreview()} disabled={busy || !rows}>Check</button>
+          <button type="button" className="cp-btn cp-btn-primary" onClick={() => void save()} disabled={busy || !dirty}>
             {busy ? 'Working…' : 'Save levels'}
           </button>
         </div>
       </div>
 
       {preview && preview.issues.length === 0 && (
-        <div className="ad-alert is-success" style={{ marginTop: 12 }}>
+        <div className="cp-alert is-success" style={{ marginTop: 12 }}>
           ✓ Table is valid.
           {preview.impact.length > 0
             ? ` ${preview.impact.reduce((s2, i) => s2 + i.rooms_due, 0)} room-level(s) already reached — up to ${fmt(preview.max_immediate_coins)} coins could be paid right after saving.`
@@ -450,20 +450,20 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
         </div>
       )}
 
-      <div className="ad-table-wrap">
-        <table className="ad-table is-stack is-3up rr-levels">
+      <div className="cp-table-wrap">
+        <table className="cp-table is-stack is-3up rr-levels">
           <thead>
             <tr>
-              <th className="ad-th">Level</th>
-              <th className="ad-th">Visitors ≥</th>
-              <th className="ad-th">Room coins ≥</th>
-              <th className="ad-th">Owner coins</th>
-              <th className="ad-th">Partner coins each</th>
-              <th className="ad-th">Partners</th>
-              <th className="ad-th ad-num">Total</th>
-              <th className="ad-th ad-num">Rooms paid</th>
-              <th className="ad-th">Active</th>
-              <th className="ad-th"></th>
+              <th className="cp-th">Level</th>
+              <th className="cp-th">Visitors ≥</th>
+              <th className="cp-th">Room coins ≥</th>
+              <th className="cp-th">Owner coins</th>
+              <th className="cp-th">Partner coins each</th>
+              <th className="cp-th">Partners</th>
+              <th className="cp-th cp-num">Total</th>
+              <th className="cp-th cp-num">Rooms paid</th>
+              <th className="cp-th">Active</th>
+              <th className="cp-th"></th>
             </tr>
           </thead>
           <tbody>
@@ -473,21 +473,21 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
               <EmptyRow cols={10} title="No levels yet" hint="Add the first level to start paying rooms." />
             ) : (
               rows.map((r, i) => (
-                <tr key={i} className={`ad-row ${r.is_active ? '' : 'is-off'}`}>
+                <tr key={i} className={`cp-row ${r.is_active ? '' : 'is-off'}`}>
                   {cell(i, 'level', r, 'Level', 'rr-level-cell')}
                   {cell(i, 'min_visitors', r, 'Visitors ≥')}
                   {cell(i, 'min_room_coins', r, 'Room coins ≥', 'rr-wide')}
                   {cell(i, 'owner_reward', r, 'Owner coins', 'rr-wide')}
                   {cell(i, 'partner_reward', r, 'Partner each', 'rr-wide')}
                   {cell(i, 'partner_count', r, 'Partners')}
-                  <td className="ad-td ad-num" data-label="Total" style={{ fontWeight: 700 }}>{fmt(rowTotal(r))}</td>
-                  <td className="ad-td ad-num" data-label="Rooms paid">{r.rooms_paid}</td>
-                  <td className="ad-td" data-label="Active">
+                  <td className="cp-td cp-num" data-label="Total" style={{ fontWeight: 700 }}>{fmt(rowTotal(r))}</td>
+                  <td className="cp-td cp-num" data-label="Rooms paid">{r.rooms_paid}</td>
+                  <td className="cp-td" data-label="Active">
                     <Switch label={`Level ${r.level} active`} checked={r.is_active} onChange={(v) => update(i, { is_active: v })} />
                   </td>
-                  <td className="ad-td ad-num is-actions">
-                    <div className="ad-actions">
-                      <button type="button" className="ad-btn ad-btn-danger-soft ad-icon-btn" title={`Remove level ${r.level}`} aria-label={`Remove level ${r.level}`} onClick={() => removeLevel(i)}>✕<span className="ad-mobile-only">&nbsp;Remove</span></button>
+                  <td className="cp-td cp-num is-actions">
+                    <div className="cp-actions">
+                      <button type="button" className="cp-btn cp-btn-danger-soft cp-icon-btn" title={`Remove level ${r.level}`} aria-label={`Remove level ${r.level}`} onClick={() => removeLevel(i)}>✕<span className="cp-mobile-only">&nbsp;Remove</span></button>
                     </div>
                   </td>
                 </tr>
@@ -526,25 +526,25 @@ function RoomsTab({ token }: { token: string }) {
   }, [load]);
 
   return (
-    <section className="ad-card">
-      <div className="ad-toolbar">
+    <section className="cp-card">
+      <div className="cp-toolbar">
         <SearchBox value={q} onChange={setQ} placeholder="Room ID, room UUID or title" />
-        <label className="ad-check is-wide">
+        <label className="cp-check is-wide">
           <input type="checkbox" checked={pending} onChange={(e) => { setPending(e.target.checked); setPage(1); }} />
           Waiting on visitors only
         </label>
-        <button type="button" className="ad-btn ad-btn-ghost ad-btn-lg" onClick={() => void load()}>Refresh</button>
+        <button type="button" className="cp-btn cp-btn-ghost cp-btn-lg" onClick={() => void load()}>Refresh</button>
       </div>
-      <div className="ad-table-wrap">
-        <table className="ad-table is-stack">
+      <div className="cp-table-wrap">
+        <table className="cp-table is-stack">
           <thead>
             <tr>
-              <th className="ad-th">Room</th>
-              <th className="ad-th">Owner</th>
-              <th className="ad-th ad-num">Lifetime coins</th>
-              <th className="ad-th ad-num">Level reached</th>
-              <th className="ad-th">Next level</th>
-              <th className="ad-th">Status</th>
+              <th className="cp-th">Room</th>
+              <th className="cp-th">Owner</th>
+              <th className="cp-th cp-num">Lifetime coins</th>
+              <th className="cp-th cp-num">Level reached</th>
+              <th className="cp-th">Next level</th>
+              <th className="cp-th">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -554,24 +554,24 @@ function RoomsTab({ token }: { token: string }) {
               <EmptyRow cols={6} title="No rooms found" hint={search || pending ? 'Try a different search.' : 'Rooms appear once they receive gifts.'} />
             ) : (
               data.rooms.map((r) => (
-                <tr key={r.room_id} className="ad-row">
-                  <td className="ad-td is-main">
+                <tr key={r.room_id} className="cp-row">
+                  <td className="cp-td is-main">
                     <div style={{ minWidth: 0 }}>
-                      <div className="ad-name">{r.room_title}</div>
-                      <div className="ad-sub">ID {r.room_display_id}</div>
+                      <div className="cp-name">{r.room_title}</div>
+                      <div className="cp-sub">ID {r.room_display_id}</div>
                     </div>
-                    <span className="ad-mobile-only">{statusBadge(r)}</span>
+                    <span className="cp-mobile-only">{statusBadge(r)}</span>
                   </td>
-                  <td className="ad-td" data-label="Owner">
-                    <div className="ad-name" style={{ fontWeight: 500 }}>{r.owner_name ?? '—'}</div>
-                    <div className="ad-sub">ID {r.owner_display_id ?? '—'}</div>
+                  <td className="cp-td" data-label="Owner">
+                    <div className="cp-name" style={{ fontWeight: 500 }}>{r.owner_name ?? '—'}</div>
+                    <div className="cp-sub">ID {r.owner_display_id ?? '—'}</div>
                   </td>
-                  <td className="ad-td ad-num" data-label="Lifetime coins" style={{ fontWeight: 600 }}>{fmt(r.lifetime_coins)}</td>
-                  <td className="ad-td ad-num" data-label="Level reached">L{r.last_level}</td>
-                  <td className="ad-td" data-label="Next level">
-                    {r.next_level == null ? <span className="ad-hint">All levels done</span> : <>L{r.next_level}: {fmt(r.next_level_coins)} coins · {r.next_level_visitors} visitors</>}
+                  <td className="cp-td cp-num" data-label="Lifetime coins" style={{ fontWeight: 600 }}>{fmt(r.lifetime_coins)}</td>
+                  <td className="cp-td cp-num" data-label="Level reached">L{r.last_level}</td>
+                  <td className="cp-td" data-label="Next level">
+                    {r.next_level == null ? <span className="cp-hint">All levels done</span> : <>L{r.next_level}: {fmt(r.next_level_coins)} coins · {r.next_level_visitors} visitors</>}
                   </td>
-                  <td className="ad-td is-hide-sm">{statusBadge(r)}</td>
+                  <td className="cp-td is-hide-sm">{statusBadge(r)}</td>
                 </tr>
               ))
             )}
@@ -585,11 +585,11 @@ function RoomsTab({ token }: { token: string }) {
 
 function statusBadge(r: RoomRow): ReactNode {
   return r.pending_level != null ? (
-    <span className="ad-badge amber" title={r.pending_since ? `Since ${new Date(r.pending_since).toLocaleString()}` : undefined}>
+    <span className="cp-badge amber" title={r.pending_since ? `Since ${new Date(r.pending_since).toLocaleString()}` : undefined}>
       L{r.pending_level} waiting
     </span>
   ) : (
-    <span className="ad-badge gray">Progressing</span>
+    <span className="cp-badge gray">Progressing</span>
   );
 }
 
@@ -617,23 +617,23 @@ function PayoutsTab({ token }: { token: string }) {
   }, [load]);
 
   return (
-    <section className="ad-card">
-      <div className="ad-toolbar">
+    <section className="cp-card">
+      <div className="cp-toolbar">
         <SearchBox value={roomQ} onChange={setRoomQ} placeholder="Room ID or UUID" />
         <SearchBox value={userQ} onChange={setUserQ} placeholder="User ID (public or account)" />
       </div>
-      <div className="ad-table-wrap">
-        <table className="ad-table is-stack is-3up">
+      <div className="cp-table-wrap">
+        <table className="cp-table is-stack is-3up">
           <thead>
             <tr>
-              <th className="ad-th">Room</th>
-              <th className="ad-th">When</th>
-              <th className="ad-th ad-num">Level</th>
-              <th className="ad-th ad-num">Paid</th>
-              <th className="ad-th ad-num">Room coins at</th>
-              <th className="ad-th ad-num">Visitors</th>
-              <th className="ad-th ad-num">Partners</th>
-              <th className="ad-th"></th>
+              <th className="cp-th">Room</th>
+              <th className="cp-th">When</th>
+              <th className="cp-th cp-num">Level</th>
+              <th className="cp-th cp-num">Paid</th>
+              <th className="cp-th cp-num">Room coins at</th>
+              <th className="cp-th cp-num">Visitors</th>
+              <th className="cp-th cp-num">Partners</th>
+              <th className="cp-th"></th>
             </tr>
           </thead>
           <tbody>
@@ -644,23 +644,23 @@ function PayoutsTab({ token }: { token: string }) {
             ) : (
               data.payouts.map((p) => (
                 <Fragment key={p.id}>
-                  <tr className="ad-row">
-                    <td className="ad-td is-main">
+                  <tr className="cp-row">
+                    <td className="cp-td is-main">
                       <div style={{ minWidth: 0 }}>
-                        <div className="ad-name">{p.room_title ?? '—'}</div>
-                        <div className="ad-sub">ID {p.room_display_id ?? '—'}</div>
+                        <div className="cp-name">{p.room_title ?? '—'}</div>
+                        <div className="cp-sub">ID {p.room_display_id ?? '—'}</div>
                       </div>
-                      <span className="ad-badge indigo ad-mobile-only">L{p.level}</span>
+                      <span className="cp-badge indigo cp-mobile-only">L{p.level}</span>
                     </td>
-                    <td className="ad-td" data-label="When">{new Date(p.created_at).toLocaleString()}</td>
-                    <td className="ad-td ad-num is-hide-sm">L{p.level}</td>
-                    <td className="ad-td ad-num tone-amber" data-label="Paid" style={{ fontWeight: 700 }}>{fmt(p.total_paid)}</td>
-                    <td className="ad-td ad-num" data-label="Room coins at">{fmt(p.room_coins_at)}</td>
-                    <td className="ad-td ad-num" data-label="Visitors">{p.qualified_visitors}</td>
-                    <td className="ad-td ad-num" data-label="Partners">{p.partners_paid} / {p.partner_slots}</td>
-                    <td className="ad-td ad-num is-actions">
-                      <div className="ad-actions">
-                        <button type="button" className="ad-btn ad-btn-ghost" aria-expanded={open === p.id} onClick={() => setOpen(open === p.id ? null : p.id)}>
+                    <td className="cp-td" data-label="When">{new Date(p.created_at).toLocaleString()}</td>
+                    <td className="cp-td cp-num is-hide-sm">L{p.level}</td>
+                    <td className="cp-td cp-num tone-amber" data-label="Paid" style={{ fontWeight: 700 }}>{fmt(p.total_paid)}</td>
+                    <td className="cp-td cp-num" data-label="Room coins at">{fmt(p.room_coins_at)}</td>
+                    <td className="cp-td cp-num" data-label="Visitors">{p.qualified_visitors}</td>
+                    <td className="cp-td cp-num" data-label="Partners">{p.partners_paid} / {p.partner_slots}</td>
+                    <td className="cp-td cp-num is-actions">
+                      <div className="cp-actions">
+                        <button type="button" className="cp-btn cp-btn-ghost" aria-expanded={open === p.id} onClick={() => setOpen(open === p.id ? null : p.id)}>
                           {open === p.id ? 'Hide recipients' : `Recipients (${p.recipients.length})`}
                         </button>
                       </div>
@@ -672,10 +672,10 @@ function PayoutsTab({ token }: { token: string }) {
                         <div className="rr-recipients">
                           {p.recipients.map((r) => (
                             <div key={r.user_id} className="rr-recipient">
-                              <span className={`ad-badge ${r.role === 'owner' ? 'indigo' : 'gray'}`}>{r.role}{r.rank ? ` #${r.rank}` : ''}</span>
+                              <span className={`cp-badge ${r.role === 'owner' ? 'indigo' : 'gray'}`}>{r.role}{r.rank ? ` #${r.rank}` : ''}</span>
                               <div className="rr-recipient-name">
-                                <div className="ad-name">{r.name ?? 'User'}</div>
-                                <div className="ad-sub">ID {r.display_id ?? r.user_id}{r.role === 'owner' ? '' : ` · gifted ${fmt(r.gifted_coins)} · stayed ${Math.floor(r.stay_seconds / 60)} min`}</div>
+                                <div className="cp-name">{r.name ?? 'User'}</div>
+                                <div className="cp-sub">ID {r.display_id ?? r.user_id}{r.role === 'owner' ? '' : ` · gifted ${fmt(r.gifted_coins)} · stayed ${Math.floor(r.stay_seconds / 60)} min`}</div>
                               </div>
                               <strong className="tone-amber">{fmt(r.amount)}</strong>
                             </div>
@@ -698,13 +698,13 @@ function PayoutsTab({ token }: { token: string }) {
 function Pager({ page, total, size, onPage }: { page: number; total: number; size: number; onPage: (p: number) => void }) {
   const pages = Math.max(1, Math.ceil(total / size));
   return (
-    <div className="ad-pager">
-      <div className="ad-pager-info">
+    <div className="cp-pager">
+      <div className="cp-pager-info">
         <span>Page <strong>{page}</strong> of <strong>{pages}</strong> · {total.toLocaleString('en-US')} total</span>
       </div>
-      <div className="ad-pager-controls">
-        <button type="button" className="ad-page-btn" disabled={page <= 1} onClick={() => onPage(page - 1)}>‹ Prev</button>
-        <button type="button" className="ad-page-btn" disabled={page >= pages} onClick={() => onPage(page + 1)}>Next ›</button>
+      <div className="cp-pager-controls">
+        <button type="button" className="cp-page-btn" disabled={page <= 1} onClick={() => onPage(page - 1)}>‹ Prev</button>
+        <button type="button" className="cp-page-btn" disabled={page >= pages} onClick={() => onPage(page + 1)}>Next ›</button>
       </div>
     </div>
   );
@@ -712,16 +712,16 @@ function Pager({ page, total, size, onPage }: { page: number; total: number; siz
 
 const RR_STYLES = `
 .rr-nav { margin-bottom: 16px; }
-.rr-nav .ad-tabs { border-bottom: none; }
+.rr-nav .cp-tabs { border-bottom: none; }
 .rr-kpis { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .rr-settings { max-width: 640px; }
-.ad-page .rr-cell { width: 100%; min-width: 56px; padding: 6px 8px; min-height: 34px; font-size: 0.86rem; }
-.rr-levels .ad-th, .rr-levels .ad-td { padding-left: 6px; padding-right: 6px; }
-.rr-levels .ad-th { white-space: normal; }
+.cp-page .rr-cell { width: 100%; min-width: 56px; padding: 6px 8px; min-height: 34px; font-size: 0.86rem; }
+.rr-levels .cp-th, .rr-levels .cp-td { padding-left: 6px; padding-right: 6px; }
+.rr-levels .cp-th { white-space: normal; }
 .rr-levels .rr-wide { min-width: 108px; }
-.ad-page .rr-cell.has-error { border-color: #dc2626; }
+.cp-page .rr-cell.has-error { border-color: #dc2626; }
 .rr-err { color: #dc2626; font-size: 0.7rem; margin-top: 2px; }
-.ad-row.is-off .rr-cell { color: #9ca3af; }
+.cp-row.is-off .rr-cell { color: #9ca3af; }
 .rr-recipients-row td { padding: 0 20px 14px; background: #fafafb; border-bottom: 1px solid #f3f4f6; }
 .rr-recipients { display: grid; gap: 8px; padding-top: 12px; }
 .rr-recipient { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; }
@@ -729,8 +729,8 @@ const RR_STYLES = `
 @media (max-width: 1100px) { .rr-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 640px) {
   .rr-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ad-page .rr-cell { width: 100%; min-width: 0; padding: 6px 8px; }
-  .ad-table.is-stack.rr-levels tr { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.3fr); }
+  .cp-page .rr-cell { width: 100%; min-width: 0; padding: 6px 8px; }
+  .cp-table.is-stack.rr-levels tr { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.3fr); }
   .rr-recipients-row td { padding: 0 12px 12px; background: transparent; border: none; }
   .rr-recipients { padding-top: 0; }
   .rr-recipient { flex-wrap: wrap; gap: 8px; }

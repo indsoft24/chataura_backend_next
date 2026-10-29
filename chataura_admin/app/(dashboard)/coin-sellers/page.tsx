@@ -271,12 +271,12 @@ export default function CoinSellersPage() {
   const previewDigits = draft ? digitsPreview(draft.whatsapp) : null;
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <style dangerouslySetInnerHTML={{ __html: PAGE_STYLES }} />
       {toastNode}
       {confirmNode}
 
-      <div className="ad-header">
+      <div className="cp-header">
         <div>
           <h1>Coin Sellers</h1>
           <p>
@@ -284,50 +284,50 @@ export default function CoinSellersPage() {
             WhatsApp opens with a ready message, they pay the seller, and the seller sends coins with Seller Transfer.
           </p>
         </div>
-        <div className="ad-header-actions">
-          <button className="ad-btn ad-btn-lg ad-btn-primary" onClick={openAdd}>
+        <div className="cp-header-actions">
+          <button className="cp-btn cp-btn-lg cp-btn-primary" onClick={openAdd}>
             + Add seller
           </button>
         </div>
       </div>
 
-      <div className="ad-card">
-        <div className="ad-card-head">
+      <div className="cp-card">
+        <div className="cp-card-head">
           <div>
             <h2>Listed sellers</h2>
             <p>Shown in the app in this order. Hidden automatically if the user loses the seller role or is suspended.</p>
           </div>
         </div>
         {loadError && (
-          <div className="ad-alert" style={{ marginTop: 12 }}>
+          <div className="cp-alert" style={{ marginTop: 12 }}>
             {loadError}
-            <button className="ad-btn ad-btn-ghost" onClick={() => void load()}>
+            <button className="cp-btn cp-btn-ghost" onClick={() => void load()}>
               Retry
             </button>
           </div>
         )}
-        <div className="ad-table-wrap">
-          <table className="ad-table is-stack">
+        <div className="cp-table-wrap">
+          <table className="cp-table is-stack">
             <thead>
               <tr>
-                <th className="ad-th" style={{ width: 70 }}>Order</th>
-                <th className="ad-th">Seller</th>
-                <th className="ad-th">WhatsApp</th>
-                <th className="ad-th">Countries</th>
-                <th className="ad-th">Status</th>
-                <th className="ad-th" style={{ textAlign: 'right' }}>Actions</th>
+                <th className="cp-th" style={{ width: 70 }}>Order</th>
+                <th className="cp-th">Seller</th>
+                <th className="cp-th">WhatsApp</th>
+                <th className="cp-th">Countries</th>
+                <th className="cp-th">Status</th>
+                <th className="cp-th" style={{ textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading && rows.length === 0 ? (
                 <tr>
-                  <td className="ad-td" colSpan={6} style={{ textAlign: 'center', color: '#9ca3af', padding: 32 }}>
+                  <td className="cp-td" colSpan={6} style={{ textAlign: 'center', color: '#9ca3af', padding: 32 }}>
                     Loading…
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td className="ad-td" colSpan={6} style={{ textAlign: 'center', padding: 40 }}>
+                  <td className="cp-td" colSpan={6} style={{ textAlign: 'center', padding: 40 }}>
                     <div style={{ fontWeight: 600 }}>No coin sellers listed yet</div>
                     <div style={{ color: '#6b7280', fontSize: '0.85rem', marginTop: 4 }}>
                       Add a user with the Coin Seller role to show them in the app’s Offline tab.
@@ -336,8 +336,8 @@ export default function CoinSellersPage() {
                 </tr>
               ) : (
                 rows.map((r, i) => (
-                  <tr key={r.id} className={`ad-row ${busyId === r.id ? 'is-busy' : ''} ${r.visible_in_app ? '' : 'is-muted'}`}>
-                    <td className="ad-td is-hide-sm">
+                  <tr key={r.id} className={`cp-row ${busyId === r.id ? 'is-busy' : ''} ${r.visible_in_app ? '' : 'is-muted'}`}>
+                    <td className="cp-td is-hide-sm">
                       <div className="cs-order">
                         <button aria-label="Move up" disabled={i === 0} onClick={() => void move(i, -1)}>
                           ▲
@@ -347,62 +347,62 @@ export default function CoinSellersPage() {
                         </button>
                       </div>
                     </td>
-                    <td className="ad-td is-main">
-                      <div className="ad-user">
+                    <td className="cp-td is-main">
+                      <div className="cp-user">
                         <Avatar name={r.user.name} url={r.user.avatar_url} dot={r.user.is_online} />
                         <div style={{ minWidth: 0 }}>
-                          <div className="ad-name">{r.user.name ?? 'Unnamed'}</div>
-                          <div className="ad-sub">ID {r.user.display_id}</div>
+                          <div className="cp-name">{r.user.name ?? 'Unnamed'}</div>
+                          <div className="cp-sub">ID {r.user.display_id}</div>
                         </div>
                       </div>
-                      <span className="ad-mobile-only">
+                      <span className="cp-mobile-only">
                         <span className="cs-order is-row">
                           <button aria-label="Move up" disabled={i === 0} onClick={() => void move(i, -1)}>▲</button>
                           <button aria-label="Move down" disabled={i === rows.length - 1} onClick={() => void move(i, 1)}>▼</button>
                         </span>
                       </span>
                     </td>
-                    <td className="ad-td" data-label="WhatsApp">
+                    <td className="cp-td" data-label="WhatsApp">
                       <a className="cs-wa" href={waLink(r.whatsapp)} target="_blank" rel="noreferrer">
                         {prettyNumber(r.whatsapp)} ↗
                       </a>
                     </td>
-                    <td className="ad-td" data-label="Countries">
+                    <td className="cp-td" data-label="Countries">
                       {r.countries.length === 0 ? (
-                        <span className="ad-tag">🌍 All</span>
+                        <span className="cp-tag">🌍 All</span>
                       ) : (
                         <div className="cs-tags">
                           {r.countries.map((c) => (
-                            <span key={c} className="ad-tag">
+                            <span key={c} className="cp-tag">
                               {countryLabel(c)}
                             </span>
                           ))}
                         </div>
                       )}
                     </td>
-                    <td className="ad-td is-full" data-label="Status">
+                    <td className="cp-td is-full" data-label="Status">
                       {r.visible_in_app ? (
-                        <span className="ad-badge green">Visible</span>
+                        <span className="cp-badge green">Visible</span>
                       ) : !r.is_active ? (
-                        <span className="ad-badge gray">Turned off</span>
+                        <span className="cp-badge gray">Turned off</span>
                       ) : (
-                        <span className="ad-badge amber" title="Not a seller anymore, suspended or deleted">
+                        <span className="cp-badge amber" title="Not a seller anymore, suspended or deleted">
                           Hidden – account
                         </span>
                       )}
                     </td>
-                    <td className="ad-td is-actions is-fill" style={{ textAlign: 'right' }}>
-                      <div className="ad-actions">
+                    <td className="cp-td is-actions is-fill" style={{ textAlign: 'right' }}>
+                      <div className="cp-actions">
                         <button
-                          className={`ad-btn ${r.is_active ? 'ad-btn-ghost' : 'ad-btn-success-soft'}`}
+                          className={`cp-btn ${r.is_active ? 'cp-btn-ghost' : 'cp-btn-success-soft'}`}
                           onClick={() => void toggleActive(r)}
                         >
                           {r.is_active ? 'Turn off' : 'Turn on'}
                         </button>
-                        <button className="ad-btn ad-btn-soft" onClick={() => openEdit(r)}>
+                        <button className="cp-btn cp-btn-soft" onClick={() => openEdit(r)}>
                           Edit
                         </button>
-                        <button className="ad-btn ad-btn-danger-soft" onClick={() => remove(r)}>
+                        <button className="cp-btn cp-btn-danger-soft" onClick={() => remove(r)}>
                           Remove
                         </button>
                       </div>
@@ -415,8 +415,8 @@ export default function CoinSellersPage() {
         </div>
       </div>
 
-      <div className="ad-card">
-        <div className="ad-card-head">
+      <div className="cp-card">
+        <div className="cp-card-head">
           <div>
             <h2>WhatsApp message template</h2>
             <p>
@@ -426,19 +426,19 @@ export default function CoinSellersPage() {
             </p>
           </div>
           <button
-            className="ad-btn ad-btn-lg ad-btn-primary"
+            className="cp-btn cp-btn-lg cp-btn-primary"
             disabled={savingTemplate || !template.trim() || template.trim() === savedTemplate}
             onClick={() => void saveTemplate()}
           >
             {savingTemplate ? 'Saving…' : 'Save template'}
           </button>
         </div>
-        <div className="ad-card-body cs-template">
-          <label className="ad-field">
+        <div className="cp-card-body cs-template">
+          <label className="cp-field">
             Template
             <textarea rows={7} maxLength={1000} value={template} onChange={(e) => setTemplate(e.target.value)} />
           </label>
-          <div className="ad-field">
+          <div className="cp-field">
             Preview (with package)
             <div className="cs-bubble">{renderTemplate(template, PREVIEW_VALUES) || '—'}</div>
             Preview (no package picked)
@@ -450,27 +450,27 @@ export default function CoinSellersPage() {
       </div>
 
       {draft && (
-        <div className="ad-overlay" role="dialog" aria-modal="true" onClick={() => !saving && setDraft(null)}>
-          <form className="ad-modal cs-modal" onClick={(e) => e.stopPropagation()} onSubmit={(e) => void saveDraft(e)}>
+        <div className="cp-overlay" role="dialog" aria-modal="true" onClick={() => !saving && setDraft(null)}>
+          <form className="cp-modal cs-modal" onClick={(e) => e.stopPropagation()} onSubmit={(e) => void saveDraft(e)}>
             <h2>{draft.id ? 'Edit coin seller' : 'Add coin seller'}</h2>
 
             {draft.user ? (
               <div className="cs-picked">
-                <div className="ad-user">
+                <div className="cp-user">
                   <Avatar name={draft.user.display_name} url={draft.user.avatar_url} />
                   <div style={{ minWidth: 0 }}>
-                    <div className="ad-name">{draft.user.display_name ?? 'Unnamed'}</div>
-                    <div className="ad-sub">ID {draft.user.display_id ?? draft.user.id}</div>
+                    <div className="cp-name">{draft.user.display_name ?? 'Unnamed'}</div>
+                    <div className="cp-sub">ID {draft.user.display_id ?? draft.user.id}</div>
                   </div>
                 </div>
                 {!draft.id && (
-                  <button type="button" className="ad-btn ad-btn-ghost" onClick={() => setDraft({ ...draft, user: null })}>
+                  <button type="button" className="cp-btn cp-btn-ghost" onClick={() => setDraft({ ...draft, user: null })}>
                     Change
                   </button>
                 )}
               </div>
             ) : (
-              <label className="ad-field">
+              <label className="cp-field">
                 Coin seller (users with the Coin Seller role)
                 <input
                   autoFocus
@@ -500,9 +500,9 @@ export default function CoinSellersPage() {
                         }
                       >
                         <Avatar name={h.display_name} url={h.avatar_url} size={28} />
-                        <span className="ad-name">{h.display_name ?? 'Unnamed'}</span>
-                        <span className="ad-sub">ID {h.display_id ?? h.id}</span>
-                        {listed && <span className="ad-badge gray">Listed</span>}
+                        <span className="cp-name">{h.display_name ?? 'Unnamed'}</span>
+                        <span className="cp-sub">ID {h.display_id ?? h.id}</span>
+                        {listed && <span className="cp-badge gray">Listed</span>}
                       </button>
                     );
                   })}
@@ -510,7 +510,7 @@ export default function CoinSellersPage() {
               </label>
             )}
 
-            <label className="ad-field">
+            <label className="cp-field">
               WhatsApp number (with country code)
               <input
                 required
@@ -525,7 +525,7 @@ export default function CoinSellersPage() {
                 <button
                   type="button"
                   key={d.code}
-                  className="ad-chip"
+                  className="cp-chip"
                   onClick={() => setDraft({ ...draft, whatsapp: d.code })}
                 >
                   {d.label}
@@ -534,7 +534,7 @@ export default function CoinSellersPage() {
               {draft.user?.phone && (
                 <button
                   type="button"
-                  className="ad-chip"
+                  className="cp-chip"
                   onClick={() => setDraft({ ...draft, whatsapp: draft.user?.phone ?? '' })}
                 >
                   Use login phone
@@ -547,12 +547,12 @@ export default function CoinSellersPage() {
               )}
             </div>
 
-            <div className="ad-field">
+            <div className="cp-field">
               Show to users in
               <div className="cs-row">
                 <button
                   type="button"
-                  className={`ad-chip ${draft.countries.length === 0 ? 'is-active' : ''}`}
+                  className={`cp-chip ${draft.countries.length === 0 ? 'is-active' : ''}`}
                   onClick={() => setDraft({ ...draft, countries: [] })}
                 >
                   🌍 All countries
@@ -564,7 +564,7 @@ export default function CoinSellersPage() {
                     <button
                       type="button"
                       key={code}
-                      className={`ad-chip ${on ? 'is-active' : ''}`}
+                      className={`cp-chip ${on ? 'is-active' : ''}`}
                       onClick={() =>
                         setDraft({
                           ...draft,
@@ -579,7 +579,7 @@ export default function CoinSellersPage() {
               </div>
             </div>
 
-            <label className="ad-check">
+            <label className="cp-check">
               <input
                 type="checkbox"
                 checked={draft.is_active}
@@ -588,13 +588,13 @@ export default function CoinSellersPage() {
               Show in app
             </label>
 
-            {draftError && <div className="ad-alert">{draftError}</div>}
+            {draftError && <div className="cp-alert">{draftError}</div>}
 
-            <div className="ad-modal-actions">
-              <button type="button" className="ad-btn ad-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>
+            <div className="cp-modal-actions">
+              <button type="button" className="cp-btn cp-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>
                 Cancel
               </button>
-              <button type="submit" className="ad-btn ad-btn-primary" disabled={saving || !draft.user}>
+              <button type="submit" className="cp-btn cp-btn-primary" disabled={saving || !draft.user}>
                 {saving ? 'Saving…' : draft.id ? 'Save changes' : 'Add seller'}
               </button>
             </div>
@@ -608,9 +608,9 @@ export default function CoinSellersPage() {
 const PAGE_STYLES = `
 .cs-order { display: inline-flex; flex-direction: column; gap: 2px; }
 .cs-order.is-row { flex-direction: row; gap: 4px; }
-.ad-page .cs-order.is-row button { width: 34px; padding: 6px 0; font-size: 0.75rem; }
-.ad-page .cs-order button { width: 28px; padding: 1px 0; font-size: 0.65rem; border-radius: 6px; background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
-.ad-page .cs-order button:disabled { opacity: 0.35; cursor: not-allowed; }
+.cp-page .cs-order.is-row button { width: 34px; padding: 6px 0; font-size: 0.75rem; }
+.cp-page .cs-order button { width: 28px; padding: 1px 0; font-size: 0.65rem; border-radius: 6px; background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
+.cp-page .cs-order button:disabled { opacity: 0.35; cursor: not-allowed; }
 .cs-wa { color: #059669; font-weight: 600; text-decoration: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .cs-wa:hover { text-decoration: underline; }
 .cs-tags { display: flex; flex-wrap: wrap; gap: 4px; max-width: 260px; }
@@ -622,8 +622,8 @@ const PAGE_STYLES = `
 .cs-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; text-transform: none; letter-spacing: normal; }
 .cs-picked { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 10px; background: #f9fafb; }
 .cs-hits { display: grid; gap: 2px; text-transform: none; letter-spacing: normal; max-height: 220px; overflow-y: auto; }
-.ad-page .cs-hit { display: flex; align-items: center; gap: 10px; padding: 6px 8px; background: #fff; border: none; border-radius: 8px; text-align: left; width: 100%; cursor: pointer; }
-.ad-page .cs-hit:hover:not(:disabled) { background: #f3f4f6; }
-.ad-page .cs-hit:disabled { opacity: 0.6; cursor: not-allowed; }
+.cp-page .cs-hit { display: flex; align-items: center; gap: 10px; padding: 6px 8px; background: #fff; border: none; border-radius: 8px; text-align: left; width: 100%; cursor: pointer; }
+.cp-page .cs-hit:hover:not(:disabled) { background: #f3f4f6; }
+.cp-page .cs-hit:disabled { opacity: 0.6; cursor: not-allowed; }
 .cs-hit-empty { font-size: 0.85rem; color: #6b7280; font-weight: 400; padding: 6px 2px; }
 `;

@@ -4,6 +4,7 @@ import { randomInt } from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { normalizeGiftCategory } from '../../common/utils/gift-category';
 import { ensureLaravelLevelBands } from '../gamification/level-bands';
+import { addSvipGiftPoints } from '../svip/svip-points';
 
 export const LUCKY_REBATE_DEFAULT_MIN_PCT = 1;
 export const LUCKY_REBATE_DEFAULT_MAX_PCT = 40;
@@ -30,8 +31,8 @@ export interface LockedUser {
   last_streak_at: Date | null;
 }
 
-/** Frames won (rocket, daily rank) or given by admin (support) — never sold or auto-unlocked. */
-export const REWARD_ONLY_FRAME_CATEGORIES = ['rocket', 'rank', 'special'];
+/** Frames won (rocket, daily rank), given by admin (support) or granted by SVIP — never sold or auto-unlocked. */
+export const REWARD_ONLY_FRAME_CATEGORIES = ['rocket', 'rank', 'special', 'svip'];
 
 @Injectable()
 export class LedgerService {
@@ -195,6 +196,9 @@ export class LedgerService {
       referenceId,
       meta: ledgerMeta,
     });
+    if (xpSource === 'gift') {
+      await addSvipGiftPoints(tx, userId, amt);
+    }
     let updatedLocked: LockedUser = {
       ...locked,
       wallet_balance: after,

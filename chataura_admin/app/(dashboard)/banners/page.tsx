@@ -138,16 +138,16 @@ export default function BannersPage() {
   const set = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <PageHeader
         title="Banners"
         subtitle={`Announcements, events and carousels on the app home screen · ${banners.filter((b) => b.is_active).length} live`}
-        actions={<button type="button" className="ad-btn ad-btn-accent ad-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New banner</button>}
+        actions={<button type="button" className="cp-btn cp-btn-accent cp-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New banner</button>}
       />
 
-      <section className="ad-card">
+      <section className="cp-card">
         <Tabs value={cat} onChange={setCat} tabs={[{ value: '', label: 'All', count: banners.length }, ...CATEGORIES.map((c) => ({ value: c.value, label: c.label, count: counts[c.value] ?? 0 }))]} />
-        <div className="ad-toolbar">
+        <div className="cp-toolbar">
           <SearchBox value={q} onChange={setQ} placeholder="Search title, tag or link" />
           <Field label="Status">
             <select value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -157,16 +157,16 @@ export default function BannersPage() {
             </select>
           </Field>
         </div>
-        <div className="ad-summary">Showing <strong>{visible.length}</strong> of <strong>{banners.length}</strong></div>
+        <div className="cp-summary">Showing <strong>{visible.length}</strong> of <strong>{banners.length}</strong></div>
         {loading && banners.length === 0 ? (
           <MediaSkeleton count={3} />
         ) : visible.length === 0 ? (
-          <div className="ad-empty">
-            <div className="ad-empty-title">{banners.length ? 'No banners match' : 'No banners yet'}</div>
+          <div className="cp-empty">
+            <div className="cp-empty-title">{banners.length ? 'No banners match' : 'No banners yet'}</div>
             {banners.length ? 'Try a different filter.' : 'Create the first home-screen banner.'}
           </div>
         ) : (
-          <div className="ad-media-grid is-wide">
+          <div className="cp-media-grid is-wide">
             {visible.map((b) => (
               <MediaCard
                 key={b.id}
@@ -179,7 +179,7 @@ export default function BannersPage() {
                     <span style={{ color: '#c7d2fe', fontSize: '0.8rem', fontWeight: 600 }}>No image</span>
                   )
                 }
-                flags={<><span className="ad-badge indigo">{catLabel(b.category)}</span>{b.badge_text ? <span className="ad-badge red">{b.badge_text}</span> : <span />}</>}
+                flags={<><span className="cp-badge indigo">{catLabel(b.category)}</span>{b.badge_text ? <span className="cp-badge red">{b.badge_text}</span> : <span />}</>}
                 title={b.title}
                 meta={b.action_target ? `→ ${b.action_target}` : `#${b.id} · no link`}
                 active={b.is_active}
@@ -205,12 +205,12 @@ export default function BannersPage() {
           onSubmit={() => void save()}
           footer={
             <>
-              <button type="button" className="ad-btn ad-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
-              <button type="submit" className="ad-btn ad-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create banner'}</button>
+              <button type="button" className="cp-btn cp-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
+              <button type="submit" className="cp-btn cp-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create banner'}</button>
             </>
           }
         >
-          <div className="ad-form-grid is-2up">
+          <div className="cp-form-grid is-2up">
             <Field label="Title *" wide>
               <input autoFocus placeholder="e.g. Diwali Fest Grand Gifting" value={draft.title} onChange={(e) => set({ title: e.target.value })} />
             </Field>
@@ -237,12 +237,12 @@ export default function BannersPage() {
             helpText="High-resolution 16:9 or landscape graphic."
           />
           {draft.id ? (
-            <div className="ad-toggle-row">
-              <div className="ad-toggle-title">Live on the home screen</div>
+            <div className="cp-toggle-row">
+              <div className="cp-toggle-title">Live on the home screen</div>
               <Switch label="Active" checked={draft.isActive} onChange={(v) => set({ isActive: v })} />
             </div>
           ) : null}
-          {formError && <div className="ad-alert">{formError}</div>}
+          {formError && <div className="cp-alert">{formError}</div>}
         </Modal>
       )}
       {confirmNode}

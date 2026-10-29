@@ -67,6 +67,13 @@ async function bootstrap() {
   await app.register(fastifyStatic, {
     root: uploadsDir,
     prefix: '/uploads/',
+    // Users upload these files. Opened directly in a browser they must never run script on this
+    // origin (an uploaded SVG/HTML could otherwise read the admin panel's session). Images and
+    // video embedded by the app are unaffected.
+    setHeaders: (reply) => {
+      reply.header('Content-Security-Policy', "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox");
+      reply.header('X-Content-Type-Options', 'nosniff');
+    },
   });
 
   const publicDir = join(process.cwd(), 'public');

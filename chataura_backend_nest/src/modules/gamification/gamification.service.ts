@@ -8,9 +8,11 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { presentFrameMedia } from '../../common/utils/catalog-media';
 import { LedgerService, REWARD_ONLY_FRAME_CATEGORIES } from '../wallet/ledger.service';
+import { svipLevelOf } from '../svip/svip-chrome';
 import { buildRoleBadge } from '../user/user.serializer';
 import { periodKey } from '../relationship/relationship-period';
 import { eligibleFrames, type FrameSource } from './frame-eligibility';
+import { canWearEntryBar, ENTRY_BAR_ORDER, entryBarMedia } from './entry-bar.rules';
 import {
   bandForXp,
   ensureLaravelLevelBands,
@@ -596,19 +598,25 @@ export class GamificationService {
   async entryBars(userId: bigint) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
+      include: { svip: true },
     });
+    const wearer = { level: user.level, svipLevel: svipLevelOf(user.svip) };
     const bars = await this.prisma.entryBar.findMany({
       where: { isActive: true },
-      orderBy: [{ levelRequired: 'asc' }, { id: 'asc' }],
+      orderBy: [{ svipLevel: 'asc' }, { levelRequired: 'asc' }, ...ENTRY_BAR_ORDER],
     });
-    const items = bars.map((b) => ({
-      id: Number(b.id),
-      name: b.name,
-      level_required: b.levelRequired,
-      image_url: b.imageUrl,
-      unlocked: b.levelRequired <= user.level,
-      is_selected: user.selectedEntryBarId === b.id,
-    }));
+    const items = bars.map((b) => {
+      const media = entryBarMedia(b);
+      return {
+        ...media,
+        // Older apps show `image_url` only; keep the poster there.
+        image_url: media.image_url ?? b.imageUrl,
+        level_required: b.levelRequired,
+        svip_level_required: b.svipLevel,
+        unlocked: canWearEntryBar(b, wearer),
+        is_selected: user.selectedEntryBarId === b.id,
+      };
+    });
     return {
       items,
       entry_bars: items,
@@ -633,14 +641,15 @@ export class GamificationService {
     }
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
+      include: { svip: true },
     });
-    if (bar.levelRequired > user.level) {
+    if (!canWearEntryBar(bar, { level: user.level, svipLevel: svipLevelOf(user.svip) })) {
       throw new BadRequestException({
         success: false,
-        error: {
-          code: 'LEVEL_REQUIRED',
-          message: `Requires level ${bar.levelRequired}`,
-        },
+        error:
+          bar.svipLevel > 0
+            ? { code: 'SVIP_REQUIRED', message: `Requires SVIP ${bar.svipLevel}` }
+            : { code: 'LEVEL_REQUIRED', message: `Requires level ${bar.levelRequired}` },
       });
     }
     await this.prisma.user.update({

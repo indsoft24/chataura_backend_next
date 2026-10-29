@@ -118,7 +118,7 @@ const NEW_DRAFT: Draft = { name: '', category: 'avatar', levelReq: '1', coinCost
 
 function CategoryBadge({ cat }: { cat: string }) {
   const st = getCategoryStyle(cat);
-  return <span className="ad-badge" style={{ background: st.bg, color: st.text }}>{st.icon} {cat}</span>;
+  return <span className="cp-badge" style={{ background: st.bg, color: st.text }}>{st.icon} {cat}</span>;
 }
 
 export default function FramesPage() {
@@ -343,15 +343,15 @@ export default function FramesPage() {
   const thumb = (f: Frame) => <MediaThumb imageUrl={f.image_url} animationUrl={f.animation_url} composite={f.composite_mode} alt={f.name} fallback="🖼️" />;
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <style dangerouslySetInnerHTML={{ __html: FR_STYLES }} />
       <PageHeader
         title="Frames"
         subtitle="Avatar store frames, role & VIP badges, and CP/BCP couple frames."
-        actions={<button type="button" className="ad-btn ad-btn-accent ad-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New frame</button>}
+        actions={<button type="button" className="cp-btn cp-btn-accent cp-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New frame</button>}
       />
 
-      <div className="ad-kpis fr-kpis">
+      <div className="cp-kpis fr-kpis">
         <Kpi label="Total frames" value={metrics.total} sub="All catalog entries" active={!hasActiveFilters} onClick={resetFilters} />
         <Kpi label="❤️ Relationship" value={metrics.relationship} sub="CP / BCP frames" active={categoryFilter === 'RELATIONSHIP'} onClick={() => { resetFilters(); setCategoryFilter('RELATIONSHIP'); }} />
         <Kpi label="👑 Staff & role" value={metrics.role} sub="Admin, CEO, Manager" active={categoryFilter === 'role'} onClick={() => { resetFilters(); setCategoryFilter('role'); }} />
@@ -359,8 +359,8 @@ export default function FramesPage() {
         <Kpi label="Disabled" value={metrics.disabled} sub={`${metrics.active} active`} tone={metrics.disabled ? 'red' : undefined} active={statusFilter === 'DISABLED'} onClick={() => { resetFilters(); setStatusFilter('DISABLED'); }} />
       </div>
 
-      <section className="ad-card">
-        <div className="ad-toolbar">
+      <section className="cp-card">
+        <div className="cp-toolbar">
           <SearchBox value={searchQuery} onChange={setSearchQuery} placeholder="Search name, slug, ID or category" />
           <Field label="Category">
             <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
@@ -397,25 +397,25 @@ export default function FramesPage() {
               <option value="PRICE_DESC">Price (high → low)</option>
             </select>
           </Field>
-          <div className="ad-seg fr-view" role="group" aria-label="View">
-            <button type="button" className={`ad-seg-btn ${viewMode === 'GRID' ? 'is-active' : ''}`} onClick={() => setViewMode('GRID')}>Grid</button>
-            <button type="button" className={`ad-seg-btn ${viewMode === 'TABLE' ? 'is-active' : ''}`} onClick={() => setViewMode('TABLE')}>Table</button>
+          <div className="cp-seg fr-view" role="group" aria-label="View">
+            <button type="button" className={`cp-seg-btn ${viewMode === 'GRID' ? 'is-active' : ''}`} onClick={() => setViewMode('GRID')}>Grid</button>
+            <button type="button" className={`cp-seg-btn ${viewMode === 'TABLE' ? 'is-active' : ''}`} onClick={() => setViewMode('TABLE')}>Table</button>
           </div>
         </div>
-        <div className="ad-summary">
+        <div className="cp-summary">
           Showing <strong>{filteredFrames.length}</strong> of <strong>{frames.length}</strong> frames
-          {hasActiveFilters ? <>{' · '}<button type="button" className="ad-link" onClick={resetFilters}>Clear filters</button></> : null}
+          {hasActiveFilters ? <>{' · '}<button type="button" className="cp-link" onClick={resetFilters}>Clear filters</button></> : null}
         </div>
 
         {loading && frames.length === 0 ? (
           <MediaSkeleton />
         ) : filteredFrames.length === 0 ? (
-          <div className="ad-empty">
-            <div className="ad-empty-title">{frames.length ? 'No frames match' : 'No frames yet'}</div>
+          <div className="cp-empty">
+            <div className="cp-empty-title">{frames.length ? 'No frames match' : 'No frames yet'}</div>
             {frames.length ? 'Try a different filter.' : 'Add the first avatar frame.'}
           </div>
         ) : viewMode === 'GRID' ? (
-          <div className="ad-media-grid">
+          <div className="cp-media-grid">
             {pageItems.map((f) => {
               const meta = detectMediaMeta(f);
               return (
@@ -425,8 +425,8 @@ export default function FramesPage() {
                   thumb={thumb(f)}
                   flags={
                     <>
-                      <span className="ad-badge gray">#{f.id}</span>
-                      <span className="ad-badge" style={{ background: '#fff', color: meta.color }} title={meta.label}>{meta.icon}</span>
+                      <span className="cp-badge gray">#{f.id}</span>
+                      <span className="cp-badge" style={{ background: '#fff', color: meta.color }} title={meta.label}>{meta.icon}</span>
                     </>
                   }
                   title={f.name}
@@ -434,17 +434,17 @@ export default function FramesPage() {
                     f.slug ? (
                       <button type="button" className="fr-slug" title="Copy slug" onClick={() => copySlug(f.slug!)}>{f.slug}</button>
                     ) : (
-                      <span className="ad-hint">no slug</span>
+                      <span className="cp-hint">no slug</span>
                     )
                   }
                   extra={
                     <>
                       <div className="fr-tags">
                         <CategoryBadge cat={f.category} />
-                        {f.level_required > 1 ? <span className="ad-tag">Lv {f.level_required}+</span> : null}
-                        {f.is_premium ? <span className="ad-badge amber">Premium</span> : null}
+                        {f.level_required > 1 ? <span className="cp-tag">Lv {f.level_required}+</span> : null}
+                        {f.is_premium ? <span className="cp-badge amber">Premium</span> : null}
                       </div>
-                      <div className="ad-media-price">{f.coin_cost ? `🪙 ${f.coin_cost.toLocaleString()}` : <span className="tone-green">Free</span>}</div>
+                      <div className="cp-media-price">{f.coin_cost ? `🪙 ${f.coin_cost.toLocaleString()}` : <span className="tone-green">Free</span>}</div>
                     </>
                   }
                   active={f.is_active}
@@ -457,18 +457,18 @@ export default function FramesPage() {
             })}
           </div>
         ) : (
-          <div className="ad-table-wrap">
-            <table className="ad-table is-stack is-3up">
+          <div className="cp-table-wrap">
+            <table className="cp-table is-stack is-3up">
               <thead>
                 <tr>
-                  <th className="ad-th">Frame</th>
-                  <th className="ad-th">Category</th>
-                  <th className="ad-th ad-num">Level</th>
-                  <th className="ad-th ad-num">Cost</th>
-                  <th className="ad-th">Format</th>
-                  <th className="ad-th ad-num">Hole</th>
-                  <th className="ad-th">Active</th>
-                  <th className="ad-th ad-num">Actions</th>
+                  <th className="cp-th">Frame</th>
+                  <th className="cp-th">Category</th>
+                  <th className="cp-th cp-num">Level</th>
+                  <th className="cp-th cp-num">Cost</th>
+                  <th className="cp-th">Format</th>
+                  <th className="cp-th cp-num">Hole</th>
+                  <th className="cp-th">Active</th>
+                  <th className="cp-th cp-num">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -478,26 +478,26 @@ export default function FramesPage() {
                   pageItems.map((f) => {
                     const meta = detectMediaMeta(f);
                     return (
-                      <tr key={f.id} className={`ad-row ${busyId === f.id ? 'is-busy' : ''} ${f.is_active ? '' : 'is-muted'}`}>
-                        <td className="ad-td is-main">
-                          <div className="ad-user">
-                            <div className={`ad-thumb ${f.composite_mode === 'screen' ? 'fr-dark' : ''}`}>{thumb(f)}</div>
+                      <tr key={f.id} className={`cp-row ${busyId === f.id ? 'is-busy' : ''} ${f.is_active ? '' : 'is-muted'}`}>
+                        <td className="cp-td is-main">
+                          <div className="cp-user">
+                            <div className={`cp-thumb ${f.composite_mode === 'screen' ? 'fr-dark' : ''}`}>{thumb(f)}</div>
                             <div>
-                              <div className="ad-name">{f.name}</div>
-                              <div className="ad-sub">#{f.id}{f.slug ? <> · <button type="button" className="fr-slug" onClick={() => copySlug(f.slug!)}>{f.slug}</button></> : null}</div>
+                              <div className="cp-name">{f.name}</div>
+                              <div className="cp-sub">#{f.id}{f.slug ? <> · <button type="button" className="fr-slug" onClick={() => copySlug(f.slug!)}>{f.slug}</button></> : null}</div>
                             </div>
                           </div>
                         </td>
-                        <td className="ad-td" data-label="Category"><CategoryBadge cat={f.category} /></td>
-                        <td className="ad-td ad-num" data-label="Level">{f.level_required}+</td>
-                        <td className="ad-td ad-num" data-label="Cost">{f.coin_cost ? `🪙 ${f.coin_cost.toLocaleString()}` : 'Free'}{f.is_premium ? <span className="ad-badge amber" style={{ marginLeft: 6 }}>Premium</span> : null}</td>
-                        <td className="ad-td" data-label="Format" style={{ color: meta.color, fontWeight: 600, fontSize: '0.8rem' }}>{meta.icon} {meta.label}</td>
-                        <td className="ad-td ad-num" data-label="Hole">{f.avatar_scale != null ? `${Math.round(f.avatar_scale * 100)}%` : '—'}</td>
-                        <td className="ad-td" data-label="Active"><Switch label={`${f.name} active`} checked={f.is_active} disabled={busyId === f.id} onChange={() => void toggleActive(f)} /></td>
-                        <td className="ad-td ad-num is-actions is-half">
-                          <div className="ad-actions">
-                            <button type="button" className="ad-btn ad-btn-ghost" onClick={() => openEdit(f)}>Edit</button>
-                            <button type="button" className="ad-btn ad-btn-danger-soft" onClick={() => remove(f)}>Delete</button>
+                        <td className="cp-td" data-label="Category"><CategoryBadge cat={f.category} /></td>
+                        <td className="cp-td cp-num" data-label="Level">{f.level_required}+</td>
+                        <td className="cp-td cp-num" data-label="Cost">{f.coin_cost ? `🪙 ${f.coin_cost.toLocaleString()}` : 'Free'}{f.is_premium ? <span className="cp-badge amber" style={{ marginLeft: 6 }}>Premium</span> : null}</td>
+                        <td className="cp-td" data-label="Format" style={{ color: meta.color, fontWeight: 600, fontSize: '0.8rem' }}>{meta.icon} {meta.label}</td>
+                        <td className="cp-td cp-num" data-label="Hole">{f.avatar_scale != null ? `${Math.round(f.avatar_scale * 100)}%` : '—'}</td>
+                        <td className="cp-td" data-label="Active"><Switch label={`${f.name} active`} checked={f.is_active} disabled={busyId === f.id} onChange={() => void toggleActive(f)} /></td>
+                        <td className="cp-td cp-num is-actions is-half">
+                          <div className="cp-actions">
+                            <button type="button" className="cp-btn cp-btn-ghost" onClick={() => openEdit(f)}>Edit</button>
+                            <button type="button" className="cp-btn cp-btn-danger-soft" onClick={() => remove(f)}>Delete</button>
                           </div>
                         </td>
                       </tr>
@@ -520,12 +520,12 @@ export default function FramesPage() {
           onSubmit={() => void save()}
           footer={
             <>
-              <button type="button" className="ad-btn ad-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
-              <button type="submit" className="ad-btn ad-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create frame'}</button>
+              <button type="button" className="cp-btn cp-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
+              <button type="submit" className="cp-btn cp-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create frame'}</button>
             </>
           }
         >
-          <div className="ad-form-grid is-2up">
+          <div className="cp-form-grid is-2up">
             <Field label="Frame name *" wide>
               <input autoFocus placeholder="e.g. CP Normal Frame / Phoenix Wing" value={draft.name} onChange={(e) => set({ name: e.target.value })} />
             </Field>
@@ -540,7 +540,7 @@ export default function FramesPage() {
               <input type="number" inputMode="numeric" value={draft.levelReq} onChange={(e) => set({ levelReq: e.target.value })} />
             </Field>
             <Field label="Coin cost">
-              <div className="ad-unit"><input type="number" inputMode="numeric" placeholder="0" value={draft.coinCost} onChange={(e) => set({ coinCost: e.target.value })} /><span>coins</span></div>
+              <div className="cp-unit"><input type="number" inputMode="numeric" placeholder="0" value={draft.coinCost} onChange={(e) => set({ coinCost: e.target.value })} /><span>coins</span></div>
             </Field>
           </div>
           <FileUploadInput
@@ -559,7 +559,7 @@ export default function FramesPage() {
             placeholder="https://storage.googleapis.com/chataura/.../frame.webp"
             helpText="Looping avatar ring. Transparent WebP or MP4 video glow."
           />
-          <div className="ad-form-grid is-2up">
+          <div className="cp-form-grid is-2up">
             <Field label="Composite mode" wide>
               <select value={draft.composite} onChange={(e) => set({ composite: e.target.value === 'screen' ? 'screen' : 'alpha' })}>
                 <option value="alpha">Alpha (transparent WebP, PNG, WebM)</option>
@@ -573,20 +573,20 @@ export default function FramesPage() {
               <input type="number" step="0.01" min="-0.5" max="0.5" placeholder="0" value={draft.avatarOffsetY} onChange={(e) => set({ avatarOffsetY: e.target.value })} />
             </Field>
           </div>
-          <button type="button" className="ad-btn ad-btn-soft" style={{ justifySelf: 'start' }} onClick={() => set({ avatarScale: '0.58', avatarOffsetY: '0' })}>
+          <button type="button" className="cp-btn cp-btn-soft" style={{ justifySelf: 'start' }} onClick={() => set({ avatarScale: '0.58', avatarOffsetY: '0' })}>
             📐 Apply spec standard (58% hole)
           </button>
-          <div className="ad-toggle-row">
-            <div className="ad-toggle-title">Premium frame</div>
+          <div className="cp-toggle-row">
+            <div className="cp-toggle-title">Premium frame</div>
             <Switch label="Premium" checked={draft.isPremium} onChange={(v) => set({ isPremium: v })} />
           </div>
           {draft.id ? (
-            <div className="ad-toggle-row">
-              <div className="ad-toggle-title">Active in catalog</div>
+            <div className="cp-toggle-row">
+              <div className="cp-toggle-title">Active in catalog</div>
               <Switch label="Active" checked={draft.isActive} onChange={(v) => set({ isActive: v })} />
             </div>
           ) : null}
-          {formError && <div className="ad-alert">{formError}</div>}
+          {formError && <div className="cp-alert">{formError}</div>}
         </Modal>
       )}
       {confirmNode}
@@ -598,15 +598,15 @@ export default function FramesPage() {
 const FR_STYLES = `
 .fr-kpis { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .fr-tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0; }
-.fr-tags .ad-badge { font-size: 0.62rem; padding: 2px 7px; }
-.ad-page .fr-slug { all: unset; cursor: pointer; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.72rem; color: #6b7280; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
-.ad-page .fr-slug:hover { color: #4f46e5; text-decoration: underline; }
+.fr-tags .cp-badge { font-size: 0.62rem; padding: 2px 7px; }
+.cp-page .fr-slug { all: unset; cursor: pointer; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.72rem; color: #6b7280; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
+.cp-page .fr-slug:hover { color: #4f46e5; text-decoration: underline; }
 .fr-dark { background: #020617; }
 .fr-view { align-self: flex-end; }
 @media (max-width: 1100px) { .fr-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 640px) {
   .fr-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .fr-kpis > :first-child { grid-column: 1 / -1; }
-  .fr-view .ad-seg-btn { flex: 1; }
+  .fr-view .cp-seg-btn { flex: 1; }
 }
 `;

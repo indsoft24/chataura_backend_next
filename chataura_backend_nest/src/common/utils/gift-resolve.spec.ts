@@ -142,3 +142,25 @@ describe('resolveGiftForSend', () => {
     expect(await errorCode(resolveGiftForSend(fakePrisma(), {}))).toBe('VALIDATION_ERROR');
   });
 });
+
+describe('lucky gift minimum on send', () => {
+  const lucky = [
+    gift({ id: 500, name: 'Lucky Clover', category: 'lucky', coinCost: 1_500 }),
+    gift({ id: 501, name: 'Lucky Dice', category: 'lucky', coinCost: 2_000 }),
+  ];
+  const withMin = (min: number) => {
+    const p = fakePrisma(lucky) as unknown as { adminSetting?: unknown };
+    p.adminSetting = { findUnique: async () => ({ extraSettings: { lucky_gift_min_coins: min } }) };
+    return p as never;
+  };
+
+  it('refuses a lucky gift below the admin minimum, allows one at it', async () => {
+    expect(await errorCode(resolveGiftForSend(withMin(2000), { gift_id: 500 }))).toBe('GIFT_INACTIVE');
+    expect((await resolveGiftForSend(withMin(2000), { gift_id: 501 })).coinCost).toBe(2000);
+  });
+
+  it('changing the minimum takes effect at once', async () => {
+    expect((await resolveGiftForSend(withMin(1000), { gift_id: 500 })).coinCost).toBe(1500);
+    expect(await errorCode(resolveGiftForSend(withMin(1600), { gift_id: 500 }))).toBe('GIFT_INACTIVE');
+  });
+});

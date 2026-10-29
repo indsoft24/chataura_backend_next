@@ -77,6 +77,35 @@ describe('LedgerService', () => {
     });
   });
 
+  describe('SVIP gift points', () => {
+    const withPoints = () => {
+      const f = fakeTx();
+      const upserts: Row[] = [];
+      f.tx.svipMonthlyPoints = { upsert: jest.fn(async (a: Row) => upserts.push(a)) };
+      return { ...f, upserts };
+    };
+    beforeEach(() => {
+      jest.spyOn(ledger, 'awardXpForSpend').mockImplementation(async (_tx, locked) => locked);
+    });
+    afterEach(() => jest.restoreAllMocks());
+
+    it('gift debits add the coins as points for the month', async () => {
+      const { tx, upserts } = withPoints();
+      await ledger.debitCoins(tx, 10n, 300, 'GIFT', 't', 'g1', lockedUser(), undefined, 'gift');
+      expect(upserts).toHaveLength(1);
+      expect(upserts[0].create).toMatchObject({ userId: 10n, points: 300n });
+      expect(upserts[0].update).toEqual({ points: { increment: 300n } });
+    });
+
+    it('replayed gift and non-gift spend add no points', async () => {
+      const { tx, upserts } = withPoints();
+      await ledger.debitCoins(tx, 10n, 300, 'GIFT', 't', 'g1', lockedUser(), undefined, 'gift');
+      await ledger.debitCoins(tx, 10n, 300, 'GIFT', 't', 'g1', lockedUser(), undefined, 'gift');
+      await ledger.debitCoins(tx, 10n, 300, 'FRAME', 't', 'f1', lockedUser(), undefined, 'store');
+      expect(upserts).toHaveLength(1);
+    });
+  });
+
   describe('recordGiftGems', () => {
     it('writes a zero-coin GIFT_RECEIVED row with gem details', async () => {
       const { tx, rows } = fakeTx();

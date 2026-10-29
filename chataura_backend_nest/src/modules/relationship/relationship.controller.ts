@@ -8,6 +8,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { MinTier } from '../../common/decorators/min-tier.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RelationshipEngineService } from './relationship-engine.service';
 import { RelationshipService } from './relationship.service';
@@ -181,12 +182,14 @@ export class RelationshipController {
   }
 
   @Roles('admin')
+  @MinTier('manager')
   @Get('admin/relationships/types')
   adminTypes() {
     return this.relationships.adminListTypes();
   }
 
   @Roles('admin')
+  @MinTier('manager')
   @Put('admin/relationships/types')
   adminUpsertType(
     @Body()
@@ -219,12 +222,14 @@ export class RelationshipController {
   }
 
   @Roles('admin')
+  @MinTier('manager')
   @Get('admin/relationships/gift-rules')
   adminGiftRules() {
     return this.relationships.adminListGiftRules();
   }
 
   @Roles('admin')
+  @MinTier('manager')
   @Put('admin/relationships/gift-rules')
   adminUpsertGiftRule(
     @Body()
@@ -239,12 +244,14 @@ export class RelationshipController {
   }
 
   @Roles('admin')
+  @MinTier('manager')
   @Post('admin/relationships/gift-rules/sync-from-categories')
   adminSyncRules() {
     return this.relationships.adminSyncGiftRules();
   }
 
   @Roles('admin')
+  @MinTier('manager')
   @Post('admin/relationships/ensure-defaults')
   adminEnsureDefaults() {
     return this.engine.ensureDefaultTypes().then(() => ({ ok: true }));

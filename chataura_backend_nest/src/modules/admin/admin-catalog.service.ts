@@ -8,11 +8,13 @@ import {
 } from '../room/room-reward/room-reward.config';
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { LUCKY_MIN_KEY, LUCKY_MIN_MAX, luckyMinCoins, readLuckyMinCoins } from '../../common/utils/lucky-gift-min';
 import { SPIN_EXPECTED_PAYOUT, SPIN_MIN_COST } from '../gamification/bonus-spin.service';
 import { Gift, Prisma } from '@prisma/client';
 import { resolve } from 'path';
 import {
   classifyMediaUrl,
+  normalizeFrameComposite,
   resolveCatalogMedia,
 } from '../../common/utils/catalog-media';
 import {
@@ -184,6 +186,7 @@ export class AdminCatalogService {
           name: g.name,
           coin_cost: g.coinCost,
           category: normalizeGiftCategory(g.category),
+          required_svip_level: g.requiredSvipLevel,
           image_url: media.image_url,
           animation_url: media.animation_url,
           media_type: media.media_type,
@@ -204,6 +207,7 @@ export class AdminCatalogService {
     animation_url?: string;
     animationUrl?: string;
     video_url?: string;
+    required_svip_level?: number;
   }) {
     const cost = body.coin_cost ?? body.coinCost ?? 0;
     if (body.category !== undefined && !isGiftCategory(body.category)) {
@@ -216,6 +220,7 @@ export class AdminCatalogService {
       });
     }
     const category = normalizeGiftCategory(body.category);
+    await this.assertLuckyFloor(category, Number(cost));
     const paired = await this.pairCatalogMedia(
       body.image_url ?? body.imageUrl,
       body.animation_url ?? body.animationUrl ?? body.video_url,
@@ -231,6 +236,8 @@ export class AdminCatalogService {
             category,
             imageUrl: paired.imageUrl,
             animationUrl: paired.animationUrl,
+            // An SVIP-tab gift needs at least SVIP 1.
+            requiredSvipLevel: body.required_svip_level ?? (category === 'svip' ? 1 : 0),
           },
         });
       } catch (err) {
@@ -245,6 +252,7 @@ export class AdminCatalogService {
       name: g.name,
       coin_cost: g.coinCost,
       category: normalizeGiftCategory(g.category),
+      required_svip_level: g.requiredSvipLevel,
       image_url: g.imageUrl,
       animation_url: g.animationUrl,
       is_active: g.isActive,
@@ -264,6 +272,7 @@ export class AdminCatalogService {
       animationUrl?: string;
       video_url?: string;
       is_active?: boolean;
+      required_svip_level?: number;
     },
   ) {
     const cost = body.coin_cost ?? body.coinCost;
@@ -275,6 +284,14 @@ export class AdminCatalogService {
           message: `category must be one of: ${GIFT_CATEGORIES.join(', ')}`,
         },
       });
+    }
+    if (body.category !== undefined || cost !== undefined) {
+      const before = await this.prisma.gift.findUnique({ where: { id }, select: { category: true, coinCost: true } });
+      if (before)
+        await this.assertLuckyFloor(
+          normalizeGiftCategory(body.category ?? before.category),
+          Number(cost ?? before.coinCost),
+        );
     }
     const img = body.image_url ?? body.imageUrl;
     const anim = body.animation_url ?? body.animationUrl ?? body.video_url;
@@ -305,18 +322,41 @@ export class AdminCatalogService {
             }
           : {}),
         ...(body.is_active !== undefined ? { isActive: body.is_active } : {}),
+        ...(body.required_svip_level !== undefined
+          ? { requiredSvipLevel: Number(body.required_svip_level) }
+          : {}),
       },
     });
+    // An SVIP-tab gift needs at least SVIP 1.
+    if (normalizeGiftCategory(g.category) === 'svip' && g.requiredSvipLevel === 0) {
+      await this.prisma.gift.update({ where: { id }, data: { requiredSvipLevel: 1 } });
+      g.requiredSvipLevel = 1;
+    }
     return {
       id: Number(g.id),
       gift_key: g.giftKey ?? null,
       name: g.name,
       coin_cost: g.coinCost,
       category: normalizeGiftCategory(g.category),
+      required_svip_level: g.requiredSvipLevel,
       image_url: g.imageUrl,
       animation_url: g.animationUrl,
       is_active: g.isActive,
     };
+  }
+
+  /** Lucky gifts start at the admin's minimum (Settings → Lucky gift minimum). Read live, so no deploy is needed. */
+  private async assertLuckyFloor(category: string, cost: number) {
+    if (category !== 'lucky') return;
+    const min = await luckyMinCoins(this.prisma);
+    if (cost < min)
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `Lucky gifts start at ${min.toLocaleString('en-US')} coins. Raise the price, or lower "Lucky gift minimum" in Settings.`,
+        },
+      });
   }
 
   async deleteGift(id: bigint) {
@@ -705,23 +745,43 @@ export class AdminCatalogService {
     const rows = await this.prisma.entryBar.findMany({
       orderBy: { id: 'asc' },
     });
+    return { entry_bars: rows.map((eb) => this.adminEntryBar(eb)) };
+  }
+
+  private adminEntryBar(eb: {
+    id: bigint;
+    name: string;
+    slug: string | null;
+    levelRequired: number;
+    svipLevel: number;
+    imageUrl: string | null;
+    animationUrl: string | null;
+    compositeMode: string;
+    sortOrder: number;
+    isActive: boolean;
+  }) {
     return {
-      entry_bars: rows.map((eb) => ({
-        id: Number(eb.id),
-        name: eb.name,
-        level_required: eb.levelRequired,
-        image_url: eb.imageUrl,
-        animation_url: eb.animationUrl,
-        is_active: eb.isActive,
-      })),
+      id: Number(eb.id),
+      name: eb.name,
+      slug: eb.slug,
+      level_required: eb.levelRequired,
+      svip_level: eb.svipLevel,
+      image_url: eb.imageUrl,
+      animation_url: eb.animationUrl,
+      composite_mode: normalizeFrameComposite(eb.compositeMode),
+      sort_order: eb.sortOrder,
+      is_active: eb.isActive,
     };
   }
 
   async createEntryBar(body: {
     name: string;
     level_required?: number;
+    svip_level?: number;
     image_url?: string;
     animation_url?: string;
+    composite_mode?: string;
+    sort_order?: number;
   }) {
     const anim =
       body.animation_url?.trim() ||
@@ -734,18 +794,14 @@ export class AdminCatalogService {
       data: {
         name: body.name,
         levelRequired: Number(body.level_required ?? 1),
+        svipLevel: Number(body.svip_level ?? 0),
         imageUrl: image ?? body.image_url ?? null,
         animationUrl: anim ?? null,
+        compositeMode: normalizeFrameComposite(body.composite_mode),
+        sortOrder: Number(body.sort_order ?? 0),
       },
     });
-    return {
-      id: Number(eb.id),
-      name: eb.name,
-      level_required: eb.levelRequired,
-      image_url: eb.imageUrl,
-      animation_url: eb.animationUrl,
-      is_active: eb.isActive,
-    };
+    return this.adminEntryBar(eb);
   }
 
   async updateEntryBar(
@@ -753,8 +809,11 @@ export class AdminCatalogService {
     body: {
       name?: string;
       level_required?: number;
+      svip_level?: number;
       image_url?: string;
       animation_url?: string;
+      composite_mode?: string;
+      sort_order?: number;
       is_active?: boolean;
     },
   ) {
@@ -762,6 +821,7 @@ export class AdminCatalogService {
     if (body.name !== undefined) data.name = body.name;
     if (body.level_required !== undefined)
       data.levelRequired = Number(body.level_required);
+    if (body.svip_level !== undefined) data.svipLevel = Number(body.svip_level);
     if (body.image_url !== undefined) data.imageUrl = body.image_url;
     if (body.animation_url !== undefined) data.animationUrl = body.animation_url;
     if (
@@ -771,18 +831,15 @@ export class AdminCatalogService {
     ) {
       data.animationUrl = body.image_url;
     }
+    if (body.composite_mode !== undefined)
+      data.compositeMode = normalizeFrameComposite(body.composite_mode);
+    if (body.sort_order !== undefined) data.sortOrder = Number(body.sort_order);
     if (body.is_active !== undefined) data.isActive = Boolean(body.is_active);
     const eb = await this.prisma.entryBar.update({
       where: { id },
       data,
     });
-    return {
-      id: Number(eb.id),
-      name: eb.name,
-      image_url: eb.imageUrl,
-      animation_url: eb.animationUrl,
-      is_active: eb.isActive,
-    };
+    return this.adminEntryBar(eb);
   }
 
   async deleteEntryBar(id: bigint) {
@@ -873,6 +930,7 @@ export class AdminCatalogService {
           id: Number(s.id),
           name: s.name,
           coin_cost: s.coinCost,
+          required_svip_level: s.requiredSvipLevel,
           image_url: media.image_url,
           animation_url: media.animation_url,
           media_type: media.media_type,
@@ -887,12 +945,14 @@ export class AdminCatalogService {
     coin_cost?: number;
     image_url?: string;
     animation_url?: string;
+    required_svip_level?: number;
   }) {
     const paired = await this.pairCatalogMedia(body.image_url, body.animation_url);
     const s = await this.prisma.sticker.create({
       data: {
         name: body.name,
         coinCost: Number(body.coin_cost ?? 0),
+        requiredSvipLevel: Number(body.required_svip_level ?? 0),
         imageUrl: paired.imageUrl,
         animationUrl: paired.animationUrl,
       },
@@ -901,6 +961,7 @@ export class AdminCatalogService {
       id: Number(s.id),
       name: s.name,
       coin_cost: s.coinCost,
+      required_svip_level: s.requiredSvipLevel,
       image_url: s.imageUrl,
       is_active: s.isActive,
     };
@@ -914,6 +975,7 @@ export class AdminCatalogService {
       image_url?: string;
       animation_url?: string;
       is_active?: boolean;
+      required_svip_level?: number;
     },
   ) {
     let mediaPatch: { imageUrl: string | null; animationUrl: string | null } | null =
@@ -946,9 +1008,12 @@ export class AdminCatalogService {
         ...(body.is_active !== undefined
           ? { isActive: Boolean(body.is_active) }
           : {}),
+        ...(body.required_svip_level !== undefined
+          ? { requiredSvipLevel: Number(body.required_svip_level) }
+          : {}),
       },
     });
-    return { id: Number(s.id), name: s.name, is_active: s.isActive };
+    return { id: Number(s.id), name: s.name, is_active: s.isActive, required_svip_level: s.requiredSvipLevel };
   }
 
   async deleteSticker(id: bigint) {
@@ -1028,6 +1093,7 @@ export class AdminCatalogService {
         room_video_enabled: extra.room_video_enabled !== false,
         [ROOM_MEMBER_TIMEOUT_KEY]: readMemberTimeoutSeconds(extra),
         ...roomRewardSettingsForApi(readRoomRewardSettings(extra)),
+        [LUCKY_MIN_KEY]: readLuckyMinCoins(extra),
         lucky_rebate_min_pct: extra.lucky_rebate_min_pct ?? LUCKY_REBATE_DEFAULT_MIN_PCT,
         lucky_rebate_max_pct: extra.lucky_rebate_max_pct ?? LUCKY_REBATE_DEFAULT_MAX_PCT,
       },
@@ -1036,10 +1102,27 @@ export class AdminCatalogService {
 
   async updateSettings(body: Record<string, unknown>) {
     const data: Prisma.AdminSettingUpdateInput = {};
-    if (body.gift_commission_pct !== undefined || body.gift_commission_percent !== undefined)
-      data.giftCommissionPct = Number(body.gift_commission_pct ?? body.gift_commission_percent);
-    if (body.star_chat_commission_pct !== undefined || body.star_chat_commission_percent !== undefined)
-      data.starChatCommissionPct = Number(body.star_chat_commission_pct ?? body.star_chat_commission_percent);
+    const stored = await this.prisma.adminSetting.findUnique({ where: { id: 1 } });
+    // The settings screen sends both spellings (`_pct` = the value it loaded, `_percent` = what the admin typed).
+    // Take the one that differs from what is stored, otherwise a typed change is thrown away.
+    const pick = (a: unknown, b: unknown, current: unknown): number | undefined => {
+      const x = a === undefined ? undefined : Number(a);
+      const y = b === undefined ? undefined : Number(b);
+      if (x !== undefined && y !== undefined) return x !== Number(current) ? x : y;
+      return x ?? y;
+    };
+    const giftPct = pick(body.gift_commission_pct, body.gift_commission_percent, stored?.giftCommissionPct);
+    if (giftPct !== undefined) data.giftCommissionPct = giftPct;
+    const starPct = pick(body.star_chat_commission_pct, body.star_chat_commission_percent, stored?.starChatCommissionPct);
+    if (starPct !== undefined) data.starChatCommissionPct = starPct;
+    if (body[LUCKY_MIN_KEY] !== undefined) {
+      const n = Number(body[LUCKY_MIN_KEY]);
+      if (!Number.isInteger(n) || n < 0 || n > LUCKY_MIN_MAX)
+        throw new BadRequestException({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: `Lucky gift minimum must be a whole number of coins, 0 – ${LUCKY_MIN_MAX.toLocaleString('en-US')}` },
+        });
+    }
     if (body.cashout_enabled !== undefined)
       data.cashoutEnabled = Boolean(body.cashout_enabled);
     if (body.earnings_purchase_enabled !== undefined)
@@ -1074,6 +1157,15 @@ export class AdminCatalogService {
     const current = await this.prisma.adminSetting.findUnique({ where: { id: 1 } });
     const existingExtra = (current?.extraSettings as Record<string, unknown>) ?? {};
     const mergedExtra: Record<string, unknown> = { ...existingExtra, ...body };
+    if (giftPct !== undefined) {
+      // The panel reads either spelling back: keep both in step.
+      mergedExtra.gift_commission_pct = giftPct;
+      mergedExtra.gift_commission_percent = giftPct;
+    }
+    if (starPct !== undefined) {
+      mergedExtra.star_chat_commission_pct = starPct;
+      mergedExtra.star_chat_commission_percent = starPct;
+    }
     if (body[ROOM_MEMBER_TIMEOUT_KEY] !== undefined) {
       // Store exactly what the room service will use (45–600 s).
       mergedExtra[ROOM_MEMBER_TIMEOUT_KEY] = readMemberTimeoutSeconds(mergedExtra);

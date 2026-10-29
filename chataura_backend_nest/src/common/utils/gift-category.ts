@@ -4,6 +4,7 @@ export const GIFT_CATEGORIES = [
   'lucky',
   'cp',
   'bcp',
+  'svip',
 ] as const;
 
 export type GiftCategory = (typeof GIFT_CATEGORIES)[number];

@@ -1,3 +1,5 @@
+import { imageKind } from './image-kind';
+import { Readable } from 'stream';
 import {
   BadRequestException,
   ForbiddenException,
@@ -14,6 +16,10 @@ import {
   resolveFlagUrl,
 } from '../../common/countries/country-catalog';
 import { PrismaService } from '../../common/prisma/prisma.service';
+
+
+/** Pictures users send (room / profile background): 15 MB is far above a compressed photo. */
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
 @Injectable()
 export class MediaService {
@@ -556,6 +562,7 @@ export class MediaService {
   async storeFromRequest(
     req: { file?: () => Promise<any> },
     fallback?: string,
+    opts: { imagesOnly?: boolean } = {},
   ): Promise<string | undefined> {
     if (typeof req.file !== 'function') return fallback;
     try {
@@ -563,6 +570,14 @@ export class MediaService {
       if (!part) return fallback;
       const mime = (part.mimetype || '').toLowerCase();
       const ext = (part.filename || '').split('.').pop()?.toLowerCase();
+      if (opts.imagesOnly) {
+        // Trust the bytes, not the client's name or type; save under the real extension.
+        const buf: Buffer = await part.toBuffer();
+        const kind = imageKind(buf);
+        if (!kind || buf.length > MAX_IMAGE_BYTES) return fallback;
+        const base = basename(part.filename || 'image').replace(/\.[^.]*$/, '');
+        return this.storeLocalFile(`${base}.${kind}`, Readable.from(buf));
+      }
       const allowedExts = [
         'json',
         'svga',

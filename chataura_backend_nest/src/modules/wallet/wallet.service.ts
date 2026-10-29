@@ -1,3 +1,4 @@
+import { assertSvipLevel } from '../svip/svip-gates';
 import { RedisService } from '../../common/redis/redis.service';
 import {
   BadRequestException,
@@ -15,6 +16,7 @@ import Razorpay from 'razorpay';
 import { catalogClientFields } from '../../common/utils/catalog-media';
 import { normalizeGiftCategory } from '../../common/utils/gift-category';
 import { resolveGiftForSend } from '../../common/utils/gift-resolve';
+import { belowLuckyMin, luckyMinCoins } from '../../common/utils/lucky-gift-min';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { IndianState, resolveIndianState } from '../../common/gst/indian-states';
 import { indianStateFromIp } from '../../common/gst/ip-geo';
@@ -833,6 +835,7 @@ export class WalletService {
     }
 
     const gift = await resolveGiftForSend(this.prisma, body);
+    await assertSvipLevel(this.prisma, senderId, gift.requiredSvipLevel, 'send this gift');
     const receiverId = BigInt(body.receiver_id);
     const quantity = Math.min(Math.max(Number(body.quantity ?? 1), 1), 100);
     if (receiverId === senderId) {
@@ -1040,8 +1043,9 @@ export class WalletService {
         orderBy: { id: 'asc' },
       });
     }
+    const luckyMin = await luckyMinCoins(this.prisma);
     return {
-      gifts: gifts.map((g) => {
+      gifts: gifts.filter((g) => !belowLuckyMin(g, luckyMin)).map((g) => {
         const cleanImg = g.imageUrl?.includes('giphy.com') ? null : g.imageUrl;
         const cleanAnim = g.animationUrl?.includes('giphy.com') ? null : g.animationUrl;
         return {
@@ -1050,6 +1054,7 @@ export class WalletService {
           name: g.name,
           coin_cost: g.coinCost,
           category: normalizeGiftCategory(g.category),
+          required_svip_level: g.requiredSvipLevel,
           ...catalogClientFields(cleanImg, cleanAnim),
         };
       }),

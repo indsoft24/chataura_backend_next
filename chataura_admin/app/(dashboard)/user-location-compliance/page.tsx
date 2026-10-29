@@ -205,9 +205,9 @@ export default function UserLocationCompliancePage() {
   const sortKnown = SORTS.some((s) => s.value === sortValue);
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
 
-      <div className="ad-header">
+      <div className="cp-header">
         <div>
           <h1>User Location Compliance</h1>
           <p>
@@ -215,37 +215,37 @@ export default function UserLocationCompliancePage() {
             (client first, then profile) is used for audit and tax reporting.
           </p>
         </div>
-        <div className="ad-header-actions">
-          <button type="button" className="ad-btn ad-btn-export ad-btn-lg" onClick={() => void handleExport()} disabled={exporting || total === 0}>
+        <div className="cp-header-actions">
+          <button type="button" className="cp-btn cp-btn-export cp-btn-lg" onClick={() => void handleExport()} disabled={exporting || total === 0}>
             {exporting ? 'Exporting…' : `Export CSV${isDirty ? ' (filtered)' : ''}`}
           </button>
         </div>
       </div>
 
-      <div className="ad-kpis">
-        <div className="ad-kpi is-clickable" onClick={resetAll} title="Show all accounts">
-          <div className="ad-kpi-label">Tracked accounts</div>
-          <div className="ad-kpi-value">{fmt(kpis.total_tracked_users)}</div>
-          <div className="ad-kpi-sub">excluding deactivated</div>
+      <div className="cp-kpis">
+        <div className="cp-kpi is-clickable" onClick={resetAll} title="Show all accounts">
+          <div className="cp-kpi-label">Tracked accounts</div>
+          <div className="cp-kpi-value">{fmt(kpis.total_tracked_users)}</div>
+          <div className="cp-kpi-sub">excluding deactivated</div>
         </div>
-        <div className="ad-kpi">
-          <div className="ad-kpi-label">Countries detected</div>
-          <div className="ad-kpi-value tone-indigo">{fmt(kpis.countries_detected)}</div>
-          <div className="ad-kpi-sub">by effective country</div>
+        <div className="cp-kpi">
+          <div className="cp-kpi-label">Countries detected</div>
+          <div className="cp-kpi-value tone-indigo">{fmt(kpis.countries_detected)}</div>
+          <div className="cp-kpi-sub">by effective country</div>
         </div>
-        <div className="ad-kpi is-clickable" onClick={() => update({ match: 'mismatch' })} title="Show mismatched accounts">
-          <div className="ad-kpi-label">Country mismatch</div>
-          <div className={`ad-kpi-value ${kpis.mismatches ? 'tone-amber' : ''}`}>{fmt(kpis.mismatches)}</div>
-          <div className="ad-kpi-sub">profile ≠ client country</div>
+        <div className="cp-kpi is-clickable" onClick={() => update({ match: 'mismatch' })} title="Show mismatched accounts">
+          <div className="cp-kpi-label">Country mismatch</div>
+          <div className={`cp-kpi-value ${kpis.mismatches ? 'tone-amber' : ''}`}>{fmt(kpis.mismatches)}</div>
+          <div className="cp-kpi-sub">profile ≠ client country</div>
         </div>
-        <div className="ad-kpi is-clickable" onClick={() => update({ country: 'UNKNOWN' })} title="Show accounts with no location">
-          <div className="ad-kpi-label">Unknown location</div>
-          <div className={`ad-kpi-value ${kpis.unknown ? 'tone-red' : ''}`}>{fmt(kpis.unknown)}</div>
-          <div className="ad-kpi-sub">no profile or client country</div>
+        <div className="cp-kpi is-clickable" onClick={() => update({ country: 'UNKNOWN' })} title="Show accounts with no location">
+          <div className="cp-kpi-label">Unknown location</div>
+          <div className={`cp-kpi-value ${kpis.unknown ? 'tone-red' : ''}`}>{fmt(kpis.unknown)}</div>
+          <div className="cp-kpi-sub">no profile or client country</div>
         </div>
       </div>
 
-      <div className="ad-card">
+      <div className="cp-card">
         <Tabs
           value={filters.match}
           onChange={(v) => update({ match: v })}
@@ -258,14 +258,14 @@ export default function UserLocationCompliancePage() {
         />
 
         {topCountries.length > 0 && (
-          <div className="ad-range-row">
-            <span className="ad-sub" style={{ fontWeight: 600 }}>Top countries:</span>
-            <div className="ad-chips">
+          <div className="cp-range-row">
+            <span className="cp-sub" style={{ fontWeight: 600 }}>Top countries:</span>
+            <div className="cp-chips">
               {topCountries.map((c) => (
                 <button
                   key={c.code}
                   type="button"
-                  className={`ad-chip ${filters.country === c.code ? 'is-active' : ''}`}
+                  className={`cp-chip ${filters.country === c.code ? 'is-active' : ''}`}
                   onClick={() => update({ country: filters.country === c.code ? '' : c.code })}
                   title={countryName(c.code)}
                 >
@@ -276,14 +276,14 @@ export default function UserLocationCompliancePage() {
           </div>
         )}
 
-        <div className="ad-toolbar">
+        <div className="cp-toolbar">
           <SearchBox
             value={searchInput}
             onChange={setSearchInput}
             onEnter={() => update({ q: searchInput.trim() })}
             placeholder="Search name, email, phone or #ID…"
           />
-          <label className="ad-field">
+          <label className="cp-field">
             <span>Country</span>
             <select value={filters.country} onChange={(e) => update({ country: e.target.value })}>
               <option value="">All countries</option>
@@ -297,7 +297,7 @@ export default function UserLocationCompliancePage() {
               )}
             </select>
           </label>
-          <label className="ad-field">
+          <label className="cp-field">
             <span>Account status</span>
             <select value={filters.status} onChange={(e) => update({ status: e.target.value as Filters['status'] })}>
               <option value="">Active + suspended</option>
@@ -306,7 +306,7 @@ export default function UserLocationCompliancePage() {
               <option value="deactivated">Deactivated</option>
             </select>
           </label>
-          <label className="ad-field">
+          <label className="cp-field">
             <span>Sort by</span>
             <select
               value={sortKnown ? sortValue : ''}
@@ -322,16 +322,16 @@ export default function UserLocationCompliancePage() {
             </select>
           </label>
           {isDirty && (
-            <button type="button" className="ad-btn ad-btn-ghost ad-btn-lg" onClick={resetAll}>Reset filters</button>
+            <button type="button" className="cp-btn cp-btn-ghost cp-btn-lg" onClick={resetAll}>Reset filters</button>
           )}
         </div>
 
-        <div className="ad-range-row" style={{ paddingTop: 0 }}>
-          <span className="ad-sub" style={{ fontWeight: 600 }}>Registered:</span>
+        <div className="cp-range-row" style={{ paddingTop: 0 }}>
+          <span className="cp-sub" style={{ fontWeight: 600 }}>Registered:</span>
           <DateRangeChips range={filters.range} from={filters.from} to={filters.to} onChange={(patch) => update(patch)} />
         </div>
 
-        <div className="ad-summary" style={{ paddingTop: 12 }}>
+        <div className="cp-summary" style={{ paddingTop: 12 }}>
           {loading ? 'Loading…' : (
             <>
               <strong>{fmt(total)}</strong> account{total === 1 ? '' : 's'}
@@ -342,22 +342,22 @@ export default function UserLocationCompliancePage() {
         </div>
 
         {loadError && (
-          <div className="ad-alert">
+          <div className="cp-alert">
             {loadError}
-            <button type="button" className="ad-btn ad-btn-ghost" onClick={() => void load()}>Retry</button>
+            <button type="button" className="cp-btn cp-btn-ghost" onClick={() => void load()}>Retry</button>
           </div>
         )}
 
-        <div className="ad-table-wrap">
-          <table className="ad-table is-stack is-3up">
+        <div className="cp-table-wrap">
+          <table className="cp-table is-stack is-3up">
             <thead>
               <tr>
                 <SortTh column="name" label="User" sort={filters.sort} order={filters.order} onSort={onSort} defaultOrder="asc" />
-                <th className="ad-th">Profile country</th>
-                <th className="ad-th">Client country</th>
+                <th className="cp-th">Profile country</th>
+                <th className="cp-th">Client country</th>
                 <SortTh column="country" label="Effective" sort={filters.sort} order={filters.order} onSort={onSort} defaultOrder="asc" />
                 <SortTh column="coins" label="Coins" sort={filters.sort} order={filters.order} onSort={onSort} align="right" />
-                <th className="ad-th">Status</th>
+                <th className="cp-th">Status</th>
                 <SortTh column="created_at" label="Registered" sort={filters.sort} order={filters.order} onSort={onSort} />
               </tr>
             </thead>
@@ -371,48 +371,48 @@ export default function UserLocationCompliancePage() {
                   const status = u.status ?? (u.account_status === 'deleted' ? 'deactivated' : u.account_status === 'suspended' ? 'suspended' : 'active');
                   const name = u.name || `User #${u.id}`;
                   return (
-                    <tr key={u.id} className="ad-row">
-                      <td className="ad-td is-main">
-                        <div className="ad-user" style={{ maxWidth: 320 }}>
+                    <tr key={u.id} className="cp-row">
+                      <td className="cp-td is-main">
+                        <div className="cp-user" style={{ maxWidth: 320 }}>
                           <Avatar name={name} url={u.avatar_url} />
                           <div style={{ minWidth: 0 }}>
-                            <div className="ad-name" title={name}>{name}</div>
-                            <div className="ad-sub" title={u.email ?? u.phone ?? ''}>
-                              <Link href={`/users?q=%23${u.id}`} className="ad-link" title="Open in User Management">ID {u.id}</Link>
+                            <div className="cp-name" title={name}>{name}</div>
+                            <div className="cp-sub" title={u.email ?? u.phone ?? ''}>
+                              <Link href={`/users?q=%23${u.id}`} className="cp-link" title="Open in User Management">ID {u.id}</Link>
                               {' · '}
                               {u.email ?? u.phone ?? 'No contact'}
                             </div>
                           </div>
                         </div>
-                        <span className="ad-mobile-only"><span className={`ad-badge ${STATUS_BADGE[status]}`}>{status}</span></span>
+                        <span className="cp-mobile-only"><span className={`cp-badge ${STATUS_BADGE[status]}`}>{status}</span></span>
                       </td>
-                      <td className="ad-td ad-nowrap" data-label="Profile" title={countryName(u.profile_country)}>
-                        {u.profile_country ? <>{flag(u.profile_country)} {u.profile_country}</> : <span className="ad-hint">—</span>}
+                      <td className="cp-td cp-nowrap" data-label="Profile" title={countryName(u.profile_country)}>
+                        {u.profile_country ? <>{flag(u.profile_country)} {u.profile_country}</> : <span className="cp-hint">—</span>}
                       </td>
-                      <td className="ad-td ad-nowrap" data-label="Client" title={countryName(u.client_country)}>
-                        {u.client_country ? <>{flag(u.client_country)} {u.client_country}</> : <span className="ad-hint">—</span>}
+                      <td className="cp-td cp-nowrap" data-label="Client" title={countryName(u.client_country)}>
+                        {u.client_country ? <>{flag(u.client_country)} {u.client_country}</> : <span className="cp-hint">—</span>}
                         {u.country_mismatch && (
-                          <span className="ad-badge amber" style={{ marginLeft: 8 }} title="Profile country differs from device/network country">
+                          <span className="cp-badge amber" style={{ marginLeft: 8 }} title="Profile country differs from device/network country">
                             ⚠ Mismatch
                           </span>
                         )}
                       </td>
-                      <td className="ad-td ad-nowrap" data-label="Effective">
+                      <td className="cp-td cp-nowrap" data-label="Effective">
                         <button
                           type="button"
-                          className="ad-link"
+                          className="cp-link"
                           style={{ fontSize: '0.8rem' }}
                           onClick={() => update({ country: u.effective_country === 'Unknown' ? 'UNKNOWN' : u.effective_country.toUpperCase() })}
                           title={`Show all accounts in ${countryName(u.effective_country)}`}
                         >
-                          <span className={`ad-badge ${u.effective_country === 'Unknown' ? 'gray' : 'indigo'}`} style={{ textTransform: 'none' }}>
+                          <span className={`cp-badge ${u.effective_country === 'Unknown' ? 'gray' : 'indigo'}`} style={{ textTransform: 'none' }}>
                             {flag(u.effective_country)} {countryName(u.effective_country)}
                           </span>
                         </button>
                       </td>
-                      <td className="ad-td ad-num" data-label="Coins" style={{ fontWeight: 600, color: '#b45309' }}>🪙 {fmt(u.coin_balance)}</td>
-                      <td className="ad-td is-hide-sm"><span className={`ad-badge ${STATUS_BADGE[status]}`}>{status}</span></td>
-                      <td className="ad-td ad-nowrap" data-label="Registered">{formatDate(u.registered_at)}</td>
+                      <td className="cp-td cp-num" data-label="Coins" style={{ fontWeight: 600, color: '#b45309' }}>🪙 {fmt(u.coin_balance)}</td>
+                      <td className="cp-td is-hide-sm"><span className={`cp-badge ${STATUS_BADGE[status]}`}>{status}</span></td>
+                      <td className="cp-td cp-nowrap" data-label="Registered">{formatDate(u.registered_at)}</td>
                     </tr>
                   );
                 })

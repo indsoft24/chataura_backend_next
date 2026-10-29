@@ -73,18 +73,18 @@ export default function StaffCommissionsPage() {
   }
 
   const unit = (value: string, set: (v: string) => void, suffix: string, step?: string) => (
-    <div className="ad-unit">
+    <div className="cp-unit">
       <input type="number" inputMode="decimal" step={step} value={value} onChange={(e) => set(e.target.value)} />
       <span>{suffix}</span>
     </div>
   );
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <PageHeader title="Staff & Host Commissions" subtitle="Host revenue share, platform commission on gifts and star chat, and cash-out policy." />
 
       {loading ? (
-        <div className="ad-grid-2"><div className="ad-skeleton is-card" /><div className="ad-skeleton is-card" /></div>
+        <div className="cp-grid-2"><div className="cp-skeleton is-card" /><div className="cp-skeleton is-card" /></div>
       ) : (
         <form
           onSubmit={(e) => {
@@ -92,7 +92,7 @@ export default function StaffCommissionsPage() {
             void save();
           }}
         >
-          <div className="ad-grid-2">
+          <div className="cp-grid-2">
             <Section title="Revenue shares & rates" subtitle="What the platform keeps from each transaction.">
               <div style={{ display: 'grid', gap: 16 }}>
                 <Field label="Live room gift commission" hint="Platform fee; the rest goes to the room host.">
@@ -109,25 +109,25 @@ export default function StaffCommissionsPage() {
 
             <Section title="Payout & cash-out policy" subtitle="What creators and sellers can do with earnings.">
               <div style={{ display: 'grid', gap: 12 }}>
-                <div className="ad-toggle-row">
+                <div className="cp-toggle-row">
                   <div>
-                    <div className="ad-toggle-title">Allow cash-out requests</div>
-                    <div className="ad-toggle-hint">Creators and coin sellers can submit withdrawal requests.</div>
+                    <div className="cp-toggle-title">Allow cash-out requests</div>
+                    <div className="cp-toggle-hint">Creators and coin sellers can submit withdrawal requests.</div>
                   </div>
                   <Switch label="Allow cash-out requests" checked={cashoutEnabled} onChange={setCashoutEnabled} />
                 </div>
-                <div className="ad-toggle-row">
+                <div className="cp-toggle-row">
                   <div>
-                    <div className="ad-toggle-title">Earnings wallet purchases</div>
-                    <div className="ad-toggle-hint">Users can spend earned gems directly on catalog items.</div>
+                    <div className="cp-toggle-title">Earnings wallet purchases</div>
+                    <div className="cp-toggle-hint">Users can spend earned gems directly on catalog items.</div>
                   </div>
                   <Switch label="Earnings wallet purchases" checked={earningsPurchaseEnabled} onChange={setEarningsPurchaseEnabled} />
                 </div>
               </div>
             </Section>
           </div>
-          <div className="ad-form-actions">
-            <button type="submit" className="ad-btn ad-btn-accent ad-btn-lg" disabled={saving}>
+          <div className="cp-form-actions">
+            <button type="submit" className="cp-btn cp-btn-accent cp-btn-lg" disabled={saving}>
               {saving ? 'Saving…' : 'Save commission settings'}
             </button>
           </div>

@@ -21,6 +21,7 @@ const TABS: { id: TabId; label: string; groups: Group[] }[] = [
     groups: [
       { title: 'Gifts', cols: 3, items: [
         pct('gift_commission_percent', 'Gift platform commission'),
+        coins('lucky_gift_min_coins', 'Lucky gift minimum', 'Lucky gifts start at this many coins. Cheaper lucky gifts are hidden in the app and cannot be sent; admins cannot price one lower. 0 = no minimum. Applies at once, no build needed.'),
         pct('lucky_rebate_min_pct', 'Lucky gift rebate — min', 'Of the gift value.'),
         pct('lucky_rebate_max_pct', 'Lucky gift rebate — max', 'Of the gift value.'),
       ] },
@@ -159,6 +160,7 @@ const DEFAULTS: Record<string, any> = {
   room_gift_banner_duration_big_ms: 6000,
   room_video_enabled: true,
   room_member_timeout_seconds: 90,
+  lucky_gift_min_coins: 2000,
   lucky_rebate_min_pct: 1,
   lucky_rebate_max_pct: 40,
 };
@@ -196,7 +198,11 @@ export default function SettingsPage() {
     if (!token) return;
     setSaving(true);
     try {
-      const res = await api<any>('/admin/settings', token, { method: 'PATCH', body: JSON.stringify(form) });
+      // Send only what changed: sending the whole form made the server pick up stale copies of a setting
+      // (e.g. the old gift commission next to the one just typed).
+      const before = JSON.parse(saved || '{}');
+      const changed = Object.fromEntries(Object.entries(form).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(before[k])));
+      const res = await api<any>('/admin/settings', token, { method: 'PATCH', body: JSON.stringify(changed) });
       const next = { ...form, ...(res.data?.settings ?? {}) };
       setForm(next);
       setSaved(JSON.stringify(next));
@@ -211,7 +217,7 @@ export default function SettingsPage() {
   const tab = TABS.find((t) => t.id === activeTab) ?? TABS[0];
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <style dangerouslySetInnerHTML={{ __html: SET_STYLES }} />
       <PageHeader
         title="Platform Settings"
@@ -219,7 +225,7 @@ export default function SettingsPage() {
       />
 
       <form
-        className="ad-card"
+        className="cp-card"
         onSubmit={(e) => {
           e.preventDefault();
           void save();
@@ -227,11 +233,11 @@ export default function SettingsPage() {
       >
         <Tabs value={activeTab} onChange={setActiveTab} tabs={TABS.map((t) => ({ value: t.id, label: t.label }))} />
         {loading ? (
-          <div className="ad-card-body" style={{ display: 'grid', gap: 12 }}>
-            <div className="ad-skeleton" /><div className="ad-skeleton" /><div className="ad-skeleton" />
+          <div className="cp-card-body" style={{ display: 'grid', gap: 12 }}>
+            <div className="cp-skeleton" /><div className="cp-skeleton" /><div className="cp-skeleton" />
           </div>
         ) : (
-          <div className="ad-card-body set-body">
+          <div className="cp-card-body set-body">
             {tab.groups.map((g, gi) => (
               <section key={gi} className="set-group">
                 {g.title ? (
@@ -243,10 +249,10 @@ export default function SettingsPage() {
                 <div className={`set-grid cols-${g.cols ?? 2}`}>
                   {g.items.map((it, i) =>
                     it.kind === 'toggle' ? (
-                      <div key={it.key} className="ad-toggle-row is-wide">
+                      <div key={it.key} className="cp-toggle-row is-wide">
                         <div>
-                          <div className="ad-toggle-title">{it.label}</div>
-                          {it.hint ? <div className="ad-toggle-hint">{it.hint}</div> : null}
+                          <div className="cp-toggle-title">{it.label}</div>
+                          {it.hint ? <div className="cp-toggle-hint">{it.hint}</div> : null}
                         </div>
                         <Switch
                           label={it.label}
@@ -255,10 +261,10 @@ export default function SettingsPage() {
                         />
                       </div>
                     ) : it.kind === 'note' ? (
-                      <div key={i} className="ad-note is-wide">{it.text}</div>
+                      <div key={i} className="cp-note is-wide">{it.text}</div>
                     ) : (
                       <Field key={it.key} label={it.label} hint={it.hint}>
-                        <div className="ad-unit">
+                        <div className="cp-unit">
                           <input
                             type="number"
                             inputMode="decimal"
@@ -280,7 +286,7 @@ export default function SettingsPage() {
         )}
         <div className={`set-savebar ${dirty ? 'is-dirty' : ''}`}>
           <span>{dirty ? 'You have unsaved changes' : 'All changes saved'}</span>
-          <button type="submit" className="ad-btn ad-btn-accent ad-btn-lg" disabled={saving || loading || !dirty}>
+          <button type="submit" className="cp-btn cp-btn-accent cp-btn-lg" disabled={saving || loading || !dirty}>
             {saving ? 'Saving…' : 'Save changes'}
           </button>
         </div>

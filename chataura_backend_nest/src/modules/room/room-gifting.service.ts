@@ -1,3 +1,5 @@
+import { giftQuantity } from './gift-quantity';
+import { assertSvipLevel } from '../svip/svip-gates';
 import {
   BadRequestException,
   ForbiddenException,
@@ -10,6 +12,7 @@ import {
   GiftSendSelector,
   resolveGiftForSend,
 } from '../../common/utils/gift-resolve';
+import { belowLuckyMin, luckyMinCoins } from '../../common/utils/lucky-gift-min';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { RelationshipEngineService } from '../relationship/relationship-engine.service';
@@ -21,6 +24,7 @@ import { GiftBroadcastService, resolveGiftVisualTier } from './gift-broadcast.se
 import { RedisService } from '../../common/redis/redis.service';
 import { RealtimeService } from '../../common/fcm/realtime.service';
 import { buildServerGiftCommand } from './server-gift-event';
+import { BattleService } from '../battle/battle.service';
 import { RoomRewardService } from './room-reward/room-reward.service';
 
 @Injectable()
@@ -36,6 +40,7 @@ export class RoomGiftingService {
     private readonly redis: RedisService,
     private readonly realtime: RealtimeService,
     private readonly rewards: RoomRewardService,
+    private readonly battle: BattleService,
   ) {}
 
   /**
@@ -161,8 +166,9 @@ export class RoomGiftingService {
       });
     }
 
+    const luckyMin = await luckyMinCoins(this.prisma);
     return {
-      gifts: gifts.map((g) => {
+      gifts: gifts.filter((g) => !belowLuckyMin(g, luckyMin)).map((g) => {
         const cleanImg = g.imageUrl?.includes('giphy.com') ? null : g.imageUrl;
         const cleanAnim = g.animationUrl?.includes('giphy.com') ? null : g.animationUrl;
         return {
@@ -172,6 +178,7 @@ export class RoomGiftingService {
           coin_cost: g.coinCost,
           coin_price: g.coinCost,
           category: normalizeGiftCategory(g.category),
+          required_svip_level: g.requiredSvipLevel,
           ...catalogClientFields(cleanImg, cleanAnim),
         };
       }),
@@ -196,8 +203,9 @@ export class RoomGiftingService {
     },
   ) {
     const room = await this.findRoom(id);
-    const quantity = Math.min(Math.max(Number(body.quantity ?? 1), 1), 100);
+    const quantity = giftQuantity(body.quantity);
     const gift = await this.resolveGift(body);
+    await assertSvipLevel(this.prisma, senderId, gift.requiredSvipLevel, 'send this gift');
     const receiverId = BigInt(body.receiver_id);
     await this.requireActiveMember(room.id, senderId);
     const seated = await this.prisma.seat.findFirst({
@@ -242,6 +250,7 @@ export class RoomGiftingService {
 
     let result;
     let rewardRecorded = false;
+    let battleScored = false;
     try {
       result = await this.prisma.$transaction(async (tx) => {
       try {
@@ -324,6 +333,10 @@ export class RoomGiftingService {
           coins: cost,
           category: gift.category,
         });
+        battleScored = await this.battle.recordGiftTx(tx, {
+          roomId: room.id,
+          gifts: [{ receiverId, coins: cost }],
+        });
         return {
           transaction_id: ref,
           gift_id: Number(gift.id),
@@ -383,6 +396,7 @@ export class RoomGiftingService {
     const idempotencyKey = `gift_idem:${result.transaction_id}`;
     const isNew = await redisClient.set(idempotencyKey, '1', 'EX', 30, 'NX');
     if (!isNew) {
+      if (battleScored) void this.battle.announceScore(room.id);
       if (rewardRecorded) this.rewards.evaluateSoon(room.id);
       return { ...result, agency_cashback: agency.agency_cashback, rocket: null };
     }
@@ -410,6 +424,7 @@ export class RoomGiftingService {
       [receiverId],
       quantity,
     );
+    if (battleScored) void this.battle.announceScore(room.id);
     if (rewardRecorded) this.rewards.evaluateSoon(room.id);
     const rocket =
       gift.category === 'cp' || gift.category === 'bcp'
@@ -456,8 +471,9 @@ export class RoomGiftingService {
     }
 
     const room = await this.findRoom(body.room_id);
-    const quantity = Math.min(Math.max(Number(body.quantity ?? 1), 1), 100);
+    const quantity = giftQuantity(body.quantity);
     const gift = await this.resolveGift(body);
+    await assertSvipLevel(this.prisma, senderId, gift.requiredSvipLevel, 'send this gift');
 
     await this.requireActiveMember(room.id, senderId);
 
@@ -513,6 +529,7 @@ export class RoomGiftingService {
 
     let result;
     let rewardRecorded = false;
+    let battleScored = false;
     try {
       result = await this.prisma.$transaction(async (tx) => {
       try {
@@ -631,6 +648,10 @@ export class RoomGiftingService {
           coins: perCost * BigInt(txIds.length),
           category: gift.category,
         });
+        battleScored = await this.battle.recordGiftTx(tx, {
+          roomId: room.id,
+          gifts: eligibleIds.map((receiverId) => ({ receiverId, coins: perCost })),
+        });
 
         return {
           transaction_ids: txIds,
@@ -707,6 +728,7 @@ export class RoomGiftingService {
       eligibleIds,
       quantity,
     );
+    if (battleScored) void this.battle.announceScore(room.id);
     if (rewardRecorded) this.rewards.evaluateSoon(room.id);
     const agency = await resolveAgencyRoomMeta(
       this.prisma,
