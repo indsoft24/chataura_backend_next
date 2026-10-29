@@ -32,7 +32,11 @@ export function creatableTiers(actor: AdminTier): AdminTier[] {
   return (['admin', 'manager', 'ceo'] as AdminTier[]).filter((t) => canCreate(actor, t));
 }
 
-/** Minimum tier to see a nav page (by href). Pages not listed need only 'admin'. */
+/**
+ * Minimum tier to see a page (by href); must match the @MinTier on the APIs each page calls.
+ * Pages not listed need only 'admin': Dashboard home, Users, Reports, User reports, Posts, Reels,
+ * Party Room Analytics, User Location Report.
+ */
 export const PAGE_MIN_TIER: Record<string, AdminTier> = {
   '/settings': 'superadmin',
   '/withdrawals': 'ceo',
@@ -40,7 +44,27 @@ export const PAGE_MIN_TIER: Record<string, AdminTier> = {
   '/packages': 'ceo',
   '/coin-sellers': 'ceo',
   '/staff-commissions': 'ceo',
+  '/party-bonuses': 'ceo',
+  '/staff': 'manager',
+  '/rockit': 'manager',
+  '/room-rewards': 'manager',
+  '/levels': 'manager',
+  '/gifts': 'manager',
+  '/relationships': 'manager',
+  '/stickers': 'manager',
+  '/frames': 'manager',
+  '/role-frames': 'manager',
+  '/entry-bars': 'manager',
+  '/room-themes': 'manager',
+  '/banners': 'manager',
+  '/countries': 'manager',
+  '/star-accounts': 'manager',
 };
+
+/** True when the actor's tier is at least `min`. */
+export function atLeast(actor: AdminTier | null, min: AdminTier): boolean {
+  return actor != null && TIER_RANK[actor] >= TIER_RANK[min];
+}
 
 export function canSeePage(actor: AdminTier, href: string): boolean {
   const min = PAGE_MIN_TIER[href];

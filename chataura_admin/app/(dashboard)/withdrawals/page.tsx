@@ -78,10 +78,10 @@ export default function WithdrawalsPage() {
   }
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <PageHeader title="Withdrawals (legacy)" subtitle="Review and process cash-out requests from users. Shows the latest 50 requests." />
 
-      <div className="ad-kpis">
+      <div className="cp-kpis">
         <Kpi label="Pending requests" value={pending.length} tone={pending.length ? 'amber' : undefined} onClick={() => setFilter('pending')} active={filter === 'pending'} />
         <Kpi
           label="Pending amount"
@@ -92,7 +92,7 @@ export default function WithdrawalsPage() {
         <Kpi label="Rejected" value={count('rejected')} tone="red" onClick={() => setFilter('rejected')} active={filter === 'rejected'} />
       </div>
 
-      <section className="ad-card">
+      <section className="cp-card">
         <Tabs
           value={filter}
           onChange={setFilter}
@@ -103,19 +103,19 @@ export default function WithdrawalsPage() {
             { value: 'all', label: 'All', count: count('all') },
           ]}
         />
-        <div className="ad-toolbar">
+        <div className="cp-toolbar">
           <SearchBox value={q} onChange={setQ} placeholder="Search user name, user ID or request ID" />
         </div>
-        <div className="ad-table-wrap">
-          <table className="ad-table is-stack">
+        <div className="cp-table-wrap">
+          <table className="cp-table is-stack">
             <thead>
               <tr>
-                <th className="ad-th">User</th>
-                <th className="ad-th ad-num">Amount</th>
-                <th className="ad-th">Source</th>
-                <th className="ad-th">Requested</th>
-                <th className="ad-th">Status</th>
-                <th className="ad-th ad-num">Actions</th>
+                <th className="cp-th">User</th>
+                <th className="cp-th cp-num">Amount</th>
+                <th className="cp-th">Source</th>
+                <th className="cp-th">Requested</th>
+                <th className="cp-th">Status</th>
+                <th className="cp-th cp-num">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -125,26 +125,26 @@ export default function WithdrawalsPage() {
                 <EmptyRow cols={6} title={filter === 'pending' ? 'Nothing waiting for review' : 'No withdrawal requests'} hint={q ? 'Try a different search.' : 'New requests appear here.'} />
               ) : (
                 filtered.map((w) => (
-                  <tr key={w.id} className="ad-row">
-                    <td className="ad-td is-main">
+                  <tr key={w.id} className="cp-row">
+                    <td className="cp-td is-main">
                       <div>
-                        <div className="ad-name">{w.user?.name ?? `User #${w.user_id}`}</div>
-                        <div className="ad-sub">User #{w.user_id} · request #{w.id}</div>
+                        <div className="cp-name">{w.user?.name ?? `User #${w.user_id}`}</div>
+                        <div className="cp-sub">User #{w.user_id} · request #{w.id}</div>
                       </div>
-                      <span className="ad-mobile-only"><span className={`ad-badge ${TONE[w.status] ?? 'gray'}`}>{w.status}</span></span>
+                      <span className="cp-mobile-only"><span className={`cp-badge ${TONE[w.status] ?? 'gray'}`}>{w.status}</span></span>
                     </td>
-                    <td className="ad-td ad-num tone-green" data-label="Amount" style={{ fontWeight: 700, fontSize: '1rem' }}>{Number(w.amount).toFixed(2)} {w.currency}</td>
-                    <td className="ad-td" data-label="Source"><span className="ad-tag">{w.source}</span></td>
-                    <td className="ad-td" data-label="Requested">{formatDate(w.created_at)}</td>
-                    <td className="ad-td is-hide-sm"><span className={`ad-badge ${TONE[w.status] ?? 'gray'}`}>{w.status}</span></td>
-                    <td className="ad-td ad-num is-actions is-fill">
+                    <td className="cp-td cp-num tone-green" data-label="Amount" style={{ fontWeight: 700, fontSize: '1rem' }}>{Number(w.amount).toFixed(2)} {w.currency}</td>
+                    <td className="cp-td" data-label="Source"><span className="cp-tag">{w.source}</span></td>
+                    <td className="cp-td" data-label="Requested">{formatDate(w.created_at)}</td>
+                    <td className="cp-td is-hide-sm"><span className={`cp-badge ${TONE[w.status] ?? 'gray'}`}>{w.status}</span></td>
+                    <td className="cp-td cp-num is-actions is-fill">
                       {w.status === 'pending' ? (
-                        <div className="ad-actions">
-                          <button type="button" className="ad-btn ad-btn-solid tone-success" onClick={() => act(w, 'approve')}>Approve</button>
-                          <button type="button" className="ad-btn ad-btn-danger-soft" onClick={() => act(w, 'reject')}>Reject</button>
+                        <div className="cp-actions">
+                          <button type="button" className="cp-btn cp-btn-solid tone-success" onClick={() => act(w, 'approve')}>Approve</button>
+                          <button type="button" className="cp-btn cp-btn-danger-soft" onClick={() => act(w, 'reject')}>Reject</button>
                         </div>
                       ) : (
-                        <span className="ad-hint" style={{ fontSize: '0.8rem' }}>Processed</span>
+                        <span className="cp-hint" style={{ fontSize: '0.8rem' }}>Processed</span>
                       )}
                     </td>
                   </tr>

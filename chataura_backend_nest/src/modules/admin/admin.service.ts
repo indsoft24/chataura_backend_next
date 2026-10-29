@@ -861,6 +861,9 @@ export class AdminService {
     } else if (nextRole !== 'user' && actorTier !== 'superadmin') {
       throw denied('Only the superadmin can assign the seller or agency role.');
     }
+    if ((user.role === 'seller' || user.role === 'agency') && actorTier !== 'superadmin') {
+      throw denied('Only the superadmin can change a seller or agency account.');
+    }
     const demoting = nextRole === 'user';
     // One-frame rule: a new staff member wears their role frame only if they wear nothing yet;
     // demoting drops a worn role frame (other owned frames stay).

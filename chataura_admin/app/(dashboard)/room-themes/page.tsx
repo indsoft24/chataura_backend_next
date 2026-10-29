@@ -112,14 +112,14 @@ export default function RoomThemesPage() {
   const set = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <PageHeader
         title="Room Themes"
         subtitle="Background wallpapers and atmospheres for party rooms."
-        actions={<button type="button" className="ad-btn ad-btn-accent ad-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New theme</button>}
+        actions={<button type="button" className="cp-btn cp-btn-accent cp-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New theme</button>}
       />
 
-      <section className="ad-card">
+      <section className="cp-card">
         <Tabs
           value={price}
           onChange={setPrice}
@@ -129,19 +129,19 @@ export default function RoomThemesPage() {
             { value: 'paid' as const, label: 'Paid', count: themes.length - free },
           ]}
         />
-        <div className="ad-toolbar">
+        <div className="cp-toolbar">
           <SearchBox value={q} onChange={setQ} placeholder="Search name or ID" />
         </div>
-        <div className="ad-summary">Showing <strong>{visible.length}</strong> of <strong>{themes.length}</strong></div>
+        <div className="cp-summary">Showing <strong>{visible.length}</strong> of <strong>{themes.length}</strong></div>
         {loading && themes.length === 0 ? (
           <MediaSkeleton count={4} />
         ) : visible.length === 0 ? (
-          <div className="ad-empty">
-            <div className="ad-empty-title">{themes.length ? 'No themes match' : 'No themes yet'}</div>
+          <div className="cp-empty">
+            <div className="cp-empty-title">{themes.length ? 'No themes match' : 'No themes yet'}</div>
             {themes.length ? 'Try a different filter.' : 'Add the first room background.'}
           </div>
         ) : (
-          <div className="ad-media-grid">
+          <div className="cp-media-grid">
             {visible.map((t) => (
               <MediaCard
                 key={t.id}
@@ -156,7 +156,7 @@ export default function RoomThemesPage() {
                 }
                 title={t.name}
                 meta={`#${t.id}`}
-                extra={<div className={t.coin_cost > 0 ? 'ad-media-price' : 'ad-media-price tone-green'}>{t.coin_cost > 0 ? `🪙 ${t.coin_cost.toLocaleString()}` : 'Free'}</div>}
+                extra={<div className={t.coin_cost > 0 ? 'cp-media-price' : 'cp-media-price tone-green'}>{t.coin_cost > 0 ? `🪙 ${t.coin_cost.toLocaleString()}` : 'Free'}</div>}
                 active={t.is_active}
                 busy={busyId === t.id}
                 onToggle={() => void toggleActive(t)}
@@ -179,17 +179,17 @@ export default function RoomThemesPage() {
           onSubmit={() => void save()}
           footer={
             <>
-              <button type="button" className="ad-btn ad-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
-              <button type="submit" className="ad-btn ad-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create theme'}</button>
+              <button type="button" className="cp-btn cp-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
+              <button type="submit" className="cp-btn cp-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create theme'}</button>
             </>
           }
         >
-          <div className="ad-form-grid is-2up">
+          <div className="cp-form-grid is-2up">
             <Field label="Theme name *">
               <input autoFocus placeholder="e.g. Neon Cyberpunk" value={draft.name} onChange={(e) => set({ name: e.target.value })} />
             </Field>
             <Field label="Coin cost" hint="0 = free.">
-              <div className="ad-unit"><input type="number" inputMode="numeric" value={draft.coinCost} onChange={(e) => set({ coinCost: e.target.value })} /><span>coins</span></div>
+              <div className="cp-unit"><input type="number" inputMode="numeric" value={draft.coinCost} onChange={(e) => set({ coinCost: e.target.value })} /><span>coins</span></div>
             </Field>
           </div>
           <FileUploadInput
@@ -201,12 +201,12 @@ export default function RoomThemesPage() {
             helpText="Background image, or a Lottie .json / .svga animation."
           />
           {draft.id ? (
-            <div className="ad-toggle-row">
-              <div className="ad-toggle-title">Available in rooms</div>
+            <div className="cp-toggle-row">
+              <div className="cp-toggle-title">Available in rooms</div>
               <Switch label="Active" checked={draft.isActive} onChange={(v) => set({ isActive: v })} />
             </div>
           ) : null}
-          {formError && <div className="ad-alert">{formError}</div>}
+          {formError && <div className="cp-alert">{formError}</div>}
         </Modal>
       )}
       {confirmNode}

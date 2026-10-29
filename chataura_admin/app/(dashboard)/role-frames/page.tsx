@@ -161,34 +161,34 @@ export default function RoleFramesPage() {
   const set = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <PageHeader
         title="Role Frames"
         subtitle="Prestige frames reserved for Admins, CEOs, Managers and Coin Sellers."
-        actions={<button type="button" className="ad-btn ad-btn-accent ad-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New role frame</button>}
+        actions={<button type="button" className="cp-btn cp-btn-accent cp-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New role frame</button>}
       />
 
-      <section className="ad-card">
+      <section className="cp-card">
         <Tabs value={role} onChange={setRole} tabs={[{ value: '', label: 'All', count: frames.length }, ...ROLE_KEYS.map((r) => ({ value: r.value, label: r.label, count: counts[r.value] ?? 0 }))]} />
-        <div className="ad-toolbar">
+        <div className="cp-toolbar">
           <SearchBox value={q} onChange={setQ} placeholder="Search name or ID" />
         </div>
-        <div className="ad-summary">Showing <strong>{visible.length}</strong> of <strong>{frames.length}</strong></div>
+        <div className="cp-summary">Showing <strong>{visible.length}</strong> of <strong>{frames.length}</strong></div>
         {loading && frames.length === 0 ? (
           <MediaSkeleton count={4} />
         ) : visible.length === 0 ? (
-          <div className="ad-empty">
-            <div className="ad-empty-title">{frames.length ? 'No role frames match' : 'No role frames yet'}</div>
+          <div className="cp-empty">
+            <div className="cp-empty-title">{frames.length ? 'No role frames match' : 'No role frames yet'}</div>
             {frames.length ? 'Try another role or search.' : 'Add the first staff frame.'}
           </div>
         ) : (
-          <div className="ad-media-grid">
+          <div className="cp-media-grid">
             {visible.map((f) => (
               <MediaCard
                 key={f.id}
                 thumbClass={f.composite_mode === 'screen' ? 'is-dark' : ''}
                 thumb={<MediaThumb imageUrl={f.image_url} animationUrl={f.animation_url} composite={f.composite_mode} alt={f.name} fallback="🛡️" rounded />}
-                flags={<><span className="ad-badge indigo">{roleLabel(f.animation_key)}</span><span /></>}
+                flags={<><span className="cp-badge indigo">{roleLabel(f.animation_key)}</span><span /></>}
                 title={f.name}
                 meta={`#${f.id}${f.avatar_scale != null ? ` · hole ${Math.round(f.avatar_scale * 100)}%` : ''}`}
                 active={f.is_active}
@@ -224,12 +224,12 @@ export default function RoleFramesPage() {
           onSubmit={() => void save()}
           footer={
             <>
-              <button type="button" className="ad-btn ad-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
-              <button type="submit" className="ad-btn ad-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create frame'}</button>
+              <button type="button" className="cp-btn cp-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
+              <button type="submit" className="cp-btn cp-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create frame'}</button>
             </>
           }
         >
-          <div className="ad-form-grid is-2up">
+          <div className="cp-form-grid is-2up">
             <Field label="Frame name *">
               <input autoFocus placeholder="e.g. Commander Frame" value={draft.name} onChange={(e) => set({ name: e.target.value })} />
             </Field>
@@ -265,7 +265,7 @@ export default function RoleFramesPage() {
           </Field>
           {draft.id ? (
             <>
-              <div className="ad-form-grid is-2up">
+              <div className="cp-form-grid is-2up">
                 <Field label="Photo size (0.2–1)">
                   <input type="number" step="0.01" min="0.2" max="1" placeholder="Default" value={draft.avatarScale} onChange={(e) => set({ avatarScale: e.target.value })} />
                 </Field>
@@ -273,14 +273,14 @@ export default function RoleFramesPage() {
                   <input type="number" step="0.01" min="-0.5" max="0.5" placeholder="0" value={draft.avatarOffsetY} onChange={(e) => set({ avatarOffsetY: e.target.value })} />
                 </Field>
               </div>
-              <div className="ad-field-hint">Photo size = hole width ÷ frame width. Move down = how far the hole centre sits below the frame centre, as a share of frame height. Leave empty for the default.</div>
-              <div className="ad-toggle-row">
-                <div className="ad-toggle-title">Active for privileged staff</div>
+              <div className="cp-field-hint">Photo size = hole width ÷ frame width. Move down = how far the hole centre sits below the frame centre, as a share of frame height. Leave empty for the default.</div>
+              <div className="cp-toggle-row">
+                <div className="cp-toggle-title">Active for privileged staff</div>
                 <Switch label="Active" checked={draft.isActive} onChange={(v) => set({ isActive: v })} />
               </div>
             </>
           ) : null}
-          {formError && <div className="ad-alert">{formError}</div>}
+          {formError && <div className="cp-alert">{formError}</div>}
         </Modal>
       )}
       {confirmNode}

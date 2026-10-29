@@ -311,59 +311,59 @@ export default function PartyRoomAnalyticsPage() {
   const historyTotal = history?.rows.reduce((s, r) => s + (r.duration_seconds || 0), 0) ?? 0;
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
 
-      <div className="ad-header">
+      <div className="cp-header">
         <div>
           <h1>Party Room Analytics</h1>
           <p>Live room presence and session history. Filter by status, room, user or date to find exactly who was where and for how long.</p>
         </div>
-        <div className="ad-header-actions">
-          <label className="ad-check" style={{ paddingBottom: 0, alignSelf: 'center' }}>
+        <div className="cp-header-actions">
+          <label className="cp-check" style={{ paddingBottom: 0, alignSelf: 'center' }}>
             <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />
             Auto-refresh (30s)
           </label>
-          <button type="button" className="ad-btn ad-btn-ghost ad-btn-lg" onClick={() => void load()} disabled={loading}>
+          <button type="button" className="cp-btn cp-btn-ghost cp-btn-lg" onClick={() => void load()} disabled={loading}>
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
-          <button type="button" className="ad-btn ad-btn-danger-soft ad-btn-lg" onClick={askCloseStale} disabled={counts.stale === 0}>
+          <button type="button" className="cp-btn cp-btn-danger-soft cp-btn-lg" onClick={askCloseStale} disabled={counts.stale === 0}>
             Close stale sessions{counts.stale ? ` (${fmt(counts.stale)})` : ''}
           </button>
         </div>
       </div>
 
-      <div className="ad-kpis">
-        <div className="ad-kpi">
-          <div className="ad-kpi-label">Live rooms</div>
-          <div className="ad-kpi-value">{fmt(kpis.live_rooms)}</div>
-          <div className="ad-kpi-sub">of {fmt(kpis.total_rooms)} rooms created</div>
+      <div className="cp-kpis">
+        <div className="cp-kpi">
+          <div className="cp-kpi-label">Live rooms</div>
+          <div className="cp-kpi-value">{fmt(kpis.live_rooms)}</div>
+          <div className="cp-kpi-sub">of {fmt(kpis.total_rooms)} rooms created</div>
         </div>
-        <div className="ad-kpi is-clickable" onClick={() => update({ status: 'active' })} title="Show users in room now">
-          <div className="ad-kpi-label">In room now</div>
-          <div className="ad-kpi-value tone-green">{fmt(kpis.active_sessions)}</div>
-          <div className="ad-kpi-sub">heartbeat in last 5 min</div>
+        <div className="cp-kpi is-clickable" onClick={() => update({ status: 'active' })} title="Show users in room now">
+          <div className="cp-kpi-label">In room now</div>
+          <div className="cp-kpi-value tone-green">{fmt(kpis.active_sessions)}</div>
+          <div className="cp-kpi-sub">heartbeat in last 5 min</div>
         </div>
-        <div className="ad-kpi is-clickable" onClick={() => update({ status: 'stale' })} title="Show stale sessions">
-          <div className="ad-kpi-label">Stale sessions</div>
-          <div className={`ad-kpi-value ${kpis.stale_sessions ? 'tone-amber' : ''}`}>{fmt(kpis.stale_sessions)}</div>
-          <div className="ad-kpi-sub">open but no heartbeat</div>
+        <div className="cp-kpi is-clickable" onClick={() => update({ status: 'stale' })} title="Show stale sessions">
+          <div className="cp-kpi-label">Stale sessions</div>
+          <div className={`cp-kpi-value ${kpis.stale_sessions ? 'tone-amber' : ''}`}>{fmt(kpis.stale_sessions)}</div>
+          <div className="cp-kpi-sub">open but no heartbeat</div>
         </div>
-        <div className="ad-kpi">
-          <div className="ad-kpi-label">Sessions today</div>
-          <div className="ad-kpi-value tone-indigo">{fmt(kpis.sessions_today)}</div>
-          <div className="ad-kpi-sub">joined since midnight</div>
+        <div className="cp-kpi">
+          <div className="cp-kpi-label">Sessions today</div>
+          <div className="cp-kpi-value tone-indigo">{fmt(kpis.sessions_today)}</div>
+          <div className="cp-kpi-sub">joined since midnight</div>
         </div>
-        <div className="ad-kpi">
-          <div className="ad-kpi-label">Time engaged</div>
-          <div className="ad-kpi-value">{formatDuration(kpis.total_seconds ?? 0)}</div>
-          <div className="ad-kpi-sub">
+        <div className="cp-kpi">
+          <div className="cp-kpi-label">Time engaged</div>
+          <div className="cp-kpi-value">{formatDuration(kpis.total_seconds ?? 0)}</div>
+          <div className="cp-kpi-sub">
             {fmt(kpis.unique_users)} users · avg {formatDuration(kpis.avg_seconds ?? 0)}
             {isDirty ? ' · filtered' : ''}
           </div>
         </div>
       </div>
 
-      <div className="ad-card">
+      <div className="cp-card">
         <Tabs
           value={filters.status}
           onChange={(v) => update({ status: v })}
@@ -375,18 +375,18 @@ export default function PartyRoomAnalyticsPage() {
           ]}
         />
 
-        <div className="ad-range-row">
+        <div className="cp-range-row">
           <DateRangeChips range={filters.range} from={filters.from} to={filters.to} onChange={(patch) => update(patch)} />
         </div>
 
-        <div className="ad-toolbar">
+        <div className="cp-toolbar">
           <SearchBox
             value={searchInput}
             onChange={setSearchInput}
             onEnter={() => update({ q: searchInput.trim() })}
             placeholder="Search user, email, user ID, room name or room code…"
           />
-          <label className="ad-field">
+          <label className="cp-field">
             <span>End reason</span>
             <select value={filters.close_reason} onChange={(e) => update({ close_reason: e.target.value })}>
               <option value="">Any</option>
@@ -395,7 +395,7 @@ export default function PartyRoomAnalyticsPage() {
               ))}
             </select>
           </label>
-          <label className="ad-field">
+          <label className="cp-field">
             <span>Min. time engaged</span>
             <select value={filters.min_minutes} onChange={(e) => update({ min_minutes: e.target.value })}>
               <option value="">Any</option>
@@ -406,7 +406,7 @@ export default function PartyRoomAnalyticsPage() {
               <option value="180">3 hours or more</option>
             </select>
           </label>
-          <label className="ad-field">
+          <label className="cp-field">
             <span>Sort by</span>
             <select
               value={sortKnown ? sortValue : ''}
@@ -422,20 +422,20 @@ export default function PartyRoomAnalyticsPage() {
             </select>
           </label>
           {isDirty && (
-            <button type="button" className="ad-btn ad-btn-ghost ad-btn-lg" onClick={resetAll}>Reset filters</button>
+            <button type="button" className="cp-btn cp-btn-ghost cp-btn-lg" onClick={resetAll}>Reset filters</button>
           )}
         </div>
 
         {(filters.user_id || filters.room_id) && (
-          <div className="ad-pills">
+          <div className="cp-pills">
             {filters.user_id && (
-              <span className="ad-pill">
+              <span className="cp-pill">
                 User #{filters.user_id}
                 <button type="button" onClick={() => update({ user_id: '' })} aria-label="Remove user filter">×</button>
               </span>
             )}
             {filters.room_id && (
-              <span className="ad-pill">
+              <span className="cp-pill">
                 Room: {roomLabel || filters.room_id.slice(0, 8)}
                 <button
                   type="button"
@@ -452,36 +452,36 @@ export default function PartyRoomAnalyticsPage() {
           </div>
         )}
 
-        <div className="ad-summary">
+        <div className="cp-summary">
           {loading ? 'Loading…' : (
             <>
               <strong>{fmt(total)}</strong> session{total === 1 ? '' : 's'}
               {filters.q ? <> matching “{filters.q}”</> : null}
-              {lastLoaded && <span className="ad-hint"> · updated {formatTime(lastLoaded.toISOString())}</span>}
+              {lastLoaded && <span className="cp-hint"> · updated {formatTime(lastLoaded.toISOString())}</span>}
             </>
           )}
         </div>
 
         {loadError && (
-          <div className="ad-alert">
+          <div className="cp-alert">
             {loadError}
-            <button type="button" className="ad-btn ad-btn-ghost" onClick={() => void load()}>Retry</button>
+            <button type="button" className="cp-btn cp-btn-ghost" onClick={() => void load()}>Retry</button>
           </div>
         )}
 
-        <div className="ad-table-wrap">
-          <table className="ad-table is-stack is-3up">
+        <div className="cp-table-wrap">
+          <table className="cp-table is-stack is-3up">
             <thead>
               <tr>
                 <SortTh column="id" label="Session" sort={filters.sort} order={filters.order} onSort={onSort} />
-                <th className="ad-th">User</th>
-                <th className="ad-th">Room</th>
+                <th className="cp-th">User</th>
+                <th className="cp-th">Room</th>
                 <SortTh column="duration" label="Time engaged" sort={filters.sort} order={filters.order} onSort={onSort} align="right" />
-                <th className="ad-th">Status</th>
+                <th className="cp-th">Status</th>
                 <SortTh column="joined_at" label="Joined" sort={filters.sort} order={filters.order} onSort={onSort} />
                 <SortTh column="last_heartbeat" label="Last heartbeat" sort={filters.sort} order={filters.order} onSort={onSort} />
-                <th className="ad-th">Ended</th>
-                <th className="ad-th" style={{ textAlign: 'right' }}>Actions</th>
+                <th className="cp-th">Ended</th>
+                <th className="cp-th" style={{ textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody className={loading && sessions.length > 0 ? 'is-loading' : ''}>
@@ -494,29 +494,29 @@ export default function PartyRoomAnalyticsPage() {
                   const badge = STATUS_BADGE[s.status];
                   const name = s.user_name || `User #${s.user_id}`;
                   return (
-                    <tr key={s.id} className={`ad-row ${busyId === s.id ? 'is-busy' : ''}`}>
-                      <td className="ad-td ad-id is-hide-sm">#{s.id}</td>
-                      <td className="ad-td is-main">
-                        <div className="ad-user">
+                    <tr key={s.id} className={`cp-row ${busyId === s.id ? 'is-busy' : ''}`}>
+                      <td className="cp-td cp-id is-hide-sm">#{s.id}</td>
+                      <td className="cp-td is-main">
+                        <div className="cp-user">
                           <Avatar name={name} url={s.avatar_url} dot={s.status === 'active'} />
                           <div style={{ minWidth: 0 }}>
-                            <div className="ad-name" title={name}>{name}</div>
-                            <div className="ad-sub">
-                              <button type="button" className="ad-link" onClick={() => update({ user_id: String(s.user_id) })} title="Only this user's sessions">
+                            <div className="cp-name" title={name}>{name}</div>
+                            <div className="cp-sub">
+                              <button type="button" className="cp-link" onClick={() => update({ user_id: String(s.user_id) })} title="Only this user's sessions">
                                 ID {s.user_id}
                               </button>
                               {s.country ? ` · ${s.country}` : ''}
                             </div>
                           </div>
                         </div>
-                        <span className="ad-mobile-only"><span className={`ad-badge ${badge.cls}`}>{badge.label}</span></span>
+                        <span className="cp-mobile-only"><span className={`cp-badge ${badge.cls}`}>{badge.label}</span></span>
                       </td>
-                      <td className="ad-td is-full" data-label="Room">
-                        <div className="ad-name" style={{ maxWidth: 200 }} title={s.room_title}>{s.room_title}</div>
-                        <div className="ad-sub">
+                      <td className="cp-td is-full" data-label="Room">
+                        <div className="cp-name" style={{ maxWidth: 200 }} title={s.room_title}>{s.room_title}</div>
+                        <div className="cp-sub">
                           <button
                             type="button"
-                            className="ad-link"
+                            className="cp-link"
                             onClick={() => {
                               setRoomLabel(s.room_title);
                               update({ room_id: s.room_id });
@@ -525,33 +525,33 @@ export default function PartyRoomAnalyticsPage() {
                           >
                             Code {s.room_display_id}
                           </button>
-                          {s.room_is_live ? <span className="ad-badge green" style={{ marginLeft: 6, padding: '1px 6px', fontSize: '0.65rem' }}>Live</span> : null}
+                          {s.room_is_live ? <span className="cp-badge green" style={{ marginLeft: 6, padding: '1px 6px', fontSize: '0.65rem' }}>Live</span> : null}
                         </div>
                       </td>
-                      <td className="ad-td ad-num" data-label="Engaged" style={{ fontWeight: 700, color: '#4f46e5' }}>{formatDuration(s.accumulated_seconds)}</td>
-                      <td className="ad-td is-hide-sm"><span className={`ad-badge ${badge.cls}`}>{badge.label}</span></td>
-                      <td className="ad-td ad-nowrap" data-label="Joined">
+                      <td className="cp-td cp-num" data-label="Engaged" style={{ fontWeight: 700, color: '#4f46e5' }}>{formatDuration(s.accumulated_seconds)}</td>
+                      <td className="cp-td is-hide-sm"><span className={`cp-badge ${badge.cls}`}>{badge.label}</span></td>
+                      <td className="cp-td cp-nowrap" data-label="Joined">
                         <div>{formatDate(s.joined_at)}</div>
-                        <div className="ad-sub">{formatTime(s.joined_at)}</div>
+                        <div className="cp-sub">{formatTime(s.joined_at)}</div>
                       </td>
-                      <td className="ad-td ad-nowrap" data-label="Heartbeat" title={s.last_heartbeat_at ? new Date(s.last_heartbeat_at).toLocaleString() : undefined}>
+                      <td className="cp-td cp-nowrap" data-label="Heartbeat" title={s.last_heartbeat_at ? new Date(s.last_heartbeat_at).toLocaleString() : undefined}>
                         {relativeTime(s.last_heartbeat_at)}
                       </td>
-                      <td className="ad-td ad-nowrap is-hide-sm">
+                      <td className="cp-td cp-nowrap is-hide-sm">
                         {s.closed_at ? (
                           <>
                             <div>{formatTime(s.closed_at)}</div>
-                            <div className="ad-sub">{reasonLabel(s.close_reason)}</div>
+                            <div className="cp-sub">{reasonLabel(s.close_reason)}</div>
                           </>
                         ) : (
-                          <span className="ad-hint">—</span>
+                          <span className="cp-hint">—</span>
                         )}
                       </td>
-                      <td className="ad-td is-actions" style={{ textAlign: 'right' }}>
-                        <div className="ad-actions">
-                          <button type="button" className="ad-btn ad-btn-soft" onClick={() => void openHistory(s)}>History</button>
+                      <td className="cp-td is-actions" style={{ textAlign: 'right' }}>
+                        <div className="cp-actions">
+                          <button type="button" className="cp-btn cp-btn-soft" onClick={() => void openHistory(s)}>History</button>
                           {s.status !== 'ended' && (
-                            <button type="button" className="ad-btn ad-btn-danger-soft" onClick={() => askEndSession(s)}>End</button>
+                            <button type="button" className="cp-btn cp-btn-danger-soft" onClick={() => askEndSession(s)}>End</button>
                           )}
                         </div>
                       </td>
@@ -576,45 +576,45 @@ export default function PartyRoomAnalyticsPage() {
       </div>
 
       {history && (
-        <div className="ad-drawer-overlay" onClick={() => setHistory(null)}>
-          <aside className="ad-drawer" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-            <div className="ad-drawer-head">
+        <div className="cp-drawer-overlay" onClick={() => setHistory(null)}>
+          <aside className="cp-drawer" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="cp-drawer-head">
               <div>
-                <div className="ad-sub">Room presence history · last 50 sessions</div>
+                <div className="cp-sub">Room presence history · last 50 sessions</div>
                 <h2>{history.name}</h2>
-                <div className="ad-sub">User #{history.userId}</div>
+                <div className="cp-sub">User #{history.userId}</div>
               </div>
-              <button type="button" className="ad-close" onClick={() => setHistory(null)} aria-label="Close">×</button>
+              <button type="button" className="cp-close" onClick={() => setHistory(null)} aria-label="Close">×</button>
             </div>
 
             {!history.loading && history.rows.length > 0 && (
-              <div className="ad-kpis" style={{ marginBottom: 0 }}>
-                <div className="ad-kpi">
-                  <div className="ad-kpi-label">Sessions</div>
-                  <div className="ad-kpi-value">{fmt(history.rows.length)}</div>
+              <div className="cp-kpis" style={{ marginBottom: 0 }}>
+                <div className="cp-kpi">
+                  <div className="cp-kpi-label">Sessions</div>
+                  <div className="cp-kpi-value">{fmt(history.rows.length)}</div>
                 </div>
-                <div className="ad-kpi">
-                  <div className="ad-kpi-label">Total time</div>
-                  <div className="ad-kpi-value tone-indigo">{formatDuration(historyTotal)}</div>
+                <div className="cp-kpi">
+                  <div className="cp-kpi-label">Total time</div>
+                  <div className="cp-kpi-value tone-indigo">{formatDuration(historyTotal)}</div>
                 </div>
               </div>
             )}
 
             {history.loading ? (
-              <div className="ad-skeleton" style={{ height: 120 }} />
+              <div className="cp-skeleton" style={{ height: 120 }} />
             ) : history.rows.length === 0 ? (
-              <div className="ad-empty">No session history recorded.</div>
+              <div className="cp-empty">No session history recorded.</div>
             ) : (
               <div style={{ display: 'grid', gap: 8 }}>
                 {history.rows.map((r) => (
                   <div key={r.id} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', gap: 12 }}>
                     <div style={{ minWidth: 0 }}>
-                      <div className="ad-name">{r.room_title}</div>
-                      <div className="ad-sub">Code {r.room_display_id} · {formatDate(r.joined_at)} {formatTime(r.joined_at)}</div>
+                      <div className="cp-name">{r.room_title}</div>
+                      <div className="cp-sub">Code {r.room_display_id} · {formatDate(r.joined_at)} {formatTime(r.joined_at)}</div>
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
                       <div style={{ fontWeight: 700, color: '#4f46e5' }}>{formatDuration(r.duration_seconds)}</div>
-                      <div className="ad-sub" style={{ color: r.is_active ? '#059669' : undefined }}>
+                      <div className="cp-sub" style={{ color: r.is_active ? '#059669' : undefined }}>
                         {r.is_active ? 'Active' : reasonLabel(r.close_reason)}
                       </div>
                     </div>
@@ -626,7 +626,7 @@ export default function PartyRoomAnalyticsPage() {
             <div style={{ display: 'grid', gap: 8, marginTop: 'auto' }}>
               <button
                 type="button"
-                className="ad-btn ad-btn-primary ad-btn-lg"
+                className="cp-btn cp-btn-primary cp-btn-lg"
                 onClick={() => {
                   update({ user_id: String(history.userId) });
                   setHistory(null);
@@ -634,7 +634,7 @@ export default function PartyRoomAnalyticsPage() {
               >
                 Filter table to this user
               </button>
-              <Link href={`/users?q=%23${history.userId}`} className="ad-btn ad-btn-ghost ad-btn-lg" style={{ textAlign: 'center' }}>
+              <Link href={`/users?q=%23${history.userId}`} className="cp-btn cp-btn-ghost cp-btn-lg" style={{ textAlign: 'center' }}>
                 Open in User Management
               </Link>
             </div>

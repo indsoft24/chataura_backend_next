@@ -61,11 +61,11 @@ export default function PartyBonusesPage() {
   const coinsPerXp = xp > 0 ? Math.round(1 / xp) : null;
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <PageHeader title="Party Room Bonuses" subtitle="Lucky wheel spin pricing and how fast users earn XP from spending coins." />
 
       {loading ? (
-        <div className="ad-skeleton is-card" style={{ maxWidth: 560 }} />
+        <div className="cp-skeleton is-card" style={{ maxWidth: 560 }} />
       ) : (
         <form
           style={{ maxWidth: 560 }}
@@ -77,7 +77,7 @@ export default function PartyBonusesPage() {
           <Section title="Lucky spin & XP">
             <div style={{ display: 'grid', gap: 16 }}>
               <Field label="Lucky wheel spin cost" hint="Coins charged per bonus spin.">
-                <div className="ad-unit">
+                <div className="cp-unit">
                   <input type="number" inputMode="numeric" value={spinCost} onChange={(e) => setSpinCost(e.target.value)} />
                   <span>coins</span>
                 </div>
@@ -86,14 +86,14 @@ export default function PartyBonusesPage() {
                 label="XP per coin spent"
                 hint={coinsPerXp ? `Users earn 1 XP for every ${coinsPerXp.toLocaleString()} coins spent.` : 'Set above 0 to award XP for spending.'}
               >
-                <div className="ad-unit">
+                <div className="cp-unit">
                   <input type="number" inputMode="decimal" step="0.01" value={coinToXp} onChange={(e) => setCoinToXp(e.target.value)} />
                   <span>XP</span>
                 </div>
               </Field>
             </div>
-            <div className="ad-form-actions">
-              <button type="submit" className="ad-btn ad-btn-accent ad-btn-lg" disabled={saving}>
+            <div className="cp-form-actions">
+              <button type="submit" className="cp-btn cp-btn-accent cp-btn-lg" disabled={saving}>
                 {saving ? 'Saving…' : 'Save bonus settings'}
               </button>
             </div>

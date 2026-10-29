@@ -87,10 +87,10 @@ export default function UserReportsPage() {
   }
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <PageHeader title="User Reports" subtitle="Violation reports submitted by users. Review each one, add notes, then resolve or dismiss." />
 
-      <section className="ad-card">
+      <section className="cp-card">
         <Tabs
           value={statusFilter}
           onChange={setStatusFilter}
@@ -101,20 +101,20 @@ export default function UserReportsPage() {
             { value: 'all', label: 'All' },
           ]}
         />
-        <div className="ad-toolbar">
+        <div className="cp-toolbar">
           <SearchBox value={searchInput} onChange={setSearchInput} placeholder="Search user, reason or ID" />
         </div>
-        <div className="ad-summary"><strong>{reports.length}</strong> report{reports.length === 1 ? '' : 's'}{search ? <> matching &ldquo;{search}&rdquo;</> : null}</div>
-        <div className="ad-table-wrap">
-          <table className="ad-table is-stack">
+        <div className="cp-summary"><strong>{reports.length}</strong> report{reports.length === 1 ? '' : 's'}{search ? <> matching &ldquo;{search}&rdquo;</> : null}</div>
+        <div className="cp-table-wrap">
+          <table className="cp-table is-stack">
             <thead>
               <tr>
-                <th className="ad-th">Reported user</th>
-                <th className="ad-th">Reason</th>
-                <th className="ad-th">Reporter</th>
-                <th className="ad-th">Status</th>
-                <th className="ad-th">Reported</th>
-                <th className="ad-th ad-num"></th>
+                <th className="cp-th">Reported user</th>
+                <th className="cp-th">Reason</th>
+                <th className="cp-th">Reporter</th>
+                <th className="cp-th">Status</th>
+                <th className="cp-th">Reported</th>
+                <th className="cp-th cp-num"></th>
               </tr>
             </thead>
             <tbody className={loading && reports.length ? 'is-loading' : ''}>
@@ -124,27 +124,27 @@ export default function UserReportsPage() {
                 <EmptyRow cols={6} title="No reports" hint={statusFilter === 'pending' ? 'Nothing waiting for review.' : 'Nothing matches this filter.'} />
               ) : (
                 reports.map((r) => (
-                  <tr key={r.id} className="ad-row is-clickable" onClick={() => { setActiveReport(r); setNotes(r.notes ?? ''); }}>
-                    <td className="ad-td is-main">
+                  <tr key={r.id} className="cp-row is-clickable" onClick={() => { setActiveReport(r); setNotes(r.notes ?? ''); }}>
+                    <td className="cp-td is-main">
                       <div>
-                        <div className="ad-name">{r.reported_user?.name}</div>
-                        <div className="ad-sub">#{r.reported_user?.id} · {r.reported_user?.status}</div>
+                        <div className="cp-name">{r.reported_user?.name}</div>
+                        <div className="cp-sub">#{r.reported_user?.id} · {r.reported_user?.status}</div>
                       </div>
-                      <span className="ad-mobile-only"><span className={`ad-badge ${TONE[r.status] ?? 'gray'}`}>{r.status}</span></span>
+                      <span className="cp-mobile-only"><span className={`cp-badge ${TONE[r.status] ?? 'gray'}`}>{r.status}</span></span>
                     </td>
-                    <td className="ad-td is-full" data-label="Reason">
+                    <td className="cp-td is-full" data-label="Reason">
                       <span className="tone-red" style={{ fontWeight: 600 }}>{r.reason}</span>
-                      {r.description && <div className="ad-sub" style={{ maxWidth: 280 }}>{r.description}</div>}
+                      {r.description && <div className="cp-sub" style={{ maxWidth: 280 }}>{r.description}</div>}
                     </td>
-                    <td className="ad-td" data-label="Reporter">
+                    <td className="cp-td" data-label="Reporter">
                       <div style={{ fontWeight: 500 }}>{r.reporter?.name}</div>
-                      <div className="ad-sub">#{r.reporter?.id}</div>
+                      <div className="cp-sub">#{r.reporter?.id}</div>
                     </td>
-                    <td className="ad-td is-hide-sm"><span className={`ad-badge ${TONE[r.status] ?? 'gray'}`}>{r.status}</span></td>
-                    <td className="ad-td" data-label="Reported">{formatDate(r.created_at)} <span className="ad-hint">{formatTime(r.created_at)}</span></td>
-                    <td className="ad-td ad-num is-actions">
-                      <div className="ad-actions">
-                        <button type="button" className="ad-btn ad-btn-soft" onClick={(e) => { e.stopPropagation(); setActiveReport(r); setNotes(r.notes ?? ''); }}>Review</button>
+                    <td className="cp-td is-hide-sm"><span className={`cp-badge ${TONE[r.status] ?? 'gray'}`}>{r.status}</span></td>
+                    <td className="cp-td" data-label="Reported">{formatDate(r.created_at)} <span className="cp-hint">{formatTime(r.created_at)}</span></td>
+                    <td className="cp-td cp-num is-actions">
+                      <div className="cp-actions">
+                        <button type="button" className="cp-btn cp-btn-soft" onClick={(e) => { e.stopPropagation(); setActiveReport(r); setNotes(r.notes ?? ''); }}>Review</button>
                       </div>
                     </td>
                   </tr>
@@ -164,20 +164,20 @@ export default function UserReportsPage() {
           footer={
             <>
               {activeReport.status !== 'dismissed' && (
-                <button type="button" className="ad-btn ad-btn-ghost" disabled={actionLoading} onClick={() => void handleAction(activeReport.id, 'dismiss')}>Dismiss</button>
+                <button type="button" className="cp-btn cp-btn-ghost" disabled={actionLoading} onClick={() => void handleAction(activeReport.id, 'dismiss')}>Dismiss</button>
               )}
               {activeReport.status !== 'pending' && (
-                <button type="button" className="ad-btn ad-btn-soft" disabled={actionLoading} onClick={() => void handleAction(activeReport.id, 'reopen')}>Reopen</button>
+                <button type="button" className="cp-btn cp-btn-soft" disabled={actionLoading} onClick={() => void handleAction(activeReport.id, 'reopen')}>Reopen</button>
               )}
               {activeReport.status !== 'resolved' && (
-                <button type="button" className="ad-btn ad-btn-solid tone-success" disabled={actionLoading} onClick={() => void handleAction(activeReport.id, 'resolve')}>Resolve & close</button>
+                <button type="button" className="cp-btn cp-btn-solid tone-success" disabled={actionLoading} onClick={() => void handleAction(activeReport.id, 'resolve')}>Resolve & close</button>
               )}
             </>
           }
         >
-          <dl className="ad-dl">
+          <dl className="cp-dl">
             <dt>Reported user</dt>
-            <dd><strong>{activeReport.reported_user?.name}</strong> #{activeReport.reported_user?.id} · <span className="ad-badge gray">{activeReport.reported_user?.status}</span></dd>
+            <dd><strong>{activeReport.reported_user?.name}</strong> #{activeReport.reported_user?.id} · <span className="cp-badge gray">{activeReport.reported_user?.status}</span></dd>
             <dt>Reporter</dt>
             <dd>{activeReport.reporter?.name} #{activeReport.reporter?.id}</dd>
             <dt>Category</dt>
@@ -194,7 +194,7 @@ export default function UserReportsPage() {
           <Field label="Moderator notes">
             <textarea rows={3} placeholder="Resolution notes or warning details…" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </Field>
-          <button type="button" className="ad-link" style={{ justifySelf: 'start' }} disabled={actionLoading} onClick={() => void clearReview(activeReport.reported_user.id)}>
+          <button type="button" className="cp-link" style={{ justifySelf: 'start' }} disabled={actionLoading} onClick={() => void clearReview(activeReport.reported_user.id)}>
             Clear #{activeReport.reported_user?.id} from the review queue
           </button>
         </Modal>

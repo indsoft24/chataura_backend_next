@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
-import { AdminTier, TIER_LABEL, TIER_RANK, creatableTiers, readTier } from '@/lib/tier';
+import { AdminTier, TIER_LABEL, TIER_RANK, canCreate, creatableTiers, readTier } from '@/lib/tier';
 import {
   Avatar,
   Field,
@@ -208,14 +208,14 @@ export default function StaffPage() {
   const { pageItems, pagerProps } = useClientPager(rows, `${filters.q}|${filters.role}|${filters.tier}|${filters.sort}`);
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <style dangerouslySetInnerHTML={{ __html: STAFF_STYLES }} />
       <PageHeader
         title="Staff & Sellers"
         subtitle="Authorize staff administrators, designate coin sellers, and track what each one brings in."
       />
 
-      <div className="ad-kpis">
+      <div className="cp-kpis">
         <Kpi label="Total staff" value={loading && !staff.length ? '—' : fmt(staff.length)} sub={`${fmt(counts.admin)} admins · ${fmt(counts.seller)} sellers`} />
         <Kpi label="Users brought" value={fmt(totals.users)} sub="All time, by all staff" tone="indigo" />
         <Kpi label="Rooms today" value={fmt(totals.rooms)} sub="Hosted by staff" />
@@ -230,7 +230,7 @@ export default function StaffPage() {
               void linkExisting();
             }}
           >
-            <div className="ad-form-grid is-2up st-promote">
+            <div className="cp-form-grid is-2up st-promote">
               <Field label="User ID / Display ID" wide>
                 <input placeholder="e.g. 102 or 5575178" value={userId} onChange={(e) => setUserId(e.target.value)} inputMode="numeric" />
               </Field>
@@ -250,19 +250,19 @@ export default function StaffPage() {
                 </Field>
               ) : null}
               <div className="st-submit">
-                <button type="submit" className="ad-btn ad-btn-primary ad-btn-lg ad-btn-block" disabled={assigning || !userId.trim()}>
+                <button type="submit" className="cp-btn cp-btn-primary cp-btn-lg cp-btn-block" disabled={assigning || !userId.trim()}>
                   {assigning ? 'Assigning…' : 'Assign role'}
                 </button>
               </div>
             </div>
-            {error ? <div className="ad-alert is-flush" style={{ marginTop: 12 }}>{error}</div> : null}
+            {error ? <div className="cp-alert is-flush" style={{ marginTop: 12 }}>{error}</div> : null}
           </form>
         </Section>
       ) : null}
 
-      <section className="ad-card">
+      <section className="cp-card">
         <Tabs value={filters.role} onChange={(v) => update({ role: v, tier: v === 'admin' || v === '' ? filters.tier : '' })} tabs={roleTabs} />
-        <div className="ad-toolbar">
+        <div className="cp-toolbar">
           <SearchBox value={search} onChange={setSearch} placeholder="Search name, email, phone or ID" />
           {filters.role === '' || filters.role === 'admin' ? (
             <Field label="Badge">
@@ -282,32 +282,32 @@ export default function StaffPage() {
             </select>
           </Field>
         </div>
-        <div className="ad-summary">
+        <div className="cp-summary">
           Showing <strong>{rows.length}</strong> of <strong>{staff.length}</strong>
           {isDirty ? (
             <>
               {' · '}
-              <button type="button" className="ad-link" onClick={clearAll}>Clear filters</button>
+              <button type="button" className="cp-link" onClick={clearAll}>Clear filters</button>
             </>
           ) : null}
         </div>
         {loadError ? (
-          <div className="ad-alert">
+          <div className="cp-alert">
             {loadError}
-            <button type="button" className="ad-btn ad-btn-ghost" onClick={() => token && void load(token)}>Retry</button>
+            <button type="button" className="cp-btn cp-btn-ghost" onClick={() => token && void load(token)}>Retry</button>
           </div>
         ) : null}
 
-        <div className="ad-table-wrap">
-          <table className="ad-table is-stack is-3up">
+        <div className="cp-table-wrap">
+          <table className="cp-table is-stack is-3up">
             <thead>
               <tr>
-                <th className="ad-th">Staff</th>
-                <th className="ad-th">Role</th>
-                <th className="ad-th ad-num">Users brought</th>
-                <th className="ad-th ad-num">Rooms today</th>
-                <th className="ad-th ad-num">Gifts today</th>
-                <th className="ad-th ad-num">Actions</th>
+                <th className="cp-th">Staff</th>
+                <th className="cp-th">Role</th>
+                <th className="cp-th cp-num">Users brought</th>
+                <th className="cp-th cp-num">Rooms today</th>
+                <th className="cp-th cp-num">Gifts today</th>
+                <th className="cp-th cp-num">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -326,32 +326,35 @@ export default function StaffPage() {
                   const tier = tierOf(s);
                   const roleBadge = (
                     <span className="st-role">
-                      <span className={`ad-badge ${meta.tone}`}>{tier ? TIER_LABEL[tier] : meta.label}</span>
+                      <span className={`cp-badge ${meta.tone}`}>{tier ? TIER_LABEL[tier] : meta.label}</span>
                     </span>
                   );
                   return (
-                    <tr key={s.id} className="ad-row">
-                      <td className="ad-td is-main">
-                        <div className="ad-user">
+                    <tr key={s.id} className="cp-row">
+                      <td className="cp-td is-main">
+                        <div className="cp-user">
                           <Avatar name={s.display_name} url={s.avatar_url} />
                           <div>
-                            <div className="ad-name">{s.display_name ?? 'Staff User'}</div>
-                            <div className="ad-sub">{s.email ?? s.phone ?? 'No email'}</div>
-                            <div className="ad-sub">#{s.id}{s.display_id && s.display_id !== String(s.id) ? ` · ID ${s.display_id}` : ''}</div>
+                            <div className="cp-name">{s.display_name ?? 'Staff User'}</div>
+                            <div className="cp-sub">{s.email ?? s.phone ?? 'No email'}</div>
+                            <div className="cp-sub">#{s.id}{s.display_id && s.display_id !== String(s.id) ? ` · ID ${s.display_id}` : ''}</div>
                           </div>
                         </div>
-                        <span className="ad-mobile-only">{roleBadge}</span>
+                        <span className="cp-mobile-only">{roleBadge}</span>
                       </td>
-                      <td className="ad-td is-hide-sm">{roleBadge}</td>
-                      <td className="ad-td ad-num tone-indigo" data-label="Users brought">{fmt(s.business?.users_brought)}</td>
-                      <td className="ad-td ad-num" data-label="Rooms today">{fmt(s.business?.rooms_hosted_today)}</td>
-                      <td className="ad-td ad-num tone-amber" data-label="Gifts today">🪙 {fmt(s.business?.gift_coins_today)}</td>
-                      <td className="ad-td ad-num is-actions">
-                        <div className="ad-actions">
-                          <button type="button" className="ad-btn ad-btn-danger-soft" onClick={() => demoteStaff(s)}>
-                            Demote to user
-                          </button>
-                        </div>
+                      <td className="cp-td is-hide-sm">{roleBadge}</td>
+                      <td className="cp-td cp-num tone-indigo" data-label="Users brought">{fmt(s.business?.users_brought)}</td>
+                      <td className="cp-td cp-num" data-label="Rooms today">{fmt(s.business?.rooms_hosted_today)}</td>
+                      <td className="cp-td cp-num tone-amber" data-label="Gifts today">🪙 {fmt(s.business?.gift_coins_today)}</td>
+                      <td className="cp-td cp-num is-actions">
+                        {/* Mirrors the API: staff only by a higher tier, sellers/agencies only by the superadmin. */}
+                        {myTier && (tier ? canCreate(myTier, tier) : myTier === 'superadmin') ? (
+                          <div className="cp-actions">
+                            <button type="button" className="cp-btn cp-btn-danger-soft" onClick={() => demoteStaff(s)}>
+                              Demote to user
+                            </button>
+                          </div>
+                        ) : null}
                       </td>
                     </tr>
                   );
@@ -372,7 +375,7 @@ const STAFF_STYLES = `
 .st-submit { display: flex; align-items: flex-end; }
 @media (min-width: 641px) {
   .st-promote { grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(150px, 1fr)); align-items: end; }
-  .st-promote .ad-field.is-wide { grid-column: auto; }
+  .st-promote .cp-field.is-wide { grid-column: auto; }
 }
 @media (max-width: 640px) {
   .st-submit { grid-column: 1 / -1; }

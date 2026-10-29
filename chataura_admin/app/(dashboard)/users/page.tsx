@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
+import { AdminTier, atLeast, canCreate, creatableTiers, readTier, tierFromUser } from '@/lib/tier';
 
 type UserStatus = 'active' | 'suspended' | 'deactivated';
 
@@ -13,6 +14,7 @@ type UserRow = {
   display_name?: string | null;
   avatar_url?: string | null;
   role?: string;
+  staff_badge_type?: string | null;
   level?: number;
   is_star_account?: boolean;
   is_online?: boolean;
@@ -90,6 +92,31 @@ const ROLE_OPTIONS = [
   { value: 'admin', label: 'Admin' },
 ];
 
+// Row dropdown adds the staff tiers: all are role=admin, the tier is staff_badge_type.
+const ROW_ROLE_OPTIONS = [
+  ...ROLE_OPTIONS,
+  { value: 'manager', label: 'Manager' },
+  { value: 'ceo', label: 'CEO' },
+];
+const TIER_VALUES = ['admin', 'manager', 'ceo'];
+
+function roleValue(u: UserRow): string {
+  return u.role === 'admin' ? (tierFromUser(u.role, u.staff_badge_type) as string) : u.role ?? 'user';
+}
+
+/** Mirrors the API: a staff row is manageable only by a strictly higher tier; plain users by anyone. */
+function canManageRow(me: AdminTier | null, u: UserRow): boolean {
+  const t = tierFromUser(u.role, u.staff_badge_type);
+  return me != null && (t == null || canCreate(me, t));
+}
+
+/** Roles `me` may set on a row: user, tiers below `me`, seller/agency for the superadmin only. Current value always listed. */
+function roleChoices(me: AdminTier | null, u: UserRow) {
+  const allowed = new Set<string>(['user', roleValue(u), ...(me ? creatableTiers(me) : [])]);
+  if (me === 'superadmin') ['seller', 'agency'].forEach((r) => allowed.add(r));
+  return ROW_ROLE_OPTIONS.filter((r) => allowed.has(r.value));
+}
+
 const STATUS_TABS: { value: '' | UserStatus; label: string; countKey: keyof Counts }[] = [
   { value: '', label: 'All users', countKey: 'all' },
   { value: 'active', label: 'Active', countKey: 'active' },
@@ -154,6 +181,8 @@ function userStatus(u: UserRow): UserStatus {
 
 export default function UsersPage() {
   const { token } = useAdminAuth();
+  const [myTier, setMyTier] = useState<AdminTier | null>(null);
+  useEffect(() => setMyTier(readTier()), []);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [searchInput, setSearchInput] = useState('');
   const [ready, setReady] = useState(false);
@@ -404,14 +433,17 @@ export default function UsersPage() {
   }
 
   function askRole(u: UserRow, role: string) {
-    if (role === (u.role ?? 'user')) return;
-    const label = ROLE_OPTIONS.find((r) => r.value === role)?.label ?? role;
+    const current = roleValue(u);
+    if (role === current) return;
+    const label = ROW_ROLE_OPTIONS.find((r) => r.value === role)?.label ?? role;
+    const isStaff = TIER_VALUES.includes(role);
     openConfirm({
       title: 'Change role',
-      message: `Change ${displayName(u)} (#${u.id}) from ${ROLE_OPTIONS.find((r) => r.value === (u.role ?? 'user'))?.label ?? u.role} to ${label}?${role === 'admin' ? ' Admins get full access to this panel.' : ''}`,
+      message: `Change ${displayName(u)} (#${u.id}) from ${ROW_ROLE_OPTIONS.find((r) => r.value === current)?.label ?? current} to ${label}?${isStaff ? ' Staff get access to the staff panel.' : ''}`,
       confirmLabel: `Make ${label}`,
-      tone: role === 'admin' ? 'danger' : 'primary',
-      onConfirm: () => runAction(u, 'link', { role }, `${displayName(u)} is now ${label}`),
+      tone: isStaff ? 'danger' : 'primary',
+      onConfirm: () =>
+        runAction(u, 'link', isStaff ? { role: 'admin', staff_badge_type: role } : { role }, `${displayName(u)} is now ${label}`),
     });
   }
 
@@ -742,21 +774,22 @@ export default function UsersPage() {
                       <td className="um-td" data-label="Role">
                         <select
                           className={`um-role role-${u.role ?? 'user'}`}
-                          value={u.role ?? 'user'}
-                          disabled={busy || status !== 'active'}
+                          value={roleValue(u)}
+                          disabled={busy || status !== 'active' || !atLeast(myTier, 'manager') || !canManageRow(myTier, u)}
                           title={status !== 'active' ? 'Reactivate the account before changing its role' : 'Change role'}
                           onChange={(e) => askRole(u, e.target.value)}
                         >
-                          {ROLE_OPTIONS.map((r) => (
+                          {roleChoices(myTier, u).map((r) => (
                             <option key={r.value} value={r.value}>{r.label}</option>
                           ))}
+                          {roleValue(u) === 'superadmin' ? <option value="superadmin">Superadmin</option> : null}
                         </select>
                       </td>
                       <td className="um-td" data-label="Star" style={{ textAlign: 'center' }}>
                         <button
                           type="button"
                           className={`um-star ${u.is_star_account ? 'is-on' : ''}`}
-                          disabled={busy}
+                          disabled={busy || !atLeast(myTier, 'manager')}
                           onClick={() => void toggleStar(u)}
                           title={u.is_star_account ? 'Remove Star Creator' : 'Make Star Creator'}
                         >
@@ -777,14 +810,16 @@ export default function UsersPage() {
                       </td>
                       <td className="um-td um-actions-cell" style={{ textAlign: 'right' }}>
                         <div className="um-actions">
-                          <button
-                            type="button"
-                            className="um-btn um-btn-primary-soft"
-                            disabled={busy || status === 'deactivated'}
-                            onClick={() => openAdjust(u)}
-                          >
-                            Adjust
-                          </button>
+                          {atLeast(myTier, 'ceo') && (
+                            <button
+                              type="button"
+                              className="um-btn um-btn-primary-soft"
+                              disabled={busy || status === 'deactivated'}
+                              onClick={() => openAdjust(u)}
+                            >
+                              Adjust
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="um-btn um-btn-icon"
@@ -871,15 +906,17 @@ export default function UsersPage() {
             return (
               <>
                 <div className="um-menu-head">{displayName(u)} · #{u.id}</div>
-                {status === 'active' && (
+                {status === 'active' && canManageRow(myTier, u) && (
                   <button type="button" role="menuitem" className="um-menu-item tone-warn" onClick={() => askSuspend(u)}>Suspend…</button>
                 )}
-                {status === 'suspended' && (
+                {status === 'suspended' && canManageRow(myTier, u) && (
                   <button type="button" role="menuitem" className="um-menu-item tone-ok" onClick={() => askUnsuspend(u)}>Unsuspend</button>
                 )}
-                {status !== 'deactivated' ? (
+                {/* Deactivate/restore: manager+; removing a staff member is superadmin-only. */}
+                {atLeast(myTier, 'manager') && status !== 'deactivated' && (myTier === 'superadmin' || !tierFromUser(u.role, u.staff_badge_type)) && (
                   <button type="button" role="menuitem" className="um-menu-item tone-danger" onClick={() => askDeactivate(u)}>Deactivate account…</button>
-                ) : (
+                )}
+                {atLeast(myTier, 'manager') && status === 'deactivated' && (
                   <button type="button" role="menuitem" className="um-menu-item tone-ok" onClick={() => askRestore(u)}>Restore account…</button>
                 )}
                 <div className="um-menu-sep" />
