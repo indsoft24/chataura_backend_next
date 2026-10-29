@@ -27,7 +27,7 @@ run('battle money flow (real DB)', () => {
     });
     roomId = room.id;
     for (const id of ids) await prisma.roomMember.create({ data: { roomId, userId: id, isActive: true } });
-    // seats 0,1 red; 2,3 blue
+    // seat 0 = host (neutral); seats 1,2 red; 3 blue
     for (let i = 1; i <= 3; i++) await prisma.seat.create({ data: { roomId, seatIndex: i, userId: ids[i] } });
     await prisma.seat.create({ data: { roomId, seatIndex: 0 } });
     await prisma.adminSetting.upsert({
@@ -44,9 +44,9 @@ run('battle money flow (real DB)', () => {
     await expect(svc.start(ids[0], roomId, 2)).rejects.toBeTruthy(); // second live battle
     await expect(svc.start(ids[4], roomId, 2)).rejects.toBeTruthy(); // not allowed
     await prisma.$transaction(async (tx) => {
-      // ids[1] seat1 red; ids[2] seat2 blue; ids[5] not seated (ignored)
+      // ids[1] seat1 red; ids[3] seat3 blue; host seat and ids[5] (not seated) are ignored
       await svc.recordGiftTx(tx, { roomId, gifts: [
-        { receiverId: ids[1], coins: 1000n }, { receiverId: ids[2], coins: 400n }, { receiverId: ids[5], coins: 9999n },
+        { receiverId: ids[1], coins: 1000n }, { receiverId: ids[3], coins: 400n }, { receiverId: ids[5], coins: 9999n }, { receiverId: ids[0], coins: 777n },
       ] });
     });
     const before = await prisma.user.findMany({ where: { id: { in: ids } }, orderBy: { id: 'asc' } });
@@ -57,8 +57,8 @@ run('battle money flow (real DB)', () => {
     expect([b.status, b.winnerSide, Number(b.redTotal), Number(b.blueTotal)]).toEqual(['won', 'red', 1000, 400]);
     const after = await prisma.user.findMany({ where: { id: { in: ids } }, orderBy: { id: 'asc' } });
     const gain = after.map((u, i) => Number(u.walletBalance - before[i].walletBalance));
-    // pool 1400: red winners = host on seat 0 + ids[1]: 210 / 2 = 105 each; initiator (host) 2% = 28
-    expect(gain).toEqual([133, 105, 0, 0, 0, 0]);
+    // pool 1400: red winners = ids[1], ids[2]: 210 / 2 = 105 each; initiator (host) 2% = 28
+    expect(gain).toEqual([28, 105, 105, 0, 0, 0]);
     expect(b.paidAt).not.toBeNull();
     expect(await prisma.battlePayout.count({ where: { battleId: b.id } })).toBe(3);
   });

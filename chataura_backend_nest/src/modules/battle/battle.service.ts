@@ -182,7 +182,7 @@ export class BattleService {
 
   /**
    * Called inside the gift transaction. Adds each gift to the receiver's team if a battle is
-   * live; gifts to people not on a seat do not count. Returns true if a score changed.
+   * live; gifts to people not on a seat, and to the host's own top seat, do not count. Returns true if a score changed.
    */
   async recordGiftTx(
     tx: Tx,
@@ -293,18 +293,7 @@ export class BattleService {
   /** Team of a seated member; the present host shown on an empty seat 0 counts as seat 0. */
   private async sideOfUser(tx: Tx, roomId: string, userId: bigint): Promise<Side | null> {
     const seat = await tx.seat.findFirst({ where: { roomId, userId }, select: { seatIndex: true } });
-    if (seat) return sideOfSeat(seat.seatIndex);
-    return (await this.hostOnSeatZero(tx, roomId, userId)) ? sideOfSeat(0) : null;
-  }
-
-  private async hostOnSeatZero(tx: Tx, roomId: string, userId: bigint) {
-    const room = await tx.room.findUnique({ where: { id: roomId }, select: { hostId: true, ownerId: true } });
-    if ((room?.hostId ?? room?.ownerId) !== userId) return false;
-    const [present, seatZero] = await Promise.all([
-      tx.roomMember.findFirst({ where: { roomId, userId, isActive: true }, select: { id: true } }),
-      tx.seat.findFirst({ where: { roomId, seatIndex: 0 }, select: { userId: true } }),
-    ]);
-    return !!present && !seatZero?.userId;
+    return seat ? sideOfSeat(seat.seatIndex) : null;
   }
 
   private async seatedOnSide(tx: Tx, roomId: string, side: Side): Promise<bigint[]> {
@@ -315,9 +304,6 @@ export class BattleService {
     const ids = new Set(
       seats.filter((s) => sideOfSeat(s.seatIndex) === side).map((s) => s.userId as bigint),
     );
-    const room = await tx.room.findUnique({ where: { id: roomId }, select: { hostId: true, ownerId: true } });
-    const hostId = room?.hostId ?? room?.ownerId;
-    if (hostId && (await this.hostOnSeatZero(tx, roomId, hostId)) && sideOfSeat(0) === side) ids.add(hostId);
     return [...ids];
   }
 

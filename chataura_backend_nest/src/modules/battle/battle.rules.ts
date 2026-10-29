@@ -25,13 +25,18 @@ export const BATTLE_DEFAULTS: BattleSettings = {
   maxMinutes: 30,
 };
 
-/** Battle seats are 4 columns: columns 0–1 are the red (left) team, 2–3 the blue (right) team. */
+/**
+ * Battle seats are 4 columns below the host's own top seat. Seat 0 (the host) is on neither team;
+ * from seat 1, columns 0–1 are the red (left) team and 2–3 the blue (right) team. The app lays
+ * the seats out with the same rule, so the side a user sees is the side their gifts count for.
+ */
 export const BATTLE_COLUMNS = 4;
 
 export type Side = 'red' | 'blue';
 
-export function sideOfSeat(seatIndex: number): Side {
-  return seatIndex % BATTLE_COLUMNS < BATTLE_COLUMNS / 2 ? 'red' : 'blue';
+export function sideOfSeat(seatIndex: number): Side | null {
+  if (seatIndex <= 0) return null;
+  return (seatIndex - 1) % BATTLE_COLUMNS < BATTLE_COLUMNS / 2 ? 'red' : 'blue';
 }
 
 function num(raw: unknown, fallback: number, min: number, max: number): number {

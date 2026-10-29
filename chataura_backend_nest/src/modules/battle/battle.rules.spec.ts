@@ -1,9 +1,9 @@
 import { readBattleSettings, sideOfSeat, splitPayout, winnerSide } from './battle.rules';
 
 describe('battle rules', () => {
-  it('maps 4 columns to two teams', () => {
-    expect([0, 1, 2, 3, 4, 5, 6, 7, 11].map(sideOfSeat)).toEqual([
-      'red', 'red', 'blue', 'blue', 'red', 'red', 'blue', 'blue', 'blue',
+  it('seat 0 (host) is neutral; seats 1+ map 4 columns to two teams', () => {
+    expect([0, 1, 2, 3, 4, 5, 6, 7, 8, 11].map(sideOfSeat)).toEqual([
+      null, 'red', 'red', 'blue', 'blue', 'red', 'red', 'blue', 'blue', 'blue',
     ]);
   });
 
