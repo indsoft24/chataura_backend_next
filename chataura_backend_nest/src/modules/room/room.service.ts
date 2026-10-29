@@ -1745,7 +1745,8 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
 
     return {
       stickers: rows.map((s) => {
-        const isFree = s.coinCost === 0;
+        // SVIP-level stickers are a member perk: the level check is the price.
+        const isFree = s.coinCost === 0 || s.requiredSvipLevel > 0;
         return {
           id: Number(s.id),
           name: s.name,
@@ -1844,7 +1845,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       });
     }
     await assertSvipLevel(this.prisma, userId, sticker.requiredSvipLevel, 'use SVIP emoji');
-    if (sticker.coinCost > 0) {
+    if (sticker.coinCost > 0 && sticker.requiredSvipLevel === 0) {
       const owned = await this.prisma.userUnlockedSticker.findUnique({
         where: { userId_stickerId: { userId, stickerId: sticker.id } },
       });
