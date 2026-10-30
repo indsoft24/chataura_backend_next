@@ -260,6 +260,8 @@ export class AdminController {
     return this.admin.deactivate(actor, BigInt(id), body?.reason);
   }
 
+  /** Balances are the one thing staff must never touch: super admin only. */
+  @MinTier('superadmin')
   @Post('users/:id/adjust-balance')
   adjustBalance(
     @CurrentUser() admin: AuthUser,

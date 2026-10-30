@@ -186,6 +186,87 @@ export class SvipAdminService {
     return result;
   }
 
+  /** Coin sellers with their balance and this month's SVIP giving. Balances change only via admin adjust-balance / ledger. */
+  async sellers(q: { page?: string; limit?: string; q?: string }) {
+    const page = Math.max(1, Number(q.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(q.limit) || 25));
+    const term = String(q.q ?? '').trim();
+    const where: Prisma.UserWhereInput = {
+      role: 'seller',
+      deletedAt: null,
+      ...(term ? { OR: [{ displayId: term }, { name: { contains: term, mode: 'insensitive' } }, { displayName: { contains: term, mode: 'insensitive' } }] } : {}),
+    };
+    const [total, rows] = await Promise.all([
+      this.prisma.user.count({ where }),
+      this.prisma.user.findMany({
+        where,
+        orderBy: { id: 'asc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: { id: true, displayId: true, name: true, displayName: true, avatarUrl: true, walletBalance: true, isSuspended: true, accountStatus: true },
+      }),
+    ]);
+    const now = new Date(Date.now() + 330 * 60_000);
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1) - 330 * 60_000);
+    const sums = await this.prisma.svipGift.groupBy({
+      by: ['giverId'],
+      where: { giverRole: 'seller', giverId: { in: rows.map((r) => r.id) }, createdAt: { gte: monthStart } },
+      _count: { _all: true },
+      _sum: { priceCoins: true, rechargeCoins: true },
+    });
+    const byId = new Map(sums.map((x) => [x.giverId.toString(), x]));
+    return {
+      total,
+      items: rows.map((r) => {
+        const t = byId.get(r.id.toString());
+        return {
+          user_id: r.id.toString(),
+          display_id: r.displayId,
+          name: r.displayName ?? r.name,
+          avatar_url: r.avatarUrl,
+          balance: Number(r.walletBalance),
+          suspended: r.isSuspended || r.accountStatus !== 'active',
+          month_gifts: t?._count._all ?? 0,
+          month_spent: Number((t?._sum.priceCoins ?? 0n) + (t?._sum.rechargeCoins ?? 0n)),
+        };
+      }),
+    };
+  }
+
+  /** Every SVIP given by a seller or an admin, newest first. */
+  async gifts(q: { page?: string; limit?: string; giver?: string }) {
+    const page = Math.max(1, Number(q.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(q.limit) || 25));
+    const giver = /^\d{1,18}$/.test(String(q.giver ?? '')) ? BigInt(String(q.giver)) : undefined;
+    const where: Prisma.SvipGiftWhereInput = giver ? { giverId: giver } : {};
+    const [total, rows] = await Promise.all([
+      this.prisma.svipGift.count({ where }),
+      this.prisma.svipGift.findMany({ where, orderBy: { id: 'desc' }, skip: (page - 1) * limit, take: limit }),
+    ]);
+    const ids = [...new Set(rows.flatMap((r) => [r.giverId, r.userId]))];
+    const users = await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, displayId: true, name: true, displayName: true } });
+    const byId = new Map(users.map((u) => [u.id.toString(), u]));
+    const who = (id: bigint) => {
+      const u = byId.get(id.toString());
+      return { user_id: id.toString(), display_id: u?.displayId ?? null, name: u?.displayName ?? u?.name ?? null };
+    };
+    return {
+      total,
+      items: rows.map((r) => ({
+        id: r.id.toString(),
+        giver: who(r.giverId),
+        giver_role: r.giverRole,
+        user: who(r.userId),
+        level: r.level,
+        days: r.days,
+        kind: r.kind,
+        price: Number(r.priceCoins),
+        recharge_coins: Number(r.rechargeCoins),
+        created_at: r.createdAt.toISOString(),
+      })),
+    };
+  }
+
   private invalid(message: string): never {
     throw new BadRequestException({
       success: false,

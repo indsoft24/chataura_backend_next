@@ -19,6 +19,8 @@ type Settings = {
   svip_period_days: number;
   svip_recharge_days: number;
   svip_renew_days: number;
+  svip_promo_enabled: boolean;
+  svip_promo_days: number;
 };
 
 type ApiLevel = {
@@ -26,6 +28,7 @@ type ApiLevel = {
   name: string;
   purchase_price: number;
   recharge_inr: number;
+  seller_price: number;
   monthly_reward: number;
   is_active: boolean;
   dice_refreshes: number;
@@ -38,6 +41,7 @@ type LevelRow = {
   name: string;
   purchase_price: string;
   recharge_inr: string;
+  seller_price: string;
   monthly_reward: string;
   dice_refreshes: string;
   gold_mine_bonus_draws: string;
@@ -54,10 +58,34 @@ type Member = {
   effective_level: number;
   period_starts_at: string;
   period_ends_at: string;
+  source: 'recharge' | 'admin' | 'seller' | 'promo';
+};
+
+type Seller = {
+  user_id: string;
+  display_id: string;
+  name: string | null;
+  balance: number;
+  suspended: boolean;
+  month_gifts: number;
+  month_spent: number;
+};
+
+type Gift = {
+  id: string;
+  giver: { user_id: string; display_id: string | null; name: string | null };
+  giver_role: 'seller' | 'admin';
+  user: { user_id: string; display_id: string | null; name: string | null };
+  level: number;
+  days: number;
+  kind: 'new' | 'upgrade' | 'extend';
+  price: number;
+  recharge_coins: number;
+  created_at: string;
 };
 
 type Config = { settings: Settings; levels: ApiLevel[] };
-type Tab = 'overview' | 'levels' | 'members';
+type Tab = 'overview' | 'levels' | 'members' | 'sellers' | 'gifts';
 type Flash = (ok: boolean, t: string) => void;
 type Confirm = ReturnType<typeof useConfirm>['confirm'];
 
@@ -67,6 +95,7 @@ function fmt(n: number | null | undefined): string {
   return n.toLocaleString('en-US');
 }
 
+const SOURCE_LABEL: Record<Member['source'], string> = { recharge: 'Recharge', admin: 'Admin gift', seller: 'Seller gift', promo: 'Free promo' };
 const STATUS_TONE: Record<Member['status'], string> = { active: 'green', grace: 'amber', expired: 'gray' };
 
 export default function SvipPage() {
@@ -95,6 +124,8 @@ export default function SvipPage() {
             { value: 'overview', label: 'Overview' },
             { value: 'levels', label: 'Levels' },
             { value: 'members', label: 'Members' },
+            { value: 'sellers', label: 'Coin sellers' },
+            { value: 'gifts', label: 'Gifts' },
           ]}
         />
       </div>
@@ -104,6 +135,8 @@ export default function SvipPage() {
       {token && tab === 'overview' && <OverviewTab token={token} flash={flash} confirm={confirm} />}
       {token && tab === 'levels' && <LevelsTab token={token} flash={flash} confirm={confirm} />}
       {token && tab === 'members' && <MembersTab token={token} flash={flash} confirm={confirm} />}
+      {token && tab === 'sellers' && <SellersTab token={token} flash={flash} />}
+      {token && tab === 'gifts' && <GiftsTab token={token} flash={flash} />}
       {confirmNode}
     </main>
   );
@@ -119,6 +152,8 @@ function OverviewTab({ token, flash, confirm }: { token: string; flash: Flash; c
   const [period, setPeriod] = useState('30');
   const [rechargeDays, setRechargeDays] = useState('5');
   const [renewDays, setRenewDays] = useState('5');
+  const [promo, setPromo] = useState(false);
+  const [promoDays, setPromoDays] = useState('7');
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -130,6 +165,8 @@ function OverviewTab({ token, flash, confirm }: { token: string; flash: Flash; c
     setPeriod(String(res.data.settings.svip_period_days));
     setRechargeDays(String(res.data.settings.svip_recharge_days));
     setRenewDays(String(res.data.settings.svip_renew_days));
+    setPromo(res.data.settings.svip_promo_enabled);
+    setPromoDays(String(res.data.settings.svip_promo_days));
   }, [token]);
 
   useEffect(() => {
@@ -149,6 +186,8 @@ function OverviewTab({ token, flash, confirm }: { token: string; flash: Flash; c
             svip_period_days: Number(period),
             svip_recharge_days: Number(rechargeDays),
             svip_renew_days: Number(renewDays),
+            svip_promo_enabled: promo,
+            svip_promo_days: Number(promoDays),
           },
         }),
       });
@@ -162,6 +201,15 @@ function OverviewTab({ token, flash, confirm }: { token: string; flash: Flash; c
   }
 
   function save() {
+    if (promo && !data?.settings.svip_promo_enabled) {
+      confirm({
+        title: 'Start the free SVIP 1 promo?',
+        message: `Every user without SVIP gets SVIP 1 free for ${promoDays} days, within minutes. It ends at once with no grace, and renews only by recharge. Needs "SVIP by recharge" on.`,
+        confirmLabel: 'Start promo',
+        onConfirm: doSave,
+      });
+      return;
+    }
     if (enabled && !data?.settings.svip_enabled) {
       confirm({
         title: 'Open SVIP?',
@@ -205,7 +253,21 @@ function OverviewTab({ token, flash, confirm }: { token: string; flash: Flash; c
             </div>
             <Switch label="SVIP by recharge enabled" checked={enabled} onChange={setEnabled} />
           </div>
+          <div className="ad-toggle-row">
+            <div>
+              <div className="ad-toggle-title">Launch promo: free SVIP 1</div>
+              <div className={`ad-toggle-hint ${promo ? 'tone-green' : 'tone-red'}`}>
+                {promo
+                  ? 'On — every user without SVIP gets SVIP 1 free. It ends at once (no grace); to keep it they recharge the level amount.'
+                  : 'Off — switch on for the launch week, switch off when the week is over (people who already got it keep it until it ends).'}
+              </div>
+            </div>
+            <Switch label="Launch promo enabled" checked={promo} onChange={setPromo} />
+          </div>
           <div className="ad-form-grid is-2up">
+            <Field label="Promo length" hint="Days of free SVIP 1, counted from when each user gets it.">
+              <div className="ad-unit"><input type="number" min={1} max={60} value={promoDays} onChange={(e) => setPromoDays(e.target.value)} /><span>days</span></div>
+            </Field>
             <Field label="Maintenance fee" hint="Coins a member pays to renew by hand, as a % of the level's fee base.">
               <div className="ad-unit"><input type="number" min={0} max={100} value={pct} onChange={(e) => setPct(e.target.value)} /><span>%</span></div>
             </Field>
@@ -248,6 +310,7 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
         ...l,
         purchase_price: String(l.purchase_price),
         recharge_inr: String(l.recharge_inr),
+        seller_price: String(l.seller_price),
         monthly_reward: String(l.monthly_reward),
         dice_refreshes: String(l.dice_refreshes),
         gold_mine_bonus_draws: String(l.gold_mine_bonus_draws),
@@ -281,6 +344,7 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
             name: r.name,
             purchase_price: r.purchase_price.trim(),
             recharge_inr: r.recharge_inr.trim() || '0',
+            seller_price: r.seller_price.trim() || '0',
             monthly_reward: r.monthly_reward.trim(),
             dice_refreshes: r.dice_refreshes.trim(),
             gold_mine_bonus_draws: r.gold_mine_bonus_draws.trim(),
@@ -308,7 +372,7 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
 
   const num = (
     i: number,
-    field: 'purchase_price' | 'monthly_reward' | 'dice_refreshes' | 'gold_mine_bonus_draws',
+    field: 'purchase_price' | 'seller_price' | 'monthly_reward' | 'dice_refreshes' | 'gold_mine_bonus_draws',
     r: LevelRow,
     label: string,
     narrow = false,
@@ -345,6 +409,7 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
               <th className="ad-th">Name</th>
               <th className="ad-th" title="Rupees of real-money recharge (inside the recharge window) that unlock this level. 0 = cannot be unlocked.">Recharge (Rs)</th>
               <th className="ad-th" title="Coins. The maintenance fee is a % of this.">Fee base (coins)</th>
+              <th className="ad-th" title="Coins a coin seller pays from their balance to give this level for one period. 0 = sellers cannot give it.">Seller price (coins)</th>
               <th className="ad-th">Monthly coins</th>
               <th className="ad-th" title="How many times one dice roll can be re-rolled (within 10 s)">Dice re-rolls</th>
               <th className="ad-th" title="Extra Daily Treasure draws per day while a Gold Mine runs">Mine bonus draws</th>
@@ -355,9 +420,9 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
           </thead>
           <tbody>
             {!rows ? (
-              <SkeletonRows cols={10} rows={9} />
+              <SkeletonRows cols={11} rows={9} />
             ) : rows.length === 0 ? (
-              <EmptyRow cols={10} title="No levels" hint="Levels are created by the SVIP migration." />
+              <EmptyRow cols={11} title="No levels" hint="Levels are created by the SVIP migration." />
             ) : (
               rows.map((r, i) => (
                 <tr key={r.level} className={`ad-row ${r.is_active ? '' : 'is-off'}`}>
@@ -375,6 +440,7 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
                     />
                   </td>
                   {num(i, 'purchase_price', r, 'Fee base (coins)')}
+                  {num(i, 'seller_price', r, 'Seller price (coins)')}
                   {num(i, 'monthly_reward', r, 'Monthly coins')}
                   {num(i, 'dice_refreshes', r, 'Dice re-rolls', true)}
                   {num(i, 'gold_mine_bonus_draws', r, 'Mine bonus draws', true)}
@@ -401,7 +467,7 @@ function MembersTab({ token, flash, confirm }: { token: string; flash: Flash; co
   const [limit, setLimit] = useState(25);
   const [data, setData] = useState<{ total: number; items: Member[] } | null>(null);
   const [granting, setGranting] = useState(false);
-  const [form, setForm] = useState({ user: '', level: '1', days: '30' });
+  const [form, setForm] = useState({ user: '', level: '1', days: '30', recharge: false, coins: '' });
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -419,10 +485,15 @@ function MembersTab({ token, flash, confirm }: { token: string; flash: Flash; co
     try {
       await api('/admin/svip/members/grant', token, {
         method: 'POST',
-        body: JSON.stringify({ user: form.user.trim(), level: Number(form.level), days: Number(form.days) }),
+        body: JSON.stringify({
+          user: form.user.trim(),
+          level: Number(form.level),
+          days: Number(form.days),
+          ...(form.recharge ? { recharge_coins: form.coins.trim() } : {}),
+        }),
       });
       setGranting(false);
-      setForm({ user: '', level: '1', days: '30' });
+      setForm({ user: '', level: '1', days: '30', recharge: false, coins: '' });
       await load();
       flash(true, 'SVIP granted.');
     } catch (e: any) {
@@ -470,15 +541,16 @@ function MembersTab({ token, flash, confirm }: { token: string; flash: Flash; co
               <th className="ad-th">User</th>
               <th className="ad-th ad-num">Level</th>
               <th className="ad-th">Status</th>
+              <th className="ad-th">Source</th>
               <th className="ad-th">Period ends</th>
               <th className="ad-th"></th>
             </tr>
           </thead>
           <tbody>
             {!data ? (
-              <SkeletonRows cols={5} />
+              <SkeletonRows cols={6} />
             ) : data.items.length === 0 ? (
-              <EmptyRow cols={5} title="No members" hint="Nobody matches this filter yet." />
+              <EmptyRow cols={6} title="No members" hint="Nobody matches this filter yet." />
             ) : (
               data.items.map((m) => (
                 <tr key={m.user_id} className="ad-row">
@@ -488,6 +560,7 @@ function MembersTab({ token, flash, confirm }: { token: string; flash: Flash; co
                   </td>
                   <td className="ad-td ad-num" data-label="Level">SVIP {m.level}</td>
                   <td className="ad-td" data-label="Status"><span className={`ad-badge ${STATUS_TONE[m.status]}`}>{m.status}</span></td>
+                  <td className="ad-td" data-label="Source">{SOURCE_LABEL[m.source] ?? m.source}</td>
                   <td className="ad-td" data-label="Period ends">{new Date(m.period_ends_at).toLocaleString()}</td>
                   <td className="ad-td ad-num is-actions">
                     {m.status !== 'expired' && (
@@ -519,7 +592,7 @@ function MembersTab({ token, flash, confirm }: { token: string; flash: Flash; co
           busy={busy}
           onSubmit={() => void grant()}
           footer={
-            <button type="submit" className="ad-btn ad-btn-primary" disabled={busy || !form.user.trim()}>
+            <button type="submit" className="ad-btn ad-btn-primary" disabled={busy || !form.user.trim() || (form.recharge && !form.coins)}>
               {busy ? 'Granting…' : 'Grant'}
             </button>
           }
@@ -531,11 +604,218 @@ function MembersTab({ token, flash, confirm }: { token: string; flash: Flash; co
             <Field label="Level">
               <input type="number" min={1} max={9} value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} />
             </Field>
-            <Field label="Days" hint="Free period; renews at the normal fee afterwards.">
+            <Field label="Days" hint="Free period. Gifted SVIP renews by recharge only.">
               <input type="number" min={1} max={365} value={form.days} onChange={(e) => setForm({ ...form, days: e.target.value })} />
+            </Field>
+            <Field label="Type" hint="SVIP only, or SVIP with recharge: the user is also credited the coins you enter (no payment needed from you).">
+              <select value={form.recharge ? 'recharge' : 'only'} onChange={(e) => setForm({ ...form, recharge: e.target.value === 'recharge' })}>
+                <option value="only">SVIP only</option>
+                <option value="recharge">SVIP with recharge</option>
+              </select>
+            </Field>
+            {form.recharge && (
+              <Field label="Recharge coins" hint="Coins credited to the user's wallet.">
+                <input inputMode="numeric" value={form.coins} onChange={(e) => setForm({ ...form, coins: e.target.value.replace(/[^\d]/g, '') })} />
+              </Field>
+            )}
+          </div>
+        </Modal>
+      )}
+    </section>
+  );
+}
+
+// ------------------------------------------------------------------ coin sellers
+
+function SellersTab({ token, flash }: { token: string; flash: Flash }) {
+  const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
+  const [data, setData] = useState<{ total: number; items: Seller[] } | null>(null);
+  const [adding, setAdding] = useState<Seller | null>(null);
+  const [coins, setCoins] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const qs = new URLSearchParams({ page: String(page), limit: String(limit), ...(q.trim() ? { q: q.trim() } : {}) });
+    const res = await api<{ data: { total: number; items: Seller[] } }>(`/admin/svip/sellers?${qs}`, token);
+    setData(res.data);
+  }, [token, page, limit, q]);
+
+  useEffect(() => {
+    void load().catch((e) => flash(false, String(e?.message ?? e)));
+  }, [load, flash]);
+
+  async function addCoins() {
+    if (!adding) return;
+    setBusy(true);
+    try {
+      await api(`/admin/users/${adding.user_id}/adjust-balance`, token, {
+        method: 'POST',
+        body: JSON.stringify({ asset: 'coins', action: 'add', amount: Number(coins), note: note.trim() || 'Coin seller stock' }),
+      });
+      setAdding(null);
+      setCoins('');
+      setNote('');
+      await load();
+      flash(true, 'Coins added to the seller.');
+    } catch (e: any) {
+      flash(false, `Failed: ${e?.message ?? e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="ad-card">
+      <div className="ad-toolbar">
+        <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Search by name or user ID" aria-label="Search sellers" />
+      </div>
+      <p className="ad-sub" style={{ margin: '0 0 12px' }}>
+        A seller pays the seller price (Levels tab) from their balance for every SVIP they give, plus any recharge coins they add. Add
+        stock here; balances can only be changed by the super admin and every change is in the coin ledger. To make someone a seller, set their role to Coin Seller.
+      </p>
+      <div className="ad-table-wrap">
+        <table className="ad-table is-stack is-3up">
+          <thead>
+            <tr>
+              <th className="ad-th">Seller</th>
+              <th className="ad-th ad-num">Balance</th>
+              <th className="ad-th ad-num">Gifts this month</th>
+              <th className="ad-th ad-num">Spent this month</th>
+              <th className="ad-th"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {!data ? (
+              <SkeletonRows cols={5} />
+            ) : data.items.length === 0 ? (
+              <EmptyRow cols={5} title="No coin sellers" hint="Set a user's role to Coin Seller to list them here." />
+            ) : (
+              data.items.map((s) => (
+                <tr key={s.user_id} className="ad-row">
+                  <td className="ad-td" data-label="Seller">
+                    <div className="ad-name">{s.name ?? '—'}{s.suspended && <span className="ad-badge gray" style={{ marginLeft: 6 }}>suspended</span>}</div>
+                    <div className="ad-sub">ID {s.display_id}</div>
+                  </td>
+                  <td className="ad-td ad-num" data-label="Balance">{fmt(s.balance)}</td>
+                  <td className="ad-td ad-num" data-label="Gifts this month">{s.month_gifts}</td>
+                  <td className="ad-td ad-num" data-label="Spent this month">{fmt(s.month_spent)}</td>
+                  <td className="ad-td ad-num is-actions">
+                    <button type="button" className="ad-btn ad-btn-soft" onClick={() => setAdding(s)}>+ Add coins</button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      {data && (
+        <Pager
+          page={page}
+          totalPages={Math.max(1, Math.ceil(data.total / limit))}
+          total={data.total}
+          limit={limit}
+          loading={false}
+          onPage={setPage}
+          onLimit={(l) => { setLimit(l); setPage(1); }}
+        />
+      )}
+      {adding && (
+        <Modal
+          title={`Add coins to ${adding.name ?? adding.display_id}`}
+          onClose={() => setAdding(null)}
+          busy={busy}
+          onSubmit={() => void addCoins()}
+          footer={
+            <button type="submit" className="ad-btn ad-btn-primary" disabled={busy || !coins || Number(coins) < 1}>
+              {busy ? 'Adding…' : 'Add coins'}
+            </button>
+          }
+        >
+          <div className="ad-form-grid">
+            <Field label="Coins" hint={`Current balance ${fmt(adding.balance)}.`}>
+              <input inputMode="numeric" value={coins} onChange={(e) => setCoins(e.target.value.replace(/[^\d]/g, ''))} autoFocus />
+            </Field>
+            <Field label="Note" hint="Shown in the ledger (for example the bulk sale it belongs to).">
+              <input value={note} maxLength={180} onChange={(e) => setNote(e.target.value)} />
             </Field>
           </div>
         </Modal>
+      )}
+    </section>
+  );
+}
+
+// ------------------------------------------------------------------ gifts
+
+function GiftsTab({ token, flash }: { token: string; flash: Flash }) {
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(25);
+  const [data, setData] = useState<{ total: number; items: Gift[] } | null>(null);
+
+  const load = useCallback(async () => {
+    const qs = new URLSearchParams({ page: String(page), limit: String(limit) });
+    const res = await api<{ data: { total: number; items: Gift[] } }>(`/admin/svip/gifts?${qs}`, token);
+    setData(res.data);
+  }, [token, page, limit]);
+
+  useEffect(() => {
+    void load().catch((e) => flash(false, String(e?.message ?? e)));
+  }, [load, flash]);
+
+  const who = (u: Gift['giver']) => (
+    <>
+      <div className="ad-name">{u.name ?? '—'}</div>
+      <div className="ad-sub">ID {u.display_id ?? u.user_id}</div>
+    </>
+  );
+
+  return (
+    <section className="ad-card">
+      <div className="ad-table-wrap">
+        <table className="ad-table is-stack is-3up">
+          <thead>
+            <tr>
+              <th className="ad-th">When</th>
+              <th className="ad-th">Given by</th>
+              <th className="ad-th">To</th>
+              <th className="ad-th">SVIP</th>
+              <th className="ad-th ad-num">Seller paid (coins)</th>
+              <th className="ad-th ad-num">Recharge coins</th>
+            </tr>
+          </thead>
+          <tbody>
+            {!data ? (
+              <SkeletonRows cols={6} />
+            ) : data.items.length === 0 ? (
+              <EmptyRow cols={6} title="No gifts yet" hint="SVIP given by sellers or admins shows here." />
+            ) : (
+              data.items.map((g) => (
+                <tr key={g.id} className="ad-row">
+                  <td className="ad-td" data-label="When">{new Date(g.created_at).toLocaleString()}</td>
+                  <td className="ad-td" data-label="Given by">{who(g.giver)}<span className={`ad-badge ${g.giver_role === 'admin' ? 'amber' : 'green'}`}>{g.giver_role}</span></td>
+                  <td className="ad-td" data-label="To">{who(g.user)}</td>
+                  <td className="ad-td" data-label="SVIP">SVIP {g.level} · {g.kind} · {g.days}d</td>
+                  <td className="ad-td ad-num" data-label="Seller paid (coins)">{g.giver_role === 'seller' ? fmt(g.price + g.recharge_coins) : '—'}</td>
+                  <td className="ad-td ad-num" data-label="Recharge coins">{g.recharge_coins ? fmt(g.recharge_coins) : '—'}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      {data && (
+        <Pager
+          page={page}
+          totalPages={Math.max(1, Math.ceil(data.total / limit))}
+          total={data.total}
+          limit={limit}
+          loading={false}
+          onPage={setPage}
+          onLimit={(l) => { setLimit(l); setPage(1); }}
+        />
       )}
     </section>
   );

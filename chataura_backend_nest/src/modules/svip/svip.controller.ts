@@ -133,6 +133,18 @@ export class SvipAdminController {
   }
 
   @MinTier('superadmin')
+  @Get('sellers')
+  sellers(@Query() q: { page?: string; limit?: string; q?: string }) {
+    return this.admin.sellers(q);
+  }
+
+  @MinTier('superadmin')
+  @Get('gifts')
+  gifts(@Query() q: { page?: string; limit?: string; giver?: string }) {
+    return this.admin.gifts(q);
+  }
+
+  @MinTier('superadmin')
   @Get('members')
   members(@Query() q: { status?: string; page?: string; limit?: string }) {
     return this.svip.adminMembers(q);
