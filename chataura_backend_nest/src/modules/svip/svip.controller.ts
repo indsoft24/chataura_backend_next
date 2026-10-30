@@ -18,6 +18,7 @@ import { MinTier } from '../../common/decorators/min-tier.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { SvipAdminService } from './svip-admin.service';
 import { SvipPrivilegesService } from './svip-privileges.service';
+import { SvipSellerService } from './svip-seller.service';
 import { SvipService } from './svip.service';
 
 function parseId(id: string): bigint {
@@ -71,6 +72,43 @@ export class SvipController {
   }
 }
 
+/** Coin seller panel: give SVIP from the seller's own balance. Role is checked inside the service. */
+@Controller('svip/seller')
+export class SvipSellerController {
+  constructor(private readonly seller: SvipSellerService) {}
+
+  @Get('panel')
+  panel(@CurrentUser() user: AuthUser) {
+    return this.seller.panel(user.id);
+  }
+
+  @Get('lookup')
+  lookup(@CurrentUser() user: AuthUser, @Query('user') ref?: string) {
+    return this.seller.lookup(user.id, String(ref ?? ''));
+  }
+
+  @Throttle({ default: { limit: 30, ttl: seconds(60) } })
+  @Post('gift')
+  gift(
+    @CurrentUser() user: AuthUser,
+    @Body()
+    body: {
+      user?: string;
+      level?: number | string;
+      with_recharge?: boolean;
+      recharge_coins?: number | string;
+      request_id?: string;
+    },
+  ) {
+    return this.seller.gift(user.id, body ?? {});
+  }
+
+  @Get('history')
+  history(@CurrentUser() user: AuthUser, @Query('cursor') cursor?: string) {
+    return this.seller.history(user.id, cursor);
+  }
+}
+
 @Roles('admin')
 @Controller('admin/svip')
 export class SvipAdminController {
@@ -106,13 +144,21 @@ export class SvipAdminController {
   grant(
     @CurrentUser() user: AuthUser,
     @Body()
-    body: { user?: string; level?: number | string; days?: number | string },
+    body: {
+      user?: string;
+      level?: number | string;
+      days?: number | string;
+      recharge_coins?: number | string;
+    },
   ) {
+    const rc = String(body?.recharge_coins ?? '0').trim() || '0';
+    if (!/^\d{1,10}$/.test(rc)) throw new BadRequestException('recharge_coins must be a whole number');
     return this.svip.adminGrant(
       String(body?.user ?? ''),
       Number(body?.level),
       Number(body?.days),
       user.id,
+      BigInt(rc),
     );
   }
 

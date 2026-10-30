@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { FcmService } from '../../common/fcm/fcm.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -40,6 +41,8 @@ export type SvipLevel = {
   purchasePrice: bigint;
   /** Rupees of recharge that unlock this level (0 = cannot be unlocked). */
   rechargeInr: number;
+  /** Coins a coin seller pays to give this level (0 = not for sellers). */
+  sellerPrice: bigint;
   monthlyReward: bigint;
   isActive: boolean;
   diceRefreshes: number;
@@ -73,7 +76,7 @@ export function svipFrameSlug(level: number) {
   return `svip${level}_frame`;
 }
 
-function svipError(code: string, message: string): never {
+export function svipError(code: string, message: string): never {
   throw new BadRequestException({ success: false, error: { code, message } });
 }
 
@@ -834,18 +837,34 @@ export class SvipService {
 
   // ---- admin ----
 
-  /** Give a level for N days without charging (support / compensation). Audited in the ledger. */
+  /**
+   * Give a level for N days without charging. With `rechargeCoins` the user is also credited those coins
+   * ("SVIP with recharge"). Logged in svip_gifts and audited in the ledger.
+   */
   async adminGrant(
     userRef: string,
     level: number,
     days: number,
     adminId: bigint,
+    rechargeCoins = 0n,
   ) {
     const userId = await this.resolveUser(userRef);
+    if (rechargeCoins < 0n || rechargeCoins > 1_000_000_000n)
+      svipError('VALIDATION_ERROR', 'recharge coins must be 0..1,000,000,000');
     await this.prisma.$transaction(async (tx) => {
       await this.lockMember(tx, userId);
-      await this.giftInTx(tx, userId, level, days, 'admin', true);
-      await this.audit(tx, userId, 'grant', adminId, { level, days });
+      const gift = await this.giftInTx(tx, userId, level, days, 'admin', true);
+      const requestId = randomUUID();
+      if (rechargeCoins > 0n)
+        await this.ledger.creditCoins(tx, userId, rechargeCoins, 'SVIP_ADMIN', 'Recharge from admin', `svip_admin_rc_${requestId}`, undefined, {
+          source: 'svip',
+          currency: 'coins',
+          admin_id: adminId.toString(),
+        });
+      await tx.svipGift.create({
+        data: { giverId: adminId, giverRole: 'admin', userId, level, days, kind: gift.kind, rechargeCoins, requestId },
+      });
+      await this.audit(tx, userId, 'grant', adminId, { level, days, recharge_coins: rechargeCoins.toString() });
     });
     return this.adminMember(userId);
   }
@@ -992,7 +1011,7 @@ export class SvipService {
   }
 
   /** Public display ID first (what admins see in the app), then the account id. */
-  private async resolveUser(ref: string): Promise<bigint> {
+  async resolveUser(ref: string): Promise<bigint> {
     const s = String(ref ?? '').trim();
     if (!s) svipError('VALIDATION_ERROR', 'user is required');
     const byDisplay = await this.prisma.user.findUnique({
@@ -1017,7 +1036,7 @@ export class SvipService {
   }
 
   /** Serialises every SVIP write for one user (purchase, renew, claim, admin, cron). */
-  private async lockMember(tx: Tx, userId: bigint) {
+  async lockMember(tx: Tx, userId: bigint) {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`svip_${userId}`}))`;
   }
 

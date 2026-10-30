@@ -1690,6 +1690,8 @@ model SvipLevelConfig {
   purchasePrice      BigInt   @map("purchase_price")
   /// Rupees of real-money recharge that unlock this level (within the recharge window). 0 = cannot be unlocked.
   rechargeInr        Decimal  @default(0) @map("recharge_inr") @db.Decimal(12, 2)
+  /// Coins a coin seller pays to give this level for one period. 0 = sellers cannot give it.
+  sellerPrice        BigInt   @default(0) @map("seller_price")
   /// Free coins an active member claims once per calendar month (IST).
   monthlyReward      BigInt   @map("monthly_reward")
   /// Off = not for sale. Existing members keep it and keep renewing.
@@ -2002,4 +2004,28 @@ model GameHistory {
   @@index([userId, settledAt(sort: Desc)])
   @@index([game, settledAt(sort: Desc)])
   @@map("game_history")
+}
+
+/// Every SVIP given by a coin seller or the super admin (history, daily totals, idempotency per giver + request).
+model SvipGift {
+  id            BigInt   @id @default(autoincrement())
+  giverId       BigInt   @map("giver_id")
+  /// seller | admin
+  giverRole     String   @map("giver_role") @db.VarChar(8)
+  userId        BigInt   @map("user_id")
+  level         Int
+  days          Int
+  /// new | upgrade | extend
+  kind          String   @db.VarChar(8)
+  /// Coins taken from the seller's balance for the SVIP itself (0 for admin).
+  priceCoins    BigInt   @default(0) @map("price_coins")
+  /// Coins credited to the user ("SVIP with recharge"); a seller pays these from the balance too.
+  rechargeCoins BigInt   @default(0) @map("recharge_coins")
+  requestId     String   @map("request_id") @db.VarChar(64)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([giverId, requestId])
+  @@index([giverId, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("svip_gifts")
 }

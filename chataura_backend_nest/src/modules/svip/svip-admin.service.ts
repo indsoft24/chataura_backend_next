@@ -14,6 +14,7 @@ type LevelInput = {
   name?: unknown;
   purchase_price?: unknown;
   recharge_inr?: unknown;
+  seller_price?: unknown;
   monthly_reward?: unknown;
   is_active?: unknown;
   dice_refreshes?: unknown;
@@ -74,6 +75,7 @@ export class SvipAdminService {
         name: l.name,
         purchase_price: Number(l.purchasePrice),
         recharge_inr: l.rechargeInr,
+        seller_price: Number(l.sellerPrice),
         monthly_reward: Number(l.monthlyReward),
         is_active: l.isActive,
         dice_refreshes: l.diceRefreshes,
@@ -100,6 +102,10 @@ export class SvipAdminService {
           purchasePrice: toBig(r.purchase_price),
           rechargeInr: toInr(r.recharge_inr, Number(old.get(level)?.rechargeInr ?? 0)),
           monthlyReward: toBig(r.monthly_reward),
+          sellerPrice:
+            r.seller_price === undefined || r.seller_price === ''
+              ? (old.get(level)?.sellerPrice ?? 0n)
+              : toBig(r.seller_price),
           isActive: r.is_active === true || r.is_active === 'true',
           diceRefreshes: toCount(
             r.dice_refreshes,
@@ -114,6 +120,9 @@ export class SvipAdminService {
       const badInr = incoming.find((r) => r.rechargeInr < 0);
       if (badInr)
         this.invalid(`level ${badInr.level}: recharge amount must be rupees, up to 2 decimals`);
+      const badSeller = incoming.find((r) => r.sellerPrice < 0n);
+      if (badSeller)
+        this.invalid(`level ${badSeller.level}: seller price must be 0 or more coins`);
       const badCount = incoming.find(
         (r) => r.diceRefreshes < 0 || r.goldMineBonusDraws < 0,
       );
@@ -139,6 +148,7 @@ export class SvipAdminService {
               name: r.name,
               purchasePrice: r.purchasePrice,
               rechargeInr: r.rechargeInr,
+              sellerPrice: r.sellerPrice,
               monthlyReward: r.monthlyReward,
               isActive: r.isActive,
               diceRefreshes: r.diceRefreshes,
