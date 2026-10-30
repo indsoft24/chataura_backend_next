@@ -4,7 +4,9 @@ import {
   creditExpiresAt,
   creditOf,
   maintenanceFee,
+  planGift,
   planUnlock,
+  renewsByRechargeOnly,
   rechargeInr,
   svipMonth,
   svipStatus,
@@ -160,5 +162,41 @@ describe('validateLevelTable', () => {
       ]),
     ).toMatch(/bigger recharge/);
     expect(validateLevelTable([{ ...row(1, 10n), rechargeInr: -1 }])).toMatch(/recharge amount/);
+  });
+});
+
+describe('gifted and promo SVIP', () => {
+  const end = new Date(now.getTime() + 10 * DAY);
+  const m = (source: string, e = end) => ({ level: 1, status: 'active', periodEndsAt: e, source });
+
+  it('promo has no grace; others keep it', () => {
+    const past = new Date(now.getTime() - 1 * DAY);
+    expect(svipStatus(m('promo', past), now, 3)).toBe('expired');
+    expect(svipStatus(m('recharge', past), now, 3)).toBe('grace');
+    expect(svipStatus(m('seller', past), now, 3)).toBe('grace');
+  });
+
+  it('only recharge memberships may renew by coin fee', () => {
+    expect(renewsByRechargeOnly(m('recharge'))).toBe(false);
+    for (const s of ['admin', 'seller', 'promo']) expect(renewsByRechargeOnly(m(s))).toBe(true);
+    expect(renewsByRechargeOnly(null)).toBe(false);
+  });
+
+  it('planGift: new / extend / upgrade / lower', () => {
+    expect(planGift(null, false, 1, 30, now, false)).toEqual({ kind: 'new', periodEndsAt: new Date(now.getTime() + 30 * DAY) });
+    expect(planGift({ level: 1, periodEndsAt: end }, true, 1, 30, now, false)).toEqual({
+      kind: 'extend',
+      periodEndsAt: new Date(end.getTime() + 30 * DAY),
+    });
+    // upgrade keeps the longer end
+    expect(planGift({ level: 1, periodEndsAt: end }, true, 2, 5, now, false)).toEqual({ kind: 'upgrade', periodEndsAt: end });
+    expect(planGift({ level: 1, periodEndsAt: end }, true, 2, 30, now, false)).toEqual({
+      kind: 'upgrade',
+      periodEndsAt: new Date(now.getTime() + 30 * DAY),
+    });
+    expect(planGift({ level: 2, periodEndsAt: end }, true, 1, 30, now, false)).toBe('lower');
+    expect(planGift({ level: 2, periodEndsAt: end }, true, 1, 30, now, true)).toMatchObject({ kind: 'new' });
+    // an ended membership is a fresh start, even for a lower level
+    expect(planGift({ level: 3, periodEndsAt: end }, false, 1, 30, now, false)).toMatchObject({ kind: 'new' });
   });
 });

@@ -20,10 +20,13 @@ import {
   creditExpiresAt,
   creditOf,
   graceEndsAt,
+  graceFor,
   inRenewWindow,
   maintenanceFee,
+  planGift,
   planUnlock,
   rechargeInr,
+  renewsByRechargeOnly,
   svipMonth,
   svipStatus,
   takeCredit,
@@ -179,12 +182,15 @@ export class SvipService {
         level,
         status,
         last_level: m?.level ?? 0,
+        // recharge | admin | seller | promo. Non-recharge SVIP renews by recharge only (no coin fee).
+        source: m?.source ?? 'recharge',
+        renew_recharge_only: renewsByRechargeOnly(m),
         period_ends_at: m && level > 0 ? m.periodEndsAt.toISOString() : null,
         grace_ends_at:
           m && level > 0
-            ? graceEndsAt(m.periodEndsAt, settings.graceDays).toISOString()
+            ? graceEndsAt(m.periodEndsAt, graceFor(m, settings.graceDays)).toISOString()
             : null,
-        maintenance_fee: Number(fee),
+        maintenance_fee: renewsByRechargeOnly(m) ? 0 : Number(fee),
         // Renewing with coins (the fee above) or with a recharge of this level's amount.
         can_renew: renewOpen,
         renew_recharge_inr: curCost,
@@ -304,6 +310,7 @@ export class SvipService {
           periodStartsAt: plan.kind === 'buy' ? now : plan.kind === 'renew' ? m!.periodEndsAt : m!.periodStartsAt,
           periodEndsAt,
           lastChargeAttemptAt: null,
+          source: 'recharge',
           // A new membership wears everything; an upgrade or renewal keeps the choices.
           ...(plan.kind === 'buy' ? ALL_ITEMS_ON : {}),
         };
@@ -334,6 +341,8 @@ export class SvipService {
     const outcome = await this.renewOne(userId, new Date(), true);
     if (outcome === 'not_due')
       svipError('NOT_DUE', 'Your SVIP does not need renewing yet');
+    if (outcome === 'recharge_only')
+      svipError('RECHARGE_REQUIRED', 'Recharge to renew your SVIP');
     if (outcome === 'expired' || outcome === 'none')
       svipError(
         'SVIP_EXPIRED',
@@ -416,7 +425,10 @@ export class SvipService {
       const ended = await this.prisma.userSvip.findMany({
         where: {
           status: { not: 'expired' },
-          periodEndsAt: { lte: addDays(now, -settings.graceDays) },
+          OR: [
+            { periodEndsAt: { lte: addDays(now, -settings.graceDays) } },
+            { source: 'promo', periodEndsAt: { lte: now } },
+          ],
         },
         select: { userId: true },
         orderBy: { periodEndsAt: 'asc' },
@@ -475,7 +487,7 @@ export class SvipService {
     userId: bigint,
     now: Date,
     manual: boolean,
-  ): Promise<'renewed' | 'insufficient' | 'expired' | 'not_due' | 'none'> {
+  ): Promise<'renewed' | 'insufficient' | 'expired' | 'not_due' | 'recharge_only' | 'none'> {
     const { settings, levels } = await this.config();
     let notify: { title: string; body: string } | null = null;
 
@@ -507,6 +519,8 @@ export class SvipService {
         return 'expired' as const;
       }
 
+      // Gifted / promo SVIP cost nothing, so the coin fee would renew it for free: recharge is the only way.
+      if (renewsByRechargeOnly(m)) return 'recharge_only' as const;
       const price =
         levels.find((l) => l.level === m.level)?.purchasePrice ?? 0n;
       const fee = maintenanceFee(price, settings.maintenancePct);
@@ -668,7 +682,7 @@ export class SvipService {
         if (frame && wearFrame) {
           // The unlock row must follow the membership: a stale expiry makes the 10-minute frame
           // sweep swap this frame for the free one right after it is worn.
-          const until = graceEndsAt(m!.periodEndsAt, settings.graceDays);
+          const until = graceEndsAt(m!.periodEndsAt, graceFor(m, settings.graceDays));
           await tx.userUnlockedFrame.upsert({
             where: { userId_frameId: { userId, frameId: frame.id } },
             create: { userId, frameId: frame.id, coinsPaid: 0, expiresAt: until, unlockType: 'svip' },
@@ -828,39 +842,57 @@ export class SvipService {
     adminId: bigint,
   ) {
     const userId = await this.resolveUser(userRef);
-    const { levels, settings } = await this.config();
-    if (!levels.some((l) => l.level === level))
-      svipError('LEVEL_NOT_FOUND', 'SVIP level not found');
-    if (!Number.isInteger(days) || days < 1 || days > 365) {
-      svipError('VALIDATION_ERROR', 'days must be 1..365');
-    }
     await this.prisma.$transaction(async (tx) => {
       await this.lockMember(tx, userId);
-      const now = new Date();
-      const periodEndsAt = addDays(now, days);
-      const data = {
-        level,
-        status: 'active',
-        periodStartsAt: now,
-        periodEndsAt,
-        lastChargeAttemptAt: null,
-        ...ALL_ITEMS_ON,
-      };
-      await tx.userSvip.upsert({
-        where: { userId },
-        create: { userId, ...data },
-        update: data,
-      });
-      await this.grantItems(
-        tx,
-        userId,
-        level,
-        graceEndsAt(periodEndsAt, settings.graceDays),
-        true,
-      );
+      await this.giftInTx(tx, userId, level, days, 'admin', true);
       await this.audit(tx, userId, 'grant', adminId, { level, days });
     });
     return this.adminMember(userId);
+  }
+
+  /**
+   * Gives (or upgrades / extends) a membership without a recharge. The caller holds `lockMember` and owns the
+   * transaction, so a seller can charge its own balance in the same commit. `allowLower` is admin-only.
+   */
+  async giftInTx(
+    tx: Tx,
+    userId: bigint,
+    level: number,
+    days: number,
+    source: 'admin' | 'seller' | 'promo',
+    allowLower: boolean,
+  ) {
+    const { levels, settings } = await this.config();
+    if (!levels.some((l) => l.level === level))
+      svipError('LEVEL_NOT_FOUND', 'SVIP level not found');
+    if (!Number.isInteger(days) || days < 1 || days > 365)
+      svipError('VALIDATION_ERROR', 'days must be 1..365');
+    const now = new Date();
+    const m = await tx.userSvip.findUnique({ where: { userId } });
+    const status = svipStatus(m, now, settings.graceDays);
+    const live = status === 'active' || status === 'grace';
+    const plan = planGift(m, live, level, days, now, allowLower);
+    if (plan === 'lower')
+      svipError('LOWER_LEVEL', `The user already has a higher SVIP (level ${m!.level})`);
+    const fresh = plan.kind === 'new';
+    const data = {
+      level,
+      status: 'active',
+      periodStartsAt: fresh ? now : m!.periodStartsAt,
+      periodEndsAt: plan.periodEndsAt,
+      lastChargeAttemptAt: null,
+      source,
+      ...(fresh ? ALL_ITEMS_ON : {}),
+    };
+    await tx.userSvip.upsert({ where: { userId }, create: { userId, ...data }, update: data });
+    await this.grantItems(
+      tx,
+      userId,
+      level,
+      graceEndsAt(plan.periodEndsAt, graceFor({ source }, settings.graceDays)),
+      fresh,
+    );
+    return { kind: plan.kind, periodEndsAt: plan.periodEndsAt };
   }
 
   async adminRevoke(userId: bigint, adminId: bigint) {
@@ -955,6 +987,7 @@ export class SvipService {
       effective_level: effectiveLevel(r, now, graceDays),
       period_starts_at: r.periodStartsAt.toISOString(),
       period_ends_at: r.periodEndsAt.toISOString(),
+      source: r.source,
     };
   }
 

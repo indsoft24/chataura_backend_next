@@ -1715,6 +1715,9 @@ model UserSvip {
   periodStartsAt      DateTime  @map("period_starts_at") @db.Timestamptz(6)
   periodEndsAt        DateTime  @map("period_ends_at") @db.Timestamptz(6)
   lastChargeAttemptAt DateTime? @map("last_charge_attempt_at") @db.Timestamptz(6)
+  /// How this membership started: recharge | admin | seller | promo. Gifted / promo SVIP renews by recharge only;
+  /// promo SVIP has no grace window.
+  source              String    @default("recharge") @db.VarChar(12)
   /// My Items switches for the level's chat bubble, room card and mic wave.
   bubbleOn            Boolean   @default(true) @map("bubble_on")
   roomCardOn          Boolean   @default(true) @map("room_card_on")

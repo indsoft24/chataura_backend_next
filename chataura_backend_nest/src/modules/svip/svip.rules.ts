@@ -15,6 +15,7 @@ export type Membership = {
   level: number;
   status: string;
   periodEndsAt: Date;
+  source?: string;
 };
 
 export type LevelRow = {
@@ -40,6 +41,35 @@ export function graceEndsAt(periodEndsAt: Date, graceDays: number): Date {
   return addDays(periodEndsAt, graceDays);
 }
 
+/** Free promo SVIP ends the moment its period does; every other membership gets the grace window. */
+export function graceFor(m: { source?: string } | null, graceDays: number): number {
+  return m?.source === 'promo' ? 0 : graceDays;
+}
+
+/** Gifted (admin / seller) and promo SVIP renews by recharge only: the coin fee would make it free. */
+export function renewsByRechargeOnly(m: { source?: string } | null): boolean {
+  return !!m && !!m.source && m.source !== 'recharge';
+}
+
+/**
+ * A gift on top of a live membership: higher = upgrade (keeps the longer end), same = adds days,
+ * lower = blocked unless `allowLower` (admin only). No live membership = a fresh start.
+ */
+export function planGift(
+  m: { level: number; periodEndsAt: Date } | null,
+  live: boolean,
+  level: number,
+  days: number,
+  now: Date,
+  allowLower: boolean,
+): { kind: 'new' | 'upgrade' | 'extend'; periodEndsAt: Date } | 'lower' {
+  if (!m || !live) return { kind: 'new', periodEndsAt: addDays(now, days) };
+  if (level < m.level) return allowLower ? { kind: 'new', periodEndsAt: addDays(now, days) } : 'lower';
+  if (level === m.level) return { kind: 'extend', periodEndsAt: addDays(m.periodEndsAt, days) };
+  const fresh = addDays(now, days);
+  return { kind: 'upgrade', periodEndsAt: fresh > m.periodEndsAt ? fresh : m.periodEndsAt };
+}
+
 /** Where a membership stands at `now`. Dates win over the stored status, except a hard expiry. */
 export function svipStatus(
   m: Membership | null,
@@ -49,7 +79,7 @@ export function svipStatus(
   if (!m) return 'none';
   if (m.status === 'expired') return 'expired';
   if (now < m.periodEndsAt) return 'active';
-  if (now < graceEndsAt(m.periodEndsAt, graceDays)) return 'grace';
+  if (now < graceEndsAt(m.periodEndsAt, graceFor(m, graceDays))) return 'grace';
   return 'expired';
 }
 
