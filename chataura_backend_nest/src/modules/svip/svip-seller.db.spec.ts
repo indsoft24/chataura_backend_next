@@ -85,4 +85,29 @@ run('SVIP given by coin sellers (real DB)', () => {
     const spent = rows.reduce((t, r) => t + Math.abs(Number(r.coinAmount)), 0);
     expect(20000 - spent).toBe(await balance(ids.seller));
   });
+
+  it('launch promo: free SVIP 1 once; a Rs 500 recharge renews it for 30 days from its end', async () => {
+    const extra = { svip_enabled: true, svip_promo_enabled: true, svip_promo_days: 7 };
+    await prisma.adminSetting.update({ where: { id: 1 }, data: { extraSettings: extra } });
+    svip.invalidateConfig();
+    const u3 = (await prisma.user.create({ data: { password: 'x', displayId: `u3${tag}` } })).id;
+    expect(await svip.grantPromo(u3)).toBe(true);
+    expect(await svip.grantPromo(u3)).toBe(false);
+    const m = await prisma.userSvip.findUniqueOrThrow({ where: { userId: u3 } });
+    expect(m).toMatchObject({ level: 1, source: 'promo' });
+    expect(Math.round((m.periodEndsAt.getTime() - m.periodStartsAt.getTime()) / 86_400_000)).toBe(7);
+
+    const end = new Date(Date.now() + 3 * 86_400_000);
+    await prisma.userSvip.update({ where: { userId: u3 }, data: { periodEndsAt: end } });
+    await prisma.coinPurchaseTransaction.create({
+      data: { userId: u3, amountMinor: 50000, currency: 'INR', coinsCredited: 50000, status: 'success', paymentSource: 'RAZORPAY' },
+    });
+    expect(await svip.syncFromRecharges(u3)).toBe(true);
+    const r = await prisma.userSvip.findUniqueOrThrow({ where: { userId: u3 } });
+    expect(r.source).toBe('recharge');
+    expect(r.periodEndsAt.getTime()).toBe(end.getTime() + 30 * 86_400_000);
+
+    await prisma.adminSetting.update({ where: { id: 1 }, data: { extraSettings: { svip_enabled: true } } });
+    svip.invalidateConfig();
+  });
 });

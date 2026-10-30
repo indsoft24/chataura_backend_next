@@ -119,3 +119,24 @@ LEFT JOIN svip_level_configs c ON c.level = r.svip_level
 WHERE r.value NOT BETWEEN 1 AND 6
    OR r.refresh_count > COALESCE(c.dice_refreshes, 0)
 LIMIT 100;
+
+\echo '12) Seller-given SVIP with no ledger debit, or a debit that is not price + recharge coins'
+SELECT g.id, g.giver_id, g.price_coins, g.recharge_coins, ct.coin_amount AS debited
+FROM svip_gifts g
+LEFT JOIN coin_transactions ct
+  ON ct.user_id = g.giver_id AND ct.reference_id = 'svip_gift_' || g.giver_id || '_' || g.request_id
+WHERE g.giver_role = 'seller'
+  AND (ct.id IS NULL OR abs(ct.coin_amount) <> g.price_coins + g.recharge_coins)
+LIMIT 100;
+
+\echo '13) Recharge coins promised to a user but never credited (seller or admin gift)'
+SELECT g.id, g.giver_id, g.giver_role, g.user_id, g.recharge_coins
+FROM svip_gifts g
+WHERE g.recharge_coins > 0
+  AND NOT EXISTS (
+    SELECT 1 FROM coin_transactions ct
+    WHERE ct.user_id = g.user_id AND ct.coin_amount = g.recharge_coins
+      AND ct.reference_id IN ('svip_gift_rc_' || g.giver_id || '_' || g.request_id,
+                              'svip_admin_rc_' || g.request_id)
+  )
+LIMIT 100;

@@ -69,6 +69,7 @@ export const SVIP_LEDGER_TYPES = [
 
 const CONFIG_TTL_MS = 30_000;
 const ALL_ITEMS_ON = { bubbleOn: true, roomCardOn: true, micWaveOn: true };
+const PROMO_BATCH = 300;
 const RENEW_BATCH = 200;
 
 /** Each level's frame is the frames row with this slug. */
@@ -142,6 +143,8 @@ export class SvipService {
   }
 
   async center(userId: bigint) {
+    // Launch promo: opening the Center is enough, no need to wait for the minute sweep.
+    await this.grantPromo(userId).catch((e) => this.logger.warn(`promo(${userId}) failed: ${String(e)}`));
     // A recharge that just went through shows up straight away, without waiting for the minute sweep.
     await this.syncFromRecharges(userId).catch((e) =>
       this.logger.warn(`recharge sync(${userId}) failed: ${String(e)}`),
@@ -457,6 +460,68 @@ export class SvipService {
         );
     } catch (e) {
       this.logger.warn(`SVIP sweep failed: ${String(e)}`);
+    }
+  }
+
+  /** Launch promo: SVIP 1 for `promoDays`, once per user (a user who ever had a membership row is skipped). */
+  async grantPromo(userId: bigint): Promise<boolean> {
+    const { settings, levels } = await this.config();
+    if (!settings.enabled || !settings.promoEnabled || !levels.some((l) => l.level === 1)) return false;
+    if (await this.prisma.userSvip.findUnique({ where: { userId }, select: { userId: true } })) return false;
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockMember(tx, userId);
+      if (await tx.userSvip.findUnique({ where: { userId }, select: { userId: true } })) return false;
+      await this.giftInTx(tx, userId, 1, settings.promoDays, 'promo', false);
+      return true;
+    });
+  }
+
+  /** Every minute while the promo is on: the next batch of users without SVIP get it. */
+  @Cron('* * * * *')
+  async processPromo() {
+    try {
+      const { settings } = await this.config();
+      if (!settings.enabled || !settings.promoEnabled) return;
+      const users = await this.prisma.user.findMany({
+        where: { svip: { is: null }, deletedAt: null, accountStatus: 'active' },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: PROMO_BATCH,
+      });
+      for (const { id } of users)
+        await this.grantPromo(id).catch((e) => this.logger.warn(`promo(${id}) failed: ${String(e)}`));
+    } catch (e) {
+      this.logger.warn(`SVIP promo sweep failed: ${String(e)}`);
+    }
+  }
+
+  /** Hourly: one push 48 h and one 24 h before a free promo SVIP ends (each member falls in each window once). */
+  @Cron('20 * * * *')
+  async remindPromoEnding() {
+    try {
+      const { levels } = await this.config();
+      const inr = levels.find((l) => l.level === 1)?.rechargeInr ?? 0;
+      const now = Date.now();
+      for (const hours of [48, 24]) {
+        const due = await this.prisma.userSvip.findMany({
+          where: {
+            source: 'promo',
+            status: 'active',
+            periodEndsAt: { gt: new Date(now + (hours - 1) * 3_600_000), lte: new Date(now + hours * 3_600_000) },
+          },
+          select: { userId: true, level: true },
+          take: 5000,
+        });
+        for (const m of due)
+          await this.fcm.sendUserNotification({
+            userId: m.userId,
+            title: `Your free SVIP ${m.level} ends in ${hours} hours`,
+            body: inr > 0 ? `Recharge Rs ${inr} to keep it for 30 more days.` : 'Recharge to keep it.',
+            data: { type: 'svip', outcome: 'promo_ending' },
+          });
+      }
+    } catch (e) {
+      this.logger.warn(`SVIP promo reminder failed: ${String(e)}`);
     }
   }
 

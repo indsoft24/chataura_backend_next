@@ -15,6 +15,10 @@ export type SvipSettings = {
   rechargeDays: number;
   /** Renewing early (coins or recharge) is allowed in the last this-many days of a period. */
   renewDays: number;
+  /** Launch promo: every user without SVIP gets SVIP 1 free. Ships OFF; needs `enabled` too. */
+  promoEnabled: boolean;
+  /** Length of the free promo SVIP 1. It ends at once (no grace) and renews only by recharge. */
+  promoDays: number;
 };
 
 export const SVIP_SETTING_KEYS = {
@@ -24,6 +28,8 @@ export const SVIP_SETTING_KEYS = {
   periodDays: 'svip_period_days',
   rechargeDays: 'svip_recharge_days',
   renewDays: 'svip_renew_days',
+  promoEnabled: 'svip_promo_enabled',
+  promoDays: 'svip_promo_days',
 } as const;
 
 export const SVIP_DEFAULTS: SvipSettings = {
@@ -33,6 +39,8 @@ export const SVIP_DEFAULTS: SvipSettings = {
   periodDays: 30,
   rechargeDays: 5,
   renewDays: 5,
+  promoEnabled: false,
+  promoDays: 7,
 };
 
 function intIn(
@@ -94,6 +102,8 @@ export function readSvipSettings(
       0,
       30,
     ),
+    promoEnabled: bool(e[SVIP_SETTING_KEYS.promoEnabled], SVIP_DEFAULTS.promoEnabled),
+    promoDays: intIn(e[SVIP_SETTING_KEYS.promoDays], SVIP_DEFAULTS.promoDays, 1, 60),
   };
 }
 
@@ -106,5 +116,7 @@ export function svipSettingsForApi(s: SvipSettings) {
     [SVIP_SETTING_KEYS.periodDays]: s.periodDays,
     [SVIP_SETTING_KEYS.rechargeDays]: s.rechargeDays,
     [SVIP_SETTING_KEYS.renewDays]: s.renewDays,
+    [SVIP_SETTING_KEYS.promoEnabled]: s.promoEnabled,
+    [SVIP_SETTING_KEYS.promoDays]: s.promoDays,
   };
 }
