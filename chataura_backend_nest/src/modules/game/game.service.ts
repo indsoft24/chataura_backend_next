@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto';
 const SHARED_CACHE_MS = 2000;
 import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { GameHistoryService } from '../game-history/game-history.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { GameEvents } from './game.events';
 import {
@@ -54,6 +55,7 @@ export class GameService {
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
     private readonly events: GameEvents,
+    private readonly history: GameHistoryService,
   ) {}
 
   /**
@@ -781,6 +783,8 @@ export class GameService {
         }
       }
 
+      await this.history.recordRound(tx, 'greedy', current.id);
+
       return {
         roundId: current.id,
         winner,
@@ -877,6 +881,8 @@ export class GameService {
           }
         }
       }
+
+      await this.history.recordRound(tx, 'lucky77', current.id);
 
       return {
         roundId: current.id,

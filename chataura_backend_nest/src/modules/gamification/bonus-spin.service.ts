@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { GameHistoryService } from '../game-history/game-history.service';
 import { LedgerService, LockedUser } from '../wallet/ledger.service';
 import { resolveReferralMilestone, resolveReferralRewards } from './bonus-config.resolver';
 
@@ -120,6 +121,7 @@ export class BonusSpinService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
+    private readonly history: GameHistoryService,
   ) {}
 
   async prizes() {
@@ -134,6 +136,7 @@ export class BonusSpinService {
     const settings = await this.settings();
     const cost = effectiveSpinCost(settings.spinCost);
     const prize = this.pickPrize();
+    const spinRef = `spin_${userId}_${Date.now()}`;
     const result = await this.prisma.$transaction(async (tx) => {
       try {
         const { after, locked } = await this.ledger.debitCoins(
@@ -142,7 +145,7 @@ export class BonusSpinService {
           cost,
           'SPIN',
           'Daily spin',
-          `spin_${userId}_${Date.now()}`,
+          spinRef,
           undefined,
           { source: 'game', currency: 'coins' },
           'game',
@@ -159,6 +162,14 @@ export class BonusSpinService {
             locked,
           );
         }
+        await this.history.recordOne(tx, {
+          userId,
+          game: 'lucky_spin',
+          roundRef: spinRef,
+          bet: BigInt(cost),
+          payout: BigInt(prize.coins),
+          detail: { prize: prize.label, prize_type: prize.type, gift_name: prize.gift_name ?? null },
+        });
         return Number(balance);
       } catch (e) {
         if ((e as { code?: string }).code === 'INSUFFICIENT_BALANCE') {

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { GameHistoryService } from '../game-history/game-history.service';
 import { LedgerService } from '../wallet/ledger.service';
 import {
   PRESETS,
@@ -34,6 +35,7 @@ export class SlotService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
+    private readonly gameHistory: GameHistoryService,
   ) {}
 
   async settings(): Promise<SlotSettings> {
@@ -150,6 +152,14 @@ export class SlotService {
           );
         const spin = await tx.slotSpin.create({
           data: { id, userId, bet: BigInt(bet), payout: BigInt(payout), grid },
+        });
+        await this.gameHistory.recordOne(tx, {
+          userId,
+          game: 'slot',
+          roundRef: id,
+          bet: BigInt(bet),
+          payout: BigInt(payout),
+          detail: { grid },
         });
         return { spin, balance, replay: false };
       },

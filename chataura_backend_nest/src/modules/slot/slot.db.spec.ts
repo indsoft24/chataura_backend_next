@@ -2,6 +2,7 @@ jest.mock('../../common/prisma/prisma.service', () => ({ PrismaService: class {}
 import { randomUUID } from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { LedgerService } from '../wallet/ledger.service';
+import { GameHistoryService } from '../game-history/game-history.service';
 import { SlotService } from './slot.service';
 
 // Needs a migrated throwaway DB: SLOT_DB_TEST=1 DATABASE_URL=…/slot_tmp npx jest slot.db
@@ -9,7 +10,7 @@ const run = process.env.SLOT_DB_TEST ? describe : describe.skip;
 
 run('slot money flow (real DB)', () => {
   const prisma = new PrismaClient();
-  const svc = new SlotService(prisma as never, new LedgerService(prisma as never));
+  const svc = new SlotService(prisma as never, new LedgerService(prisma as never), new GameHistoryService(prisma as never));
   let uid = 0n;
   const wallet = async () => (await prisma.user.findUniqueOrThrow({ where: { id: uid } })).walletBalance;
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -37,6 +38,9 @@ run('slot money flow (real DB)', () => {
     const again = await svc.spin(uid, 100_000, id); // retry of the same request: no second charge
     expect(again.grid).toEqual(r.grid);
     expect(await wallet()).toBe(before - 100_000n + BigInt(r.payout));
+    const rows = await prisma.gameHistory.findMany({ where: { userId: uid, game: 'slot', roundRef: id } });
+    expect(rows).toHaveLength(1); // one history row, not two, after the retry
+    expect(rows[0].net).toBe(BigInt(r.payout) - 100_000n);
     await expect(svc.spin(uid, 100_000, randomUUID())).rejects.toBeTruthy(); // too fast
     await sleep(800);
     await prisma.user.update({ where: { id: uid }, data: { walletBalance: 5_000n } });

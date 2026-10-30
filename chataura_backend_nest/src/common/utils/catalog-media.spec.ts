@@ -137,6 +137,19 @@ describe('presentFrameMedia', () => {
     expect(frame.loop).toBe(false);
   });
 
+  it('SVIP 1 frame: animated WebP plays, the PNG stays the still poster', () => {
+    const frame = presentFrameMedia(
+      'https://storage.googleapis.com/chataura/svip/v1/svip1_frame.png',
+      'https://storage.googleapis.com/chataura/svip/v1/svip1_frame.webp',
+      'alpha',
+    );
+    expect(frame.media_type).toBe('animated_image');
+    expect(frame.loop).toBe(true);
+    expect(frame.animation_url).toContain('svip1_frame.webp');
+    expect(frame.image_url).toContain('svip1_frame.png');
+    expect(frame.animation_url_lite).toBe(frame.image_url);
+  });
+
   it('keeps a bundled asset key when there is no HTTP file', () => {
     const frame = presentFrameMedia('golden_twin_dragons_cutout', null, null);
     expect(frame.image_url).toBe('golden_twin_dragons_cutout');

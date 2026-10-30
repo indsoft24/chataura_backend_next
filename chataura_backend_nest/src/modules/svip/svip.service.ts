@@ -660,6 +660,14 @@ export class SvipService {
           where: { slug: svipFrameSlug(level), isActive: true },
         });
         if (frame && wearFrame) {
+          // The unlock row must follow the membership: a stale expiry makes the 10-minute frame
+          // sweep swap this frame for the free one right after it is worn.
+          const until = graceEndsAt(m!.periodEndsAt, settings.graceDays);
+          await tx.userUnlockedFrame.upsert({
+            where: { userId_frameId: { userId, frameId: frame.id } },
+            create: { userId, frameId: frame.id, coinsPaid: 0, expiresAt: until, unlockType: 'svip' },
+            update: { expiresAt: until, unlockType: 'svip' },
+          });
           await tx.user.update({
             where: { id: userId },
             data: { selectedFrameId: frame.id },

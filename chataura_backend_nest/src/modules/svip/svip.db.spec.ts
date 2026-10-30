@@ -68,6 +68,26 @@ run('SVIP by recharge (real DB)', () => {
     expect(await svc.levelOf(uid)).toBe(2);
   });
 
+  it('wearing the SVIP frame renews a stale unlock, so it is not swapped out', async () => {
+    const level = await svc.levelOf(uid);
+    const frame = await prisma.frame.upsert({
+      where: { slug: `svip${level}_frame` },
+      create: { name: `SVIP ${level}`, slug: `svip${level}_frame`, category: 'svip', isActive: true },
+      update: { isActive: true },
+    });
+    await prisma.userUnlockedFrame.upsert({
+      where: { userId_frameId: { userId: uid, frameId: frame.id } },
+      create: { userId: uid, frameId: frame.id, coinsPaid: 0, unlockType: 'svip', expiresAt: new Date(Date.now() - 86_400_000) },
+      update: { unlockType: 'svip', expiresAt: new Date(Date.now() - 86_400_000) },
+    });
+    await svc.updateItems(uid, { frame: true });
+    const unlock = await prisma.userUnlockedFrame.findUniqueOrThrow({
+      where: { userId_frameId: { userId: uid, frameId: frame.id } },
+    });
+    expect(unlock.expiresAt!.getTime()).toBeGreaterThan(Date.now());
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: uid } })).selectedFrameId).toBe(frame.id);
+  });
+
   it('the minute sweep finds the user by their new recharge', async () => {
     const u2 = (await prisma.user.create({ data: { password: 'x', displayId: `sw${tag}` } })).id;
     await prisma.coinPurchaseTransaction.create({

@@ -121,6 +121,7 @@ model User {
   roomBlocks          RoomBlock[]
   greedyBets          GreedyBet[]
   lucky77Bets         Lucky77Bet[]
+  gameHistory         GameHistory[]
   conversationParts   ConversationParticipant[]
   messagesSent        Message[]
   starChatAsPayer     StarChatSession[]          @relation("StarChatPayer")
@@ -1973,4 +1974,27 @@ model SvipRechargeSpend {
   @@index([purchaseId])
   @@index([userId, createdAt])
   @@map("svip_recharge_spends")
+}
+
+/// One row per user per settled round / spin of the coin games (greedy, lucky77, slot, lucky_spin).
+model GameHistory {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  game      String   @db.VarChar(16)
+  roundRef  String   @map("round_ref") @db.VarChar(64)
+  totalBet  BigInt   @map("total_bet")
+  payout    BigInt
+  /// payout - total_bet
+  net       BigInt
+  /// win | loss | even
+  result    String   @db.VarChar(8)
+  detail    Json?
+  settledAt DateTime @default(now()) @map("settled_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, game, roundRef], map: "game_history_user_game_ref_key")
+  @@index([userId, settledAt(sort: Desc)])
+  @@index([game, settledAt(sort: Desc)])
+  @@map("game_history")
 }
