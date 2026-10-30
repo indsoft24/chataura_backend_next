@@ -68,6 +68,16 @@ run('SVIP by recharge (real DB)', () => {
     expect(await svc.levelOf(uid)).toBe(2);
   });
 
+  it('level art reaches the center and My Items (https only)', async () => {
+    const medal = 'https://storage.googleapis.com/chataura/svip/v1/svip2_medal.webp';
+    await prisma.svipLevelConfig.update({ where: { level: 2 }, data: { art: { medal, frame: 'http://insecure/x.webp', junk: 1 } } });
+    svc.invalidateConfig();
+    const c = await svc.center(uid);
+    expect(c.levels.find((l) => l.level === 2)!.art).toEqual({ medal });
+    expect(c.levels.find((l) => l.level === 1)!.art?.medal).toContain('svip1_medal'); // set by the migration
+    expect((await svc.items(uid)).art).toEqual({ medal });
+  });
+
   it('wearing the SVIP frame renews a stale unlock, so it is not swapped out', async () => {
     const level = await svc.levelOf(uid);
     const frame = await prisma.frame.upsert({

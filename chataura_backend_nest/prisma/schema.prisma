@@ -1698,6 +1698,8 @@ model SvipLevelConfig {
   diceRefreshes      Int      @default(2) @map("dice_refreshes")
   /// Extra Gold Mine draws per day while a mine is active.
   goldMineBonusDraws Int      @default(2) @map("gold_mine_bonus_draws")
+  /// Center art URLs on GCS: {medal, frame, room_card, bubble}. The app bundles small stills as fallback.
+  art                Json?
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 

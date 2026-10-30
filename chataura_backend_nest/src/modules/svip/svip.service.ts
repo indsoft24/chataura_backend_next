@@ -6,6 +6,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { grantMedal } from '../medal/medal.rules';
 import { ENTRY_BAR_ORDER, entryBarMedia } from '../gamification/entry-bar.rules';
+import { svipArtOf } from './svip-art';
 import {
   SvipSettings,
   readSvipSettings,
@@ -40,6 +41,8 @@ export type SvipLevel = {
   isActive: boolean;
   diceRefreshes: number;
   goldMineBonusDraws: number;
+  /** GCS art URLs (see svip-art.ts); raw JSON, sanitised by svipArtOf on the way out. */
+  art?: unknown;
 };
 
 /** Game perks the user's live SVIP level gives (all zero without SVIP). */
@@ -223,6 +226,7 @@ export class SvipService {
             maintenanceFee(l.purchasePrice, settings.maintenancePct),
           ),
           for_sale: l.isActive,
+          art: svipArtOf(l.art),
           action: kind,
           need_inr: kind === 'unlock' || kind === 'upgrade' ? Math.max(0, Math.round((cost - credit) * 100) / 100) : 0,
         };
@@ -596,8 +600,10 @@ export class SvipService {
     const worn = bars.find((b) => b.id === user.selectedEntryBarId);
     // `entry_bar` (one switch) stays for app versions without the bar picker.
     const shown = worn ?? bars[0];
+    const { levels } = await this.config();
     return {
       level,
+      art: svipArtOf(levels.find((l) => l.level === level)?.art),
       bubble: level > 0 && !!m?.bubbleOn,
       room_card: level > 0 && !!m?.roomCardOn,
       mic_wave: level > 0 && !!m?.micWaveOn,
