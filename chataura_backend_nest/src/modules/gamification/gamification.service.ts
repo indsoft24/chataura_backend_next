@@ -771,13 +771,13 @@ export class GamificationService {
             referenceId,
             locked,
             {
-              source: 'store',
+              source: 'entry_bar',
               currency: 'coins',
               entry_bar_id: Number(bar.id),
               action: offer.action,
               days: settings.periodDays,
             },
-            'store',
+            // No XP source: paying for a bar must not level you up past the level that unlocks it for good.
           ));
         } catch (e) {
           if ((e as { code?: string }).code === 'INSUFFICIENT_BALANCE') {
