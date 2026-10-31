@@ -39,6 +39,7 @@ export function creatableTiers(actor: AdminTier): AdminTier[] {
  */
 export const PAGE_MIN_TIER: Record<string, AdminTier> = {
   '/settings': 'superadmin',
+  '/approvals': 'superadmin',
   '/svip': 'superadmin',
   '/gold-mine': 'superadmin',
   '/withdrawals': 'ceo',

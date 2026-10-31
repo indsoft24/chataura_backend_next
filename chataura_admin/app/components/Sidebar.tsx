@@ -12,6 +12,7 @@ const MENU_GROUPS = [
       { name: 'Dashboard', href: '/' },
       { name: 'Settings', href: '/settings' },
       { name: 'Staff', href: '/staff' },
+      { name: 'Staff Approvals', href: '/approvals' },
       { name: 'Staff Commissions', href: '/staff-commissions' },
     ]
   },

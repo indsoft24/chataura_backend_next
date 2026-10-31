@@ -2055,3 +2055,20 @@ model SvipGift {
   @@index([userId, createdAt(sort: Desc)])
   @@map("svip_gifts")
 }
+
+/// A panel change by non-superadmin staff, held until the superadmin approves (replayed) or rejects it.
+model AdminApproval {
+  id          BigInt    @id @default(autoincrement())
+  requesterId BigInt    @map("requester_id")
+  method      String    @db.VarChar(8)
+  url         String    @db.Text
+  body        Json?
+  status      String    @default("pending") @db.VarChar(16)
+  result      String?   @db.Text
+  decidedById BigInt?   @map("decided_by_id")
+  decidedAt   DateTime? @map("decided_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([status, id])
+  @@map("admin_approvals")
+}
