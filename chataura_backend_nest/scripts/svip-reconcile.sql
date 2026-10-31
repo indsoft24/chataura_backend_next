@@ -43,10 +43,10 @@ WHERE s.status IN ('active', 'grace')
 ORDER BY s.period_ends_at
 LIMIT 100;
 
-\echo '4) Memberships with no recharge, old coin purchase/upgrade or admin grant behind them'
+\echo '4) Recharge-type memberships with no recharge, old coin purchase/upgrade or admin grant behind them (promo / seller / admin gifts have none by design)'
 SELECT s.user_id, s.level, s.status
 FROM user_svips s
-WHERE NOT EXISTS (
+WHERE s.source = 'recharge' AND NOT EXISTS (
   SELECT 1 FROM coin_transactions ct
   WHERE ct.user_id = s.user_id AND ct.type IN ('SVIP_PURCHASE', 'SVIP_UPGRADE', 'SVIP_ADMIN')
 )
