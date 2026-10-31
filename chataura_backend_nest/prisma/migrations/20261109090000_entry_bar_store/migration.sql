@@ -37,14 +37,14 @@ SELECT v.n, v.lvl, 'https://storage.googleapis.com/chataura/entry-bars/levels/v1
        'https://storage.googleapis.com/chataura/entry-bars/levels/v1/' || v.s || '.mp4',
        true, 0, v.s, 'screen', v.lvl, v.lvl::bigint * 1000000
 FROM (VALUES
-    ('Golden Motorcycle', 10,  'motorcycle'),
-    ('Fire Tiger',        20,  'fire_tiger'),
-    ('Rose Castle',       30,  'rose_castle'),
-    ('Gold Hypercar',     50,  'hypercar'),
-    ('Storm Eagle',       60,  'gold_eagle'),
-    ('Golden Warhorse',   70,  'warhorse'),
-    ('Golden Lion',       80,  'gold_lion'),
-    ('Golden Dragon',     90,  'gold_dragon'),
-    ('Archangel',         100, 'archangel')
+    ('Golden Thunder',    10,  'motorcycle'),
+    ('Inferno Tiger',      20,  'fire_tiger'),
+    ('Rose Kingdom',       30,  'rose_castle'),
+    ('Midas GT',           50,  'hypercar'),
+    ('Storm Sovereign',   60,  'gold_eagle'),
+    ('Ember Knight',       70,  'warhorse'),
+    ('Royal Lion',         80,  'gold_lion'),
+    ('Dragon Emperor',     90,  'gold_dragon'),
+    ('Celestial Archangel', 100, 'archangel')
 ) AS v(n, lvl, s)
 WHERE NOT EXISTS (SELECT 1 FROM "entry_bars" e WHERE e."slug" = v.s);
