@@ -126,16 +126,16 @@ export default function LevelsPage() {
   const set = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <style dangerouslySetInnerHTML={{ __html: LV_STYLES }} />
       <PageHeader
         title="User Levels"
         subtitle="XP thresholds, titles and rank badges for user progression."
-        actions={<button type="button" className="ad-btn ad-btn-accent ad-btn-lg" onClick={openNew} disabled={loading}>+ New level</button>}
+        actions={<button type="button" className="cp-btn cp-btn-accent cp-btn-lg" onClick={openNew} disabled={loading}>+ New level</button>}
       />
 
-      <section className="ad-card">
-        <div className="ad-toolbar">
+      <section className="cp-card">
+        <div className="cp-toolbar">
           <SearchBox value={q} onChange={setQ} placeholder="Search level number or title" />
           <Field label="Order">
             <select value={sort} onChange={(e) => setSort(e.target.value)}>
@@ -144,16 +144,16 @@ export default function LevelsPage() {
             </select>
           </Field>
         </div>
-        <div className="ad-summary">
+        <div className="cp-summary">
           <strong>{visible.length}</strong> of <strong>{levels.length}</strong> levels · up to <strong>{maxXp.toLocaleString()}</strong> XP
         </div>
-        <div className="ad-table-wrap">
-          <table className="ad-table is-stack">
+        <div className="cp-table-wrap">
+          <table className="cp-table is-stack">
             <thead>
               <tr>
-                <th className="ad-th">Level</th>
-                <th className="ad-th">XP range</th>
-                <th className="ad-th ad-num">Actions</th>
+                <th className="cp-th">Level</th>
+                <th className="cp-th">XP range</th>
+                <th className="cp-th cp-num">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -163,9 +163,9 @@ export default function LevelsPage() {
                 <EmptyRow cols={3} title={levels.length ? 'No level matches' : 'No levels yet'} hint={levels.length ? 'Try a different search.' : 'Add the first level to start user progression.'} />
               ) : (
                 pageItems.map((l) => (
-                  <tr key={l.id} className="ad-row">
-                    <td className="ad-td is-main">
-                      <div className="ad-user" style={{ minWidth: 0 }}>
+                  <tr key={l.id} className="cp-row">
+                    <td className="cp-td is-main">
+                      <div className="cp-user" style={{ minWidth: 0 }}>
                         <div className="lv-badge">
                           {l.badge_url ? (
                             // eslint-disable-next-line @next/next/no-img-element
@@ -175,12 +175,12 @@ export default function LevelsPage() {
                           )}
                         </div>
                         <div>
-                          <div className="ad-name">{l.label || `Level ${l.level}`}</div>
-                          <div className="ad-sub">Level {l.level}</div>
+                          <div className="cp-name">{l.label || `Level ${l.level}`}</div>
+                          <div className="cp-sub">Level {l.level}</div>
                         </div>
                       </div>
                     </td>
-                    <td className="ad-td" data-label="XP range">
+                    <td className="cp-td" data-label="XP range">
                       <div className="lv-range">
                         <span>{l.min_xp.toLocaleString()} – {l.max_xp.toLocaleString()} XP</span>
                         <div className="lv-track">
@@ -188,11 +188,11 @@ export default function LevelsPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="ad-td ad-num is-actions is-half">
-                      <div className="ad-actions">
+                    <td className="cp-td cp-num is-actions is-half">
+                      <div className="cp-actions">
                         <button
                           type="button"
-                          className="ad-btn ad-btn-ghost"
+                          className="cp-btn cp-btn-ghost"
                           onClick={() => {
                             setFormError('');
                             setDraft({ id: l.id, level: String(l.level), minXp: String(l.min_xp), maxXp: String(l.max_xp), label: l.label ?? '', badgeUrl: l.badge_url ?? '' });
@@ -200,7 +200,7 @@ export default function LevelsPage() {
                         >
                           Edit
                         </button>
-                        <button type="button" className="ad-btn ad-btn-danger-soft" onClick={() => remove(l)}>Delete</button>
+                        <button type="button" className="cp-btn cp-btn-danger-soft" onClick={() => remove(l)}>Delete</button>
                       </div>
                     </td>
                   </tr>
@@ -220,12 +220,12 @@ export default function LevelsPage() {
           onSubmit={() => void save()}
           footer={
             <>
-              <button type="button" className="ad-btn ad-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
-              <button type="submit" className="ad-btn ad-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Add level'}</button>
+              <button type="button" className="cp-btn cp-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
+              <button type="submit" className="cp-btn cp-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Add level'}</button>
             </>
           }
         >
-          <div className="ad-form-grid is-2up">
+          <div className="cp-form-grid is-2up">
             <Field label="Level #">
               <input type="number" inputMode="numeric" value={draft.level} disabled={Boolean(draft.id)} onChange={(e) => set({ level: e.target.value })} />
             </Field>
@@ -247,7 +247,7 @@ export default function LevelsPage() {
             placeholder="https://.../badge.png"
             helpText="Shown beside the user's name."
           />
-          {formError && <div className="ad-alert">{formError}</div>}
+          {formError && <div className="cp-alert">{formError}</div>}
         </Modal>
       )}
       {confirmNode}

@@ -184,55 +184,55 @@ export default function GoldMinePage() {
 
   const s = data?.stats;
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <style dangerouslySetInnerHTML={{ __html: GM_STYLES }} />
       <PageHeader
         title="Gold Mine"
         subtitle="Users activate a mine with coins and get free Daily Treasure draws every day it runs (reset 00:00 IST, unused draws don't carry over). SVIP bonus draws are set per level on the SVIP page."
       />
-      {msg && <div className={`ad-alert is-flush ${msg.ok ? 'is-success' : ''}`} style={{ marginBottom: 14 }}>{msg.text}</div>}
+      {msg && <div className={`cp-alert is-flush ${msg.ok ? 'is-success' : ''}`} style={{ marginBottom: 14 }}>{msg.text}</div>}
 
-      <div className="ad-kpis gm-kpis">
+      <div className="cp-kpis gm-kpis">
         <Kpi label="Avg coins / draw" value={s ? fmt(s.expected_coins_per_draw) : '…'} sub="From prize weights" tone="amber" />
         <Kpi label="Draws today" value={s ? fmt(s.draws_today) : '…'} />
         <Kpi label="Mines sold (30 d)" value={s ? fmt(s.coins_sold_30d) : '…'} sub="Coins in" />
         <Kpi label="Prizes paid (30 d)" value={s ? fmt(s.coins_paid_30d) : '…'} sub="Coins out" />
       </div>
 
-      <section className="ad-card" style={{ marginBottom: 16 }}>
-        <div className="ad-card-head">
+      <section className="cp-card" style={{ marginBottom: 16 }}>
+        <div className="cp-card-head">
           <div>
             <h2>Mines</h2>
             <p>Buying a running mine again extends it. Payback = average coins a full period of draws pays (no SVIP bonus) — keep it below the price.</p>
           </div>
-          <div className="ad-actions">
-            <button type="button" className="ad-btn ad-btn-primary" onClick={save} disabled={busy || (!dirty && enabled === data?.settings.gold_mine_enabled)}>
+          <div className="cp-actions">
+            <button type="button" className="cp-btn cp-btn-primary" onClick={save} disabled={busy || (!dirty && enabled === data?.settings.gold_mine_enabled)}>
               {busy ? 'Working…' : 'Save'}
             </button>
           </div>
         </div>
-        <div className="ad-card-body">
-          <div className="ad-toggle-row">
+        <div className="cp-card-body">
+          <div className="cp-toggle-row">
             <div>
-              <div className="ad-toggle-title">Gold Mine</div>
-              <div className={`ad-toggle-hint ${enabled ? 'tone-green' : 'tone-red'}`}>
+              <div className="cp-toggle-title">Gold Mine</div>
+              <div className={`cp-toggle-hint ${enabled ? 'tone-green' : 'tone-red'}`}>
                 {enabled ? 'On — users can activate mines' : 'Off — no new activations (running mines keep their draws)'}
               </div>
             </div>
             <Switch label="Gold Mine enabled" checked={enabled} onChange={setEnabled} />
           </div>
         </div>
-        <div className="ad-table-wrap">
-          <table className="ad-table is-stack is-3up gm-table">
+        <div className="cp-table-wrap">
+          <table className="cp-table is-stack is-3up gm-table">
             <thead>
               <tr>
-                <th className="ad-th">Name</th>
-                <th className="ad-th">Price</th>
-                <th className="ad-th">Days</th>
-                <th className="ad-th">Draws / day</th>
-                <th className="ad-th ad-num">Payback</th>
-                <th className="ad-th ad-num">Running</th>
-                <th className="ad-th">On sale</th>
+                <th className="cp-th">Name</th>
+                <th className="cp-th">Price</th>
+                <th className="cp-th">Days</th>
+                <th className="cp-th">Draws / day</th>
+                <th className="cp-th cp-num">Payback</th>
+                <th className="cp-th cp-num">Running</th>
+                <th className="cp-th">On sale</th>
               </tr>
             </thead>
             <tbody>
@@ -244,12 +244,12 @@ export default function GoldMinePage() {
                   const payback = Math.round(s!.expected_coins_per_draw * (Number(r.daily_draws) || 0) * (Number(r.duration_days) || 0));
                   const risky = payback >= (Number(r.price) || 0);
                   return (
-                    <tr key={r.id} className={`ad-row ${r.is_active ? '' : 'is-off'}`}>
-                      <td className="ad-td" data-label="Name">
+                    <tr key={r.id} className={`cp-row ${r.is_active ? '' : 'is-off'}`}>
+                      <td className="cp-td" data-label="Name">
                         <input className="gm-cell" value={r.name} maxLength={64} aria-label={`Mine ${r.id} name`} onChange={(e) => updatePlan(i, { name: e.target.value })} />
                       </td>
                       {(['price', 'duration_days', 'daily_draws'] as const).map((k) => (
-                        <td key={k} className="ad-td" data-label={k}>
+                        <td key={k} className="cp-td" data-label={k}>
                           <input
                             className="gm-cell"
                             inputMode="numeric"
@@ -259,11 +259,11 @@ export default function GoldMinePage() {
                           />
                         </td>
                       ))}
-                      <td className={`ad-td ad-num ${risky ? 'tone-red' : ''}`} data-label="Payback" title={risky ? 'Pays back more than it costs' : ''}>
+                      <td className={`cp-td cp-num ${risky ? 'tone-red' : ''}`} data-label="Payback" title={risky ? 'Pays back more than it costs' : ''}>
                         {fmt(payback)}
                       </td>
-                      <td className="ad-td ad-num" data-label="Running">{plan?.running ?? 0}</td>
-                      <td className="ad-td" data-label="On sale">
+                      <td className="cp-td cp-num" data-label="Running">{plan?.running ?? 0}</td>
+                      <td className="cp-td" data-label="On sale">
                         <Switch label={`${r.name} on sale`} checked={r.is_active} onChange={(v) => updatePlan(i, { is_active: v })} />
                       </td>
                     </tr>
@@ -279,18 +279,18 @@ export default function GoldMinePage() {
         title="Prize pool"
         subtitle="Each draw picks one active prize by weight. Chance = weight ÷ total weight."
         bodyClassName=""
-        actions={<button type="button" className="ad-btn ad-btn-soft" onClick={() => setForm({ ...EMPTY_PRIZE })}>+ Add prize</button>}
+        actions={<button type="button" className="cp-btn cp-btn-soft" onClick={() => setForm({ ...EMPTY_PRIZE })}>+ Add prize</button>}
       >
-        <div className="ad-table-wrap">
-          <table className="ad-table is-stack is-3up">
+        <div className="cp-table-wrap">
+          <table className="cp-table is-stack is-3up">
             <thead>
               <tr>
-                <th className="ad-th">Prize</th>
-                <th className="ad-th">Reward</th>
-                <th className="ad-th ad-num">Weight</th>
-                <th className="ad-th ad-num">Chance</th>
-                <th className="ad-th">Status</th>
-                <th className="ad-th"></th>
+                <th className="cp-th">Prize</th>
+                <th className="cp-th">Reward</th>
+                <th className="cp-th cp-num">Weight</th>
+                <th className="cp-th cp-num">Chance</th>
+                <th className="cp-th">Status</th>
+                <th className="cp-th"></th>
               </tr>
             </thead>
             <tbody>
@@ -300,25 +300,25 @@ export default function GoldMinePage() {
                 <EmptyRow cols={6} title="No prizes" hint="Add coin or frame prizes before turning Gold Mine on." />
               ) : (
                 data.prizes.map((p) => (
-                  <tr key={p.id} className={`ad-row ${p.is_active ? '' : 'is-off'}`}>
-                    <td className="ad-td" data-label="Prize">
+                  <tr key={p.id} className={`cp-row ${p.is_active ? '' : 'is-off'}`}>
+                    <td className="cp-td" data-label="Prize">
                       <div className="gm-prize">
                         {p.preview_url ? <img src={p.preview_url} alt="" /> : <span className="gm-ph">{p.kind === 'coins' ? '🪙' : '🖼'}</span>}
-                        <div className="ad-name">{p.name}</div>
+                        <div className="cp-name">{p.name}</div>
                       </div>
                     </td>
-                    <td className="ad-td" data-label="Reward">
+                    <td className="cp-td" data-label="Reward">
                       {p.kind === 'coins' ? `${fmt(p.coins)} coins` : `${p.frame_name ?? 'Frame removed'} · ${p.days} days`}
                     </td>
-                    <td className="ad-td ad-num" data-label="Weight">{p.weight}</td>
-                    <td className="ad-td ad-num" data-label="Chance">{p.chance_pct}%</td>
-                    <td className="ad-td" data-label="Status">
-                      <span className={`ad-badge ${p.is_active && p.chance_pct > 0 ? 'green' : 'gray'}`}>{p.is_active ? (p.chance_pct > 0 ? 'in pool' : 'frame off') : 'off'}</span>
+                    <td className="cp-td cp-num" data-label="Weight">{p.weight}</td>
+                    <td className="cp-td cp-num" data-label="Chance">{p.chance_pct}%</td>
+                    <td className="cp-td" data-label="Status">
+                      <span className={`cp-badge ${p.is_active && p.chance_pct > 0 ? 'green' : 'gray'}`}>{p.is_active ? (p.chance_pct > 0 ? 'in pool' : 'frame off') : 'off'}</span>
                     </td>
-                    <td className="ad-td ad-num is-actions">
+                    <td className="cp-td cp-num is-actions">
                       <button
                         type="button"
-                        className="ad-btn ad-btn-soft"
+                        className="cp-btn cp-btn-soft"
                         onClick={() =>
                           setForm({
                             id: p.id,
@@ -336,7 +336,7 @@ export default function GoldMinePage() {
                       >
                         Edit
                       </button>
-                      <button type="button" className="ad-btn ad-btn-danger-soft" onClick={() => removePrize(p)}>Delete</button>
+                      <button type="button" className="cp-btn cp-btn-danger-soft" onClick={() => removePrize(p)}>Delete</button>
                     </td>
                   </tr>
                 ))
@@ -353,12 +353,12 @@ export default function GoldMinePage() {
           busy={busy}
           onSubmit={() => void savePrize()}
           footer={
-            <button type="submit" className="ad-btn ad-btn-primary" disabled={busy || !form.name.trim()}>
+            <button type="submit" className="cp-btn cp-btn-primary" disabled={busy || !form.name.trim()}>
               {busy ? 'Saving…' : 'Save prize'}
             </button>
           }
         >
-          <div className="ad-form-grid">
+          <div className="cp-form-grid">
             <Field label="Name" hint="Shown to the user, e.g. “5K Coins”.">
               <input value={form.name} maxLength={64} onChange={(e) => setForm({ ...form, name: e.target.value })} autoFocus />
             </Field>
@@ -396,8 +396,8 @@ export default function GoldMinePage() {
             <Field label="Order" hint="Lower shows first in the app.">
               <input type="number" value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: e.target.value })} />
             </Field>
-            <div className="ad-toggle-row">
-              <div className="ad-toggle-title">In the pool</div>
+            <div className="cp-toggle-row">
+              <div className="cp-toggle-title">In the pool</div>
               <Switch label="Prize active" checked={form.is_active} onChange={(v) => setForm({ ...form, is_active: v })} />
             </div>
           </div>
@@ -410,13 +410,13 @@ export default function GoldMinePage() {
 
 const GM_STYLES = `
 .gm-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.ad-page .gm-cell { width: 100%; min-width: 64px; padding: 6px 8px; min-height: 34px; font-size: 0.86rem; }
-.ad-row.is-off .gm-cell { color: #9ca3af; }
+.cp-page .gm-cell { width: 100%; min-width: 64px; padding: 6px 8px; min-height: 34px; font-size: 0.86rem; }
+.cp-row.is-off .gm-cell { color: #9ca3af; }
 .gm-prize { display: flex; align-items: center; gap: 10px; }
 .gm-prize img, .gm-ph { width: 36px; height: 36px; border-radius: 8px; object-fit: contain; background: #f3f4f6; display: inline-flex; align-items: center; justify-content: center; font-size: 18px; }
 .tone-red { color: #dc2626; font-weight: 700; }
 @media (max-width: 640px) {
   .gm-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ad-page .gm-cell { min-width: 0; }
+  .cp-page .gm-cell { min-width: 0; }
 }
 `;

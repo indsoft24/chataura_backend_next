@@ -196,20 +196,20 @@ export default function GiftsPage() {
   const clear = () => { setCat(''); setStatus(''); setQ(''); };
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <PageHeader
         title="Gifts"
         subtitle={`Virtual gifts sent in live rooms · ${activeCount} of ${gifts.length} active`}
-        actions={<button type="button" className="ad-btn ad-btn-accent ad-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New gift</button>}
+        actions={<button type="button" className="cp-btn cp-btn-accent cp-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New gift</button>}
       />
 
-      <section className="ad-card">
+      <section className="cp-card">
         <Tabs
           value={cat}
           onChange={setCat}
           tabs={[{ value: '' as const, label: 'All', count: counts[''] ?? 0 }, ...GIFT_CATEGORIES.map((c) => ({ value: c.value, label: c.label.split(' (')[0], count: counts[c.value] ?? 0 }))]}
         />
-        <div className="ad-toolbar">
+        <div className="cp-toolbar">
           <SearchBox value={q} onChange={setQ} placeholder="Search name, key or ID" />
           <Field label="Status">
             <select value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -227,38 +227,38 @@ export default function GiftsPage() {
             </select>
           </Field>
         </div>
-        <div className="ad-summary">
+        <div className="cp-summary">
           Showing <strong>{visible.length}</strong> of <strong>{gifts.length}</strong>
-          {filtered ? <>{' · '}<button type="button" className="ad-link" onClick={clear}>Clear filters</button></> : null}
+          {filtered ? <>{' · '}<button type="button" className="cp-link" onClick={clear}>Clear filters</button></> : null}
         </div>
 
         {loading && gifts.length === 0 ? (
           <MediaSkeleton />
         ) : visible.length === 0 ? (
-          <div className="ad-empty">
-            <div className="ad-empty-title">{gifts.length ? 'No gifts match' : 'No gifts yet'}</div>
+          <div className="cp-empty">
+            <div className="cp-empty-title">{gifts.length ? 'No gifts match' : 'No gifts yet'}</div>
             {gifts.length ? 'Try a different filter.' : 'Create the first gift for live rooms.'}
-            {filtered && <div><button type="button" className="ad-btn ad-btn-ghost" style={{ marginTop: 12 }} onClick={clear}>Reset filters</button></div>}
+            {filtered && <div><button type="button" className="cp-btn cp-btn-ghost" style={{ marginTop: 12 }} onClick={clear}>Reset filters</button></div>}
           </div>
         ) : (
-          <div className="ad-media-grid">
+          <div className="cp-media-grid">
             {pageItems.map((g) => (
               <MediaCard
                 key={g.id}
                 thumb={<MediaThumb imageUrl={g.image_url} animationUrl={g.animation_url} alt={g.name} fallback="🎁" />}
                 flags={
                   <>
-                    <span className="ad-badge gray">{categoryLabel(g.category).split(' (')[0]}</span>
-                    {(g.required_svip_level ?? 0) > 0 && <span className="ad-badge amber">SVIP {g.required_svip_level}</span>}
+                    <span className="cp-badge gray">{categoryLabel(g.category).split(' (')[0]}</span>
+                    {(g.required_svip_level ?? 0) > 0 && <span className="cp-badge amber">SVIP {g.required_svip_level}</span>}
                     {catOf(g) === 'lucky' && g.coin_cost < luckyMin && (
-                      <span className="ad-badge red" title={`Lucky gifts start at ${luckyMin.toLocaleString()} coins (Settings). This one is hidden in the app.`}>Hidden</span>
+                      <span className="cp-badge red" title={`Lucky gifts start at ${luckyMin.toLocaleString()} coins (Settings). This one is hidden in the app.`}>Hidden</span>
                     )}
-                    {g.animation_url ? <span className="ad-badge indigo" title="Animation attached">✨</span> : <span />}
+                    {g.animation_url ? <span className="cp-badge indigo" title="Animation attached">✨</span> : <span />}
                   </>
                 }
                 title={g.name}
-                meta={<span className="ad-mono" title="Unique gift key (permanent, used by the app)">#{g.id}{g.gift_key ? ` · ${g.gift_key}` : ''}</span>}
-                extra={<div className="ad-media-price">🪙 {g.coin_cost.toLocaleString()}</div>}
+                meta={<span className="cp-mono" title="Unique gift key (permanent, used by the app)">#{g.id}{g.gift_key ? ` · ${g.gift_key}` : ''}</span>}
+                extra={<div className="cp-media-price">🪙 {g.coin_cost.toLocaleString()}</div>}
                 active={g.is_active}
                 busy={busyId === g.id}
                 onToggle={() => void toggleActive(g)}
@@ -277,18 +277,18 @@ export default function GiftsPage() {
       {draft && (
         <Modal
           size="wide"
-          title={draft.id ? <>Edit gift #{draft.id} {draft.giftKey ? <span className="ad-mono ad-hint">{draft.giftKey}</span> : null}</> : 'New gift'}
+          title={draft.id ? <>Edit gift #{draft.id} {draft.giftKey ? <span className="cp-mono cp-hint">{draft.giftKey}</span> : null}</> : 'New gift'}
           busy={saving}
           onClose={() => setDraft(null)}
           onSubmit={() => void save()}
           footer={
             <>
-              <button type="button" className="ad-btn ad-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
-              <button type="submit" className="ad-btn ad-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create gift'}</button>
+              <button type="button" className="cp-btn cp-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
+              <button type="submit" className="cp-btn cp-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create gift'}</button>
             </>
           }
         >
-          <div className="ad-form-grid is-2up">
+          <div className="cp-form-grid is-2up">
             <Field label="Gift name *" wide>
               <input autoFocus placeholder="e.g. Diamond Ring / Sports Car" value={draft.name} onChange={(e) => set({ name: e.target.value })} />
             </Field>
@@ -296,7 +296,7 @@ export default function GiftsPage() {
               label="Coin cost"
               hint={draft.category === 'lucky' && luckyMin > 0 ? `Lucky gifts start at ${luckyMin.toLocaleString()} coins. Change this in Settings → Commissions → Lucky gift minimum.` : undefined}
             >
-              <div className="ad-unit"><input type="number" inputMode="numeric" value={draft.coinCost} onChange={(e) => set({ coinCost: e.target.value })} /><span>coins</span></div>
+              <div className="cp-unit"><input type="number" inputMode="numeric" value={draft.coinCost} onChange={(e) => set({ coinCost: e.target.value })} /><span>coins</span></div>
             </Field>
             <Field label="Category">
               <select
@@ -332,12 +332,12 @@ export default function GiftsPage() {
             helpText="Looping gift sticker. MP4 plays full-screen in the room."
           />
           {draft.id ? (
-            <div className="ad-toggle-row">
-              <div className="ad-toggle-title">Active in catalog & live rooms</div>
+            <div className="cp-toggle-row">
+              <div className="cp-toggle-title">Active in catalog & live rooms</div>
               <Switch label="Active" checked={draft.isActive} onChange={(v) => set({ isActive: v })} />
             </div>
           ) : null}
-          {formError && <div className="ad-alert">{formError}</div>}
+          {formError && <div className="cp-alert">{formError}</div>}
         </Modal>
       )}
       {confirmNode}

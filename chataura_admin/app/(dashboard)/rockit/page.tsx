@@ -434,7 +434,7 @@ export default function RocketLevelsPage() {
   const SLOT_LABEL = { launch: 'Launch video', station: 'Station video', badge: 'Level badge' } as const;
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <style dangerouslySetInnerHTML={{ __html: RK_STYLES }} />
       <PageHeader
         title="Rocket levels"
@@ -446,24 +446,24 @@ export default function RocketLevelsPage() {
           </>
         }
         actions={
-          <button type="button" className="ad-btn ad-btn-ghost ad-btn-lg" onClick={() => setNewName('Rocket Season')} disabled={busy !== ''}>
+          <button type="button" className="cp-btn cp-btn-ghost cp-btn-lg" onClick={() => setNewName('Rocket Season')} disabled={busy !== ''}>
             + New campaign
           </button>
         }
       />
 
-      {msg && <div className={`ad-alert is-flush ${msg.ok ? 'is-success' : ''}`} style={{ marginBottom: 16 }}>{msg.text}</div>}
+      {msg && <div className={`cp-alert is-flush ${msg.ok ? 'is-success' : ''}`} style={{ marginBottom: 16 }}>{msg.text}</div>}
 
       {loading && !selected ? (
-        <div style={{ display: 'grid', gap: 14 }}><div className="ad-skeleton is-card" /><div className="ad-skeleton is-card" /></div>
+        <div style={{ display: 'grid', gap: 14 }}><div className="cp-skeleton is-card" /><div className="cp-skeleton is-card" /></div>
       ) : !selected || !settings ? (
-        <section className="ad-card"><div className="ad-empty"><div className="ad-empty-title">No campaigns yet</div>Create one to get the standard LV1–LV5 ladder.</div></section>
+        <section className="cp-card"><div className="cp-empty"><div className="cp-empty-title">No campaigns yet</div>Create one to get the standard LV1–LV5 ladder.</div></section>
       ) : (
         <>
           {campaigns.length > 1 && (
-            <div className="ad-chips" style={{ marginBottom: 14 }}>
+            <div className="cp-chips" style={{ marginBottom: 14 }}>
               {campaigns.map((c) => (
-                <button key={c.id} type="button" className={`ad-chip ${c.id === selected.id ? 'is-active' : ''}`} onClick={() => choose(c)}>
+                <button key={c.id} type="button" className={`cp-chip ${c.id === selected.id ? 'is-active' : ''}`} onClick={() => choose(c)}>
                   #{c.id} {c.name}{c.status ? ' · Active' : ''}
                 </button>
               ))}
@@ -471,7 +471,7 @@ export default function RocketLevelsPage() {
           )}
 
           <Section collapsible title="Campaign settings" subtitle={`${settings.name} · ${settings.status ? 'Active' : 'Inactive'} · min contribution ${short(settings.minimum_contribution_required)} coins`}>
-            <div className="ad-form-grid rk-settings">
+            <div className="cp-form-grid rk-settings">
               <Field label="Name">
                 <input value={settings.name} onChange={(e) => setSettings({ ...settings, name: e.target.value })} />
               </Field>
@@ -483,7 +483,7 @@ export default function RocketLevelsPage() {
                 />
               </Field>
               <Field label="Minimum contribution">
-                <div className="ad-unit">
+                <div className="cp-unit">
                   <input type="number" min={1} value={settings.minimum_contribution_required} onChange={(e) => setSettings({ ...settings, minimum_contribution_required: Number(e.target.value) })} />
                   <span>coins</span>
                 </div>
@@ -511,34 +511,34 @@ export default function RocketLevelsPage() {
                 ['daily_reset_enabled', 'Daily reset to LV1', 'Every room goes back to LV1 at the reset time.'],
                 ['carry_overflow', 'Carry extra coins', 'Coins above a level’s target count toward the next level.'],
               ] as const).map(([k, title, hint]) => (
-                <div key={k} className="ad-toggle-row">
+                <div key={k} className="cp-toggle-row">
                   <div>
-                    <div className="ad-toggle-title">{title}</div>
-                    <div className="ad-toggle-hint">{hint}</div>
+                    <div className="cp-toggle-title">{title}</div>
+                    <div className="cp-toggle-hint">{hint}</div>
                   </div>
                   <Switch label={title} checked={Boolean(settings[k])} onChange={(v) => setSettings({ ...settings, [k]: v })} />
                 </div>
               ))}
             </div>
-            <div className="ad-form-actions">
-              <button type="button" className="ad-btn ad-btn-primary ad-btn-lg" disabled={busy !== ''} onClick={() => void saveSettings()}>
+            <div className="cp-form-actions">
+              <button type="button" className="cp-btn cp-btn-primary cp-btn-lg" disabled={busy !== ''} onClick={() => void saveSettings()}>
                 {busy === 'settings' ? 'Saving…' : 'Save settings'}
               </button>
             </div>
           </Section>
 
-          <section className="ad-card">
-            <div className="ad-card-head">
+          <section className="cp-card">
+            <div className="cp-card-head">
               <div>
                 <h2>Ladder</h2>
                 <p>{drafts.length} levels · full climb {short(totalLadder)} coins</p>
               </div>
-              <div className="ad-actions">
-                <button type="button" className="ad-btn ad-btn-ghost" onClick={() => setOpen(open.size ? new Set() : new Set(drafts.map((d) => d.level)))}>
+              <div className="cp-actions">
+                <button type="button" className="cp-btn cp-btn-ghost" onClick={() => setOpen(open.size ? new Set() : new Set(drafts.map((d) => d.level)))}>
                   {open.size ? 'Collapse all' : 'Expand all'}
                 </button>
-                <button type="button" className="ad-btn ad-btn-ghost" onClick={removeLastLevel} disabled={drafts.length <= 1}>Remove last</button>
-                <button type="button" className="ad-btn ad-btn-soft" onClick={addLevel} disabled={drafts.length >= 50}>+ Add level</button>
+                <button type="button" className="cp-btn cp-btn-ghost" onClick={removeLastLevel} disabled={drafts.length <= 1}>Remove last</button>
+                <button type="button" className="cp-btn cp-btn-soft" onClick={addLevel} disabled={drafts.length >= 50}>+ Add level</button>
               </div>
             </div>
 
@@ -567,8 +567,8 @@ export default function RocketLevelsPage() {
                             {luckyPool > 0 ? ` · Lucky ${short(luckyPool)}` : ''}
                           </span>
                         </span>
-                        {!d.saved && <span className="ad-badge amber">New</span>}
-                        {errs && <span className="ad-badge red">{errs.length} issue{errs.length > 1 ? 's' : ''}</span>}
+                        {!d.saved && <span className="cp-badge amber">New</span>}
+                        {errs && <span className="cp-badge red">{errs.length} issue{errs.length > 1 ? 's' : ''}</span>}
                         <span className="rk-chevron" aria-hidden>{isOpen ? '−' : '+'}</span>
                       </button>
                       <Switch label={`LV${d.level} active`} checked={d.is_active} onChange={(v) => patch(d.level, { is_active: v })} />
@@ -585,10 +585,10 @@ export default function RocketLevelsPage() {
                             <input value={d.name} onChange={(e) => patch(d.level, { name: e.target.value })} />
                           </Field>
                           <Field label="Target">
-                            <div className="ad-unit"><input type="number" min={1} value={d.threshold_coins} onChange={(e) => patch(d.level, { threshold_coins: e.target.value })} /><span>coins</span></div>
+                            <div className="cp-unit"><input type="number" min={1} value={d.threshold_coins} onChange={(e) => patch(d.level, { threshold_coins: e.target.value })} /><span>coins</span></div>
                           </Field>
                           <Field label="Reward pool">
-                            <div className="ad-unit"><input type="number" min={0} max={100} step={0.5} value={d.reward_pool_percentage} onChange={(e) => patch(d.level, { reward_pool_percentage: e.target.value })} /><span>%</span></div>
+                            <div className="cp-unit"><input type="number" min={0} max={100} step={0.5} value={d.reward_pool_percentage} onChange={(e) => patch(d.level, { reward_pool_percentage: e.target.value })} /><span>%</span></div>
                           </Field>
                           <Field
                             label={<>Prize split · {rules.length} winners · <span className={Math.abs(ruleSum - 100) > 0.5 ? 'tone-red' : 'tone-green'}>{ruleSum}%</span></>}
@@ -598,7 +598,7 @@ export default function RocketLevelsPage() {
                             <input value={d.reward_distribution_rules} onChange={(e) => patch(d.level, { reward_distribution_rules: e.target.value })} />
                           </Field>
                           <Field label="Time limit" hint="0 = until the daily reset.">
-                            <div className="ad-unit"><input type="number" min={0} value={d.duration_minutes} onChange={(e) => patch(d.level, { duration_minutes: e.target.value })} /><span>min</span></div>
+                            <div className="cp-unit"><input type="number" min={0} value={d.duration_minutes} onChange={(e) => patch(d.level, { duration_minutes: e.target.value })} /><span>min</span></div>
                           </Field>
                           <Field label="Theme colour">
                             <input className="rk-color" type="color" value={d.theme_color} onChange={(e) => patch(d.level, { theme_color: e.target.value.toUpperCase() })} />
@@ -612,13 +612,13 @@ export default function RocketLevelsPage() {
                             </select>
                           </Field>
                           <Field label="Frame days">
-                            <div className="ad-unit"><input type="number" min={1} value={d.frame_days} onChange={(e) => patch(d.level, { frame_days: e.target.value })} /><span>days</span></div>
+                            <div className="cp-unit"><input type="number" min={1} value={d.frame_days} onChange={(e) => patch(d.level, { frame_days: e.target.value })} /><span>days</span></div>
                           </Field>
                           <Field label="Lucky audience" hint="0 = off.">
-                            <div className="ad-unit"><input type="number" min={0} max={100} step={1} value={d.lucky_audience_percent} onChange={(e) => patch(d.level, { lucky_audience_percent: e.target.value })} /><span>%</span></div>
+                            <div className="cp-unit"><input type="number" min={0} max={100} step={1} value={d.lucky_audience_percent} onChange={(e) => patch(d.level, { lucky_audience_percent: e.target.value })} /><span>%</span></div>
                           </Field>
                           <Field label="Lucky pool" hint="Of the target.">
-                            <div className="ad-unit"><input type="number" min={0} max={100} step={0.5} value={d.lucky_pool_percentage} onChange={(e) => patch(d.level, { lucky_pool_percentage: e.target.value })} /><span>%</span></div>
+                            <div className="cp-unit"><input type="number" min={0} max={100} step={0.5} value={d.lucky_pool_percentage} onChange={(e) => patch(d.level, { lucky_pool_percentage: e.target.value })} /><span>%</span></div>
                           </Field>
                           <Field label="XP per coin won">
                             <input type="number" min={0} step={0.01} value={d.xp_rate} onChange={(e) => patch(d.level, { xp_rate: e.target.value })} />
@@ -654,7 +654,7 @@ export default function RocketLevelsPage() {
                                     <span>{slot === 'badge' ? 'Built-in badge' : 'No video yet'}</span>
                                   )}
                                 </div>
-                                <label className={`ad-btn ad-btn-ghost ad-btn-block ${!d.saved || busy !== '' ? 'is-disabled' : ''}`}>
+                                <label className={`cp-btn cp-btn-ghost cp-btn-block ${!d.saved || busy !== '' ? 'is-disabled' : ''}`}>
                                   {busy === key ? 'Uploading…' : !d.saved ? 'Publish first' : url ? 'Replace' : 'Upload'}
                                   <input
                                     type="file"
@@ -689,22 +689,22 @@ export default function RocketLevelsPage() {
 
             <div className={`rk-publish ${dirty ? 'is-dirty' : ''}`}>
               <span>{dirty ? 'Unpublished ladder changes' : 'Ladder is live'}</span>
-              <button type="button" className="ad-btn ad-btn-accent ad-btn-lg" disabled={busy !== '' || !dirty} onClick={() => void saveLevels()}>
+              <button type="button" className="cp-btn cp-btn-accent cp-btn-lg" disabled={busy !== '' || !dirty} onClick={() => void saveLevels()}>
                 {busy === 'levels' ? 'Publishing…' : 'Publish ladder'}
               </button>
             </div>
           </section>
 
           <Section title="Change history" subtitle="Restore the campaign to how it was before any recorded change." bodyClassName="">
-            <div className="ad-table-wrap">
-              <table className="ad-table is-stack">
+            <div className="cp-table-wrap">
+              <table className="cp-table is-stack">
                 <thead>
                   <tr>
-                    <th className="ad-th">#</th>
-                    <th className="ad-th">Change</th>
-                    <th className="ad-th">When</th>
-                    <th className="ad-th">Admin</th>
-                    <th className="ad-th ad-num"></th>
+                    <th className="cp-th">#</th>
+                    <th className="cp-th">Change</th>
+                    <th className="cp-th">When</th>
+                    <th className="cp-th">Admin</th>
+                    <th className="cp-th cp-num"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -712,18 +712,18 @@ export default function RocketLevelsPage() {
                     <EmptyRow cols={5} title="No changes recorded yet" hint="Edits to settings and the ladder appear here." />
                   ) : (
                     audit.map((a) => (
-                      <tr key={a.id} className="ad-row">
-                        <td className="ad-td ad-id is-hide-sm">#{a.id}</td>
-                        <td className="ad-td is-main" style={{ textTransform: 'capitalize', fontWeight: 600 }}>
+                      <tr key={a.id} className="cp-row">
+                        <td className="cp-td cp-id is-hide-sm">#{a.id}</td>
+                        <td className="cp-td is-main" style={{ textTransform: 'capitalize', fontWeight: 600 }}>
                           {a.action.replace(/_/g, ' ').toLowerCase()}
-                          <span className="ad-mobile-only ad-hint">#{a.id}</span>
+                          <span className="cp-mobile-only cp-hint">#{a.id}</span>
                         </td>
-                        <td className="ad-td" data-label="When">{new Date(a.created_at).toLocaleString()}</td>
-                        <td className="ad-td" data-label="Admin">{a.actor_id ?? '—'}</td>
-                        <td className="ad-td ad-num is-actions">
+                        <td className="cp-td" data-label="When">{new Date(a.created_at).toLocaleString()}</td>
+                        <td className="cp-td" data-label="Admin">{a.actor_id ?? '—'}</td>
+                        <td className="cp-td cp-num is-actions">
                           {a.before != null && (
-                            <div className="ad-actions">
-                              <button type="button" className="ad-btn ad-btn-ghost" disabled={busy !== ''} onClick={() => void restore(a)}>
+                            <div className="cp-actions">
+                              <button type="button" className="cp-btn cp-btn-ghost" disabled={busy !== ''} onClick={() => void restore(a)}>
                                 Restore before this
                               </button>
                             </div>
@@ -735,7 +735,7 @@ export default function RocketLevelsPage() {
                 </tbody>
               </table>
             </div>
-            <p className="ad-hint" style={{ fontSize: 12, margin: 0, padding: '10px 20px 14px' }}>
+            <p className="cp-hint" style={{ fontSize: 12, margin: 0, padding: '10px 20px 14px' }}>
               API: {API}/admin/rockit · Media is stored on Google Cloud Storage under fx/v1/rocket/lv&lt;N&gt;/.
             </p>
           </Section>
@@ -749,12 +749,12 @@ export default function RocketLevelsPage() {
           onSubmit={() => void createCampaign(newName)}
           footer={
             <>
-              <button type="button" className="ad-btn ad-btn-ghost" onClick={() => setNewName(null)}>Cancel</button>
-              <button type="submit" className="ad-btn ad-btn-primary" disabled={!newName.trim()}>Create</button>
+              <button type="button" className="cp-btn cp-btn-ghost" onClick={() => setNewName(null)}>Cancel</button>
+              <button type="submit" className="cp-btn cp-btn-primary" disabled={!newName.trim()}>Create</button>
             </>
           }
         >
-          <p className="ad-modal-text">Created inactive with the standard LV1–LV5 ladder.</p>
+          <p className="cp-modal-text">Created inactive with the standard LV1–LV5 ladder.</p>
           <Field label="Campaign name">
             <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} />
           </Field>
@@ -773,8 +773,8 @@ const RK_STYLES = `
 .rk-level.has-error { border-color: #fca5a5; }
 .rk-level.is-off .rk-level-toggle { opacity: 0.55; }
 .rk-level-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px 10px 10px; }
-.ad-page .rk-level-toggle { all: unset; flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; cursor: pointer; padding: 2px 0; }
-.ad-page .rk-level-toggle:focus-visible { outline: 2px solid #4f46e5; outline-offset: 4px; border-radius: 6px; }
+.cp-page .rk-level-toggle { all: unset; flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; cursor: pointer; padding: 2px 0; }
+.cp-page .rk-level-toggle:focus-visible { outline: 2px solid #4f46e5; outline-offset: 4px; border-radius: 6px; }
 .rk-lv { color: #fff; font-weight: 800; border-radius: 8px; padding: 5px 9px; font-size: 0.8rem; flex-shrink: 0; text-shadow: 0 1px 1px rgba(0,0,0,0.25); }
 .rk-level-title { display: grid; min-width: 0; flex: 1; }
 .rk-level-title strong { font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -785,7 +785,7 @@ const RK_STYLES = `
 .rk-econ strong { color: #111827; }
 .rk-fields { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; }
 .rk-span2 { grid-column: span 2; }
-.ad-page .rk-color { padding: 3px; height: 40px; width: 100%; border: 1px solid #d1d5db; border-radius: 9px; background: #fff; cursor: pointer; }
+.cp-page .rk-color { padding: 3px; height: 40px; width: 100%; border: 1px solid #d1d5db; border-radius: 9px; background: #fff; cursor: pointer; }
 .rk-media { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
 .rk-slot { border: 1px dashed #d1d5db; border-radius: 12px; padding: 10px; background: #f9fafb; display: grid; gap: 8px; min-width: 0; }
 .rk-slot-label { font-size: 0.78rem; font-weight: 700; color: #374151; display: flex; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
@@ -793,8 +793,8 @@ const RK_STYLES = `
 .rk-slot-preview { height: 120px; background: #0b1b4a; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .rk-slot-preview img, .rk-slot-preview video { max-height: 100%; max-width: 100%; }
 .rk-slot-preview span { color: #9cc4ff; font-size: 0.75rem; text-align: center; padding: 0 6px; }
-.ad-page .rk-slot .ad-btn { cursor: pointer; }
-.ad-page .rk-slot .ad-btn.is-disabled { opacity: 0.5; cursor: not-allowed; }
+.cp-page .rk-slot .cp-btn { cursor: pointer; }
+.cp-page .rk-slot .cp-btn.is-disabled { opacity: 0.5; cursor: not-allowed; }
 .rk-errs { margin: 12px 0 0; color: #b91c1c; font-size: 0.82rem; padding-left: 18px; }
 .rk-publish { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 14px; padding: 12px 20px; border-top: 1px solid #e5e7eb; background: rgba(255,255,255,0.96); backdrop-filter: blur(6px); border-radius: 0 0 14px 14px; z-index: 5; }
 .rk-publish span { font-size: 0.84rem; color: #9ca3af; }
@@ -810,7 +810,7 @@ const RK_STYLES = `
   .rk-settings, .rk-toggles { grid-template-columns: minmax(0, 1fr); }
   .rk-levels { padding: 12px; gap: 10px; }
   .rk-level-head { padding: 8px 10px 8px 8px; gap: 8px; }
-  .ad-page .rk-level-toggle { gap: 8px; }
+  .cp-page .rk-level-toggle { gap: 8px; }
   .rk-level-body { padding: 2px 12px 12px; }
   .rk-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .rk-span2 { grid-column: 1 / -1; }
@@ -818,7 +818,7 @@ const RK_STYLES = `
   .rk-slot { padding: 6px; }
   .rk-slot-label span { display: none; }
   .rk-slot-preview { height: 80px; }
-  .ad-page .rk-slot .ad-btn { padding: 7px 4px; font-size: 0.74rem; }
+  .cp-page .rk-slot .cp-btn { padding: 7px 4px; font-size: 0.74rem; }
   .rk-publish { padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); justify-content: space-between; }
 }
 `;

@@ -145,12 +145,12 @@ export function DateRangeChips({
   keys?: readonly RangeKey[];
 }) {
   return (
-    <div className="ad-chips">
+    <div className="cp-chips">
       {keys.map((k) => (
         <button
           key={k}
           type="button"
-          className={`ad-chip ${range === k ? 'is-active' : ''}`}
+          className={`cp-chip ${range === k ? 'is-active' : ''}`}
           onClick={() => {
             if (k === 'custom') {
               const today = ymd(new Date());
@@ -164,7 +164,7 @@ export function DateRangeChips({
         </button>
       ))}
       {range === 'custom' && (
-        <span className="ad-custom-range">
+        <span className="cp-custom-range">
           <input type="date" value={from} max={to || undefined} onChange={(e) => onChange({ range, from: e.target.value, to })} />
           <span>to</span>
           <input type="date" value={to} min={from || undefined} onChange={(e) => onChange({ range, from, to: e.target.value })} />
@@ -228,9 +228,9 @@ export function useToasts() {
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
   }, []);
   const node = (
-    <div className="ad-toasts" aria-live="polite">
+    <div className="cp-toasts" aria-live="polite">
       {toasts.map((t) => (
-        <div key={t.id} className={`ad-toast ${t.kind}`}>
+        <div key={t.id} className={`cp-toast ${t.kind}`}>
           {t.kind === 'success' ? '✓' : '!'} {t.text}
         </div>
       ))}
@@ -284,16 +284,16 @@ export function useConfirm() {
   }
 
   const node = state ? (
-    <div className="ad-overlay" role="dialog" aria-modal="true" onClick={() => !busy && setState(null)}>
-      <form className="ad-modal" onClick={(e) => e.stopPropagation()} onSubmit={(e) => void submit(e)}>
+    <div className="cp-overlay" role="dialog" aria-modal="true" onClick={() => !busy && setState(null)}>
+      <form className="cp-modal" onClick={(e) => e.stopPropagation()} onSubmit={(e) => void submit(e)}>
         <h2>{state.title}</h2>
-        <div className="ad-modal-text">{state.message}</div>
-        {error && <div className="ad-alert">{error}</div>}
-        <div className="ad-modal-actions">
-          <button type="button" className="ad-btn ad-btn-ghost" disabled={busy} onClick={() => setState(null)}>
+        <div className="cp-modal-text">{state.message}</div>
+        {error && <div className="cp-alert">{error}</div>}
+        <div className="cp-modal-actions">
+          <button type="button" className="cp-btn cp-btn-ghost" disabled={busy} onClick={() => setState(null)}>
             Cancel
           </button>
-          <button type="submit" autoFocus className={`ad-btn ad-btn-solid tone-${state.tone ?? 'primary'}`} disabled={busy}>
+          <button type="submit" autoFocus className={`cp-btn cp-btn-solid tone-${state.tone ?? 'primary'}`} disabled={busy}>
             {busy ? 'Working…' : state.confirmLabel}
           </button>
         </div>
@@ -325,11 +325,11 @@ export function SortTh({
 }) {
   const active = sort === column;
   return (
-    <th className="ad-th" style={{ textAlign: align }}>
+    <th className="cp-th" style={{ textAlign: align }}>
       <span
         role="button"
         tabIndex={0}
-        className={`ad-sort ${active ? 'is-active' : ''}`}
+        className={`cp-sort ${active ? 'is-active' : ''}`}
         onClick={() => onSort(column, defaultOrder)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -340,7 +340,7 @@ export function SortTh({
         title={`Sort by ${label.toLowerCase()}`}
       >
         {label}
-        <span className="ad-sort-icon">{active ? (order === 'desc' ? '▼' : '▲') : '↕'}</span>
+        <span className="cp-sort-icon">{active ? (order === 'desc' ? '▼' : '▲') : '↕'}</span>
       </span>
     </th>
   );
@@ -348,14 +348,14 @@ export function SortTh({
 
 export function Avatar({ name, url, size = 34, dot }: { name?: string | null; url?: string | null; size?: number; dot?: boolean }) {
   return (
-    <div className="ad-avatar" style={{ width: size, height: size, flexBasis: size }}>
+    <div className="cp-avatar" style={{ width: size, height: size, flexBasis: size }}>
       {url ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={url} alt="" />
       ) : (
         <span>{(name ?? '').trim().charAt(0).toUpperCase() || '?'}</span>
       )}
-      {dot && <i className="ad-online-dot" />}
+      {dot && <i className="cp-online-dot" />}
     </div>
   );
 }
@@ -365,8 +365,8 @@ export function SkeletonRows({ cols, rows = 6 }: { cols: number; rows?: number }
     <>
       {Array.from({ length: rows }).map((_, i) => (
         <tr key={`sk-${i}`}>
-          <td colSpan={cols} className="ad-td">
-            <div className="ad-skeleton" />
+          <td colSpan={cols} className="cp-td">
+            <div className="cp-skeleton" />
           </td>
         </tr>
       ))}
@@ -377,11 +377,11 @@ export function SkeletonRows({ cols, rows = 6 }: { cols: number; rows?: number }
 export function EmptyRow({ cols, title, hint, onReset }: { cols: number; title: string; hint: string; onReset?: () => void }) {
   return (
     <tr>
-      <td colSpan={cols} className="ad-empty">
-        <div className="ad-empty-title">{title}</div>
+      <td colSpan={cols} className="cp-empty">
+        <div className="cp-empty-title">{title}</div>
         <div>{hint}</div>
         {onReset && (
-          <button type="button" className="ad-btn ad-btn-ghost" onClick={onReset} style={{ marginTop: 12 }}>
+          <button type="button" className="cp-btn cp-btn-ghost" onClick={onReset} style={{ marginTop: 12 }}>
             Reset filters
           </button>
         )}
@@ -397,8 +397,8 @@ export function SearchBox({ value, onChange, onEnter, placeholder }: {
   placeholder: string;
 }) {
   return (
-    <div className="ad-search">
-      <span className="ad-search-icon" aria-hidden>
+    <div className="cp-search">
+      <span className="cp-search-icon" aria-hidden>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
       </span>
       <input
@@ -410,7 +410,7 @@ export function SearchBox({ value, onChange, onEnter, placeholder }: {
         }}
       />
       {value && (
-        <button type="button" className="ad-search-clear" onClick={() => onChange('')} aria-label="Clear search">×</button>
+        <button type="button" className="cp-search-clear" onClick={() => onChange('')} aria-label="Clear search">×</button>
       )}
     </div>
   );
@@ -422,18 +422,18 @@ export function Tabs<T extends string>({ value, onChange, tabs }: {
   tabs: { value: T; label: string; count?: number; tone?: 'green' | 'amber' | 'red' | 'gray' }[];
 }) {
   return (
-    <div className="ad-tabs" role="tablist">
+    <div className="cp-tabs" role="tablist">
       {tabs.map((t) => (
         <button
           key={t.value || 'all'}
           type="button"
           role="tab"
           aria-selected={value === t.value}
-          className={`ad-tab ${value === t.value ? 'is-active' : ''} tab-${t.tone ?? 'default'}`}
+          className={`cp-tab ${value === t.value ? 'is-active' : ''} tab-${t.tone ?? 'default'}`}
           onClick={() => onChange(t.value)}
         >
           {t.label}
-          {t.count !== undefined && <span className="ad-tab-count">{t.count.toLocaleString()}</span>}
+          {t.count !== undefined && <span className="cp-tab-count">{t.count.toLocaleString()}</span>}
         </button>
       ))}
     </div>
@@ -479,14 +479,14 @@ export function Pager({
   const to = Math.min(page * limit, total);
 
   return (
-    <div className="ad-pager">
-      <div className="ad-pager-info">
+    <div className="cp-pager">
+      <div className="cp-pager-info">
         <span>
           {total > 0 ? (
             <>Showing <strong>{from.toLocaleString()}–{to.toLocaleString()}</strong> of <strong>{total.toLocaleString()}</strong></>
           ) : '—'}
         </span>
-        <label className="ad-page-size">
+        <label className="cp-page-size">
           Rows
           <select value={limit} onChange={(e) => onLimit(Number(e.target.value))}>
             {limits.map((l) => (
@@ -496,22 +496,22 @@ export function Pager({
         </label>
       </div>
       {totalPages > 1 && (
-        <div className="ad-pager-controls">
-          <button type="button" className="ad-page-btn is-edge" disabled={loading || page <= 1} onClick={() => go(1)} aria-label="First page">«</button>
-          <button type="button" className="ad-page-btn" disabled={loading || page <= 1} onClick={() => go(page - 1)}>‹ Prev</button>
+        <div className="cp-pager-controls">
+          <button type="button" className="cp-page-btn is-edge" disabled={loading || page <= 1} onClick={() => go(1)} aria-label="First page">«</button>
+          <button type="button" className="cp-page-btn" disabled={loading || page <= 1} onClick={() => go(page - 1)}>‹ Prev</button>
           {nums.map((p, i) =>
             p === '…' ? (
-              <span key={`gap-${i}`} className="ad-page-gap">…</span>
+              <span key={`gap-${i}`} className="cp-page-gap">…</span>
             ) : (
-              <button key={p} type="button" className={`ad-page-btn ${p === page ? 'is-active' : ''}`} disabled={loading} onClick={() => go(p)}>
+              <button key={p} type="button" className={`cp-page-btn ${p === page ? 'is-active' : ''}`} disabled={loading} onClick={() => go(p)}>
                 {p}
               </button>
             ),
           )}
-          <button type="button" className="ad-page-btn" disabled={loading || page >= totalPages} onClick={() => go(page + 1)}>Next ›</button>
-          <button type="button" className="ad-page-btn is-edge" disabled={loading || page >= totalPages} onClick={() => go(totalPages)} aria-label="Last page">»</button>
+          <button type="button" className="cp-page-btn" disabled={loading || page >= totalPages} onClick={() => go(page + 1)}>Next ›</button>
+          <button type="button" className="cp-page-btn is-edge" disabled={loading || page >= totalPages} onClick={() => go(totalPages)} aria-label="Last page">»</button>
           <form
-            className="ad-jump"
+            className="cp-jump"
             onSubmit={(e) => {
               e.preventDefault();
               go(Number(input));
@@ -543,12 +543,12 @@ export async function downloadCsv(csv: string, filename: string) {
 
 export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="ad-header">
+    <div className="cp-header">
       <div>
         <h1>{title}</h1>
         {subtitle ? <p>{subtitle}</p> : null}
       </div>
-      {actions ? <div className="ad-header-actions">{actions}</div> : null}
+      {actions ? <div className="cp-header-actions">{actions}</div> : null}
     </div>
   );
 }
@@ -564,18 +564,18 @@ export function Kpi({ label, value, sub, tone, badge, active, onClick }: {
 }) {
   return (
     <div
-      className={`ad-kpi ${onClick ? 'is-clickable' : ''} ${active ? 'is-active' : ''}`}
+      className={`cp-kpi ${onClick ? 'is-clickable' : ''} ${active ? 'is-active' : ''}`}
       onClick={onClick}
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
       onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
     >
-      <div className="ad-kpi-top">
-        <div className="ad-kpi-label">{label}</div>
+      <div className="cp-kpi-top">
+        <div className="cp-kpi-label">{label}</div>
         {badge}
       </div>
-      <div className={`ad-kpi-value ${tone ? `tone-${tone}` : ''}`}>{value}</div>
-      {sub ? <div className="ad-kpi-sub">{sub}</div> : null}
+      <div className={`cp-kpi-value ${tone ? `tone-${tone}` : ''}`}>{value}</div>
+      {sub ? <div className="cp-kpi-sub">{sub}</div> : null}
     </div>
   );
 }
@@ -597,7 +597,7 @@ export function useIsPhone() {
  * Card with a header. `collapsible` sections (typically "Add new …" forms) start open on
  * desktop and closed on phones so the list they feed stays in view.
  */
-export function Section({ title, subtitle, actions, collapsible, open: openProp, onOpenChange, className = '', bodyClassName = 'ad-card-body', children }: {
+export function Section({ title, subtitle, actions, collapsible, open: openProp, onOpenChange, className = '', bodyClassName = 'cp-card-body', children }: {
   title: ReactNode;
   subtitle?: ReactNode;
   actions?: ReactNode;
@@ -617,26 +617,26 @@ export function Section({ title, subtitle, actions, collapsible, open: openProp,
 
   if (!collapsible) {
     return (
-      <section className={`ad-card ${className}`}>
-        <div className="ad-card-head">
+      <section className={`cp-card ${className}`}>
+        <div className="cp-card-head">
           <div>
             <h2>{title}</h2>
             {subtitle ? <p>{subtitle}</p> : null}
           </div>
-          {actions ? <div className="ad-actions">{actions}</div> : null}
+          {actions ? <div className="cp-actions">{actions}</div> : null}
         </div>
         <div className={bodyClassName}>{children}</div>
       </section>
     );
   }
   return (
-    <section className={`ad-card ad-collapse ${open ? 'is-open' : ''} ${className}`}>
-      <button type="button" className="ad-collapse-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+    <section className={`cp-card cp-collapse ${open ? 'is-open' : ''} ${className}`}>
+      <button type="button" className="cp-collapse-head" aria-expanded={open} onClick={() => setOpen(!open)}>
         <div>
           <h2>{title}</h2>
           {subtitle ? <p>{subtitle}</p> : null}
         </div>
-        <span className="ad-collapse-icon" aria-hidden>+</span>
+        <span className="cp-collapse-icon" aria-hidden>+</span>
       </button>
       {open ? <div className={bodyClassName}>{children}</div> : null}
     </section>
@@ -645,17 +645,17 @@ export function Section({ title, subtitle, actions, collapsible, open: openProp,
 
 export function Field({ label, hint, wide, className = '', children }: { label: ReactNode; hint?: ReactNode; wide?: boolean; className?: string; children: ReactNode }) {
   return (
-    <label className={`ad-field ${wide ? 'is-wide' : ''} ${className}`}>
+    <label className={`cp-field ${wide ? 'is-wide' : ''} ${className}`}>
       {label}
       {children}
-      {hint ? <span className="ad-field-hint">{hint}</span> : null}
+      {hint ? <span className="cp-field-hint">{hint}</span> : null}
     </label>
   );
 }
 
 export function Switch({ checked, onChange, disabled, label }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; label: string }) {
   return (
-    <label className="ad-switch" title={label}>
+    <label className="cp-switch" title={label}>
       <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} aria-label={label} />
       <span />
     </label>
@@ -683,22 +683,22 @@ export function Modal({ title, onClose, busy, size, children, footer, onSubmit }
   }, [busy]);
   const inner = (
     <>
-      <div className="ad-modal-head">
+      <div className="cp-modal-head">
         <h2>{title}</h2>
-        <button type="button" className="ad-close" aria-label="Close" disabled={busy} onClick={onClose}>×</button>
+        <button type="button" className="cp-close" aria-label="Close" disabled={busy} onClick={onClose}>×</button>
       </div>
       {children}
-      {footer ? <div className="ad-modal-actions">{footer}</div> : null}
+      {footer ? <div className="cp-modal-actions">{footer}</div> : null}
     </>
   );
   return (
-    <div className="ad-overlay" role="dialog" aria-modal="true" onClick={() => !busy && onClose()}>
+    <div className="cp-overlay" role="dialog" aria-modal="true" onClick={() => !busy && onClose()}>
       {onSubmit ? (
-        <form className={`ad-modal ${size ? `is-${size}` : ''}`} onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); onSubmit(); }}>
+        <form className={`cp-modal ${size ? `is-${size}` : ''}`} onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); onSubmit(); }}>
           {inner}
         </form>
       ) : (
-        <div className={`ad-modal ${size ? `is-${size}` : ''}`} onClick={(e) => e.stopPropagation()}>
+        <div className={`cp-modal ${size ? `is-${size}` : ''}`} onClick={(e) => e.stopPropagation()}>
           {inner}
         </div>
       )}
@@ -746,24 +746,24 @@ export function MediaCard({ thumb, thumbClass = '', flags, title, meta, extra, a
   onDelete?: () => void;
 }) {
   return (
-    <div className={`ad-media-card ${active === false ? 'is-off' : ''} ${busy ? 'is-busy' : ''}`}>
-      <div className={`ad-media-thumb ${thumbClass}`} onClick={onEdit} role={onEdit ? 'button' : undefined}>
+    <div className={`cp-media-card ${active === false ? 'is-off' : ''} ${busy ? 'is-busy' : ''}`}>
+      <div className={`cp-media-thumb ${thumbClass}`} onClick={onEdit} role={onEdit ? 'button' : undefined}>
         {thumb}
-        {flags ? <div className="ad-media-flags">{flags}</div> : null}
+        {flags ? <div className="cp-media-flags">{flags}</div> : null}
       </div>
-      <div className="ad-media-body">
-        <div className="ad-media-title" title={typeof title === 'string' ? title : undefined}>{title}</div>
-        {meta ? <div className="ad-media-meta">{meta}</div> : null}
+      <div className="cp-media-body">
+        <div className="cp-media-title" title={typeof title === 'string' ? title : undefined}>{title}</div>
+        {meta ? <div className="cp-media-meta">{meta}</div> : null}
         {extra}
       </div>
-      <div className="ad-media-actions">
+      <div className="cp-media-actions">
         {onToggle && active !== undefined ? (
           <Switch label={active ? 'Disable' : 'Enable'} checked={active} disabled={busy} onChange={onToggle} />
         ) : null}
         <span style={{ flex: 1 }} />
-        {onEdit ? <button type="button" className="ad-btn ad-btn-ghost" onClick={onEdit}>Edit</button> : null}
+        {onEdit ? <button type="button" className="cp-btn cp-btn-ghost" onClick={onEdit}>Edit</button> : null}
         {onDelete ? (
-          <button type="button" className="ad-btn ad-btn-danger-soft ad-icon-btn" aria-label="Delete" title="Delete" onClick={onDelete}>
+          <button type="button" className="cp-btn cp-btn-danger-soft cp-icon-btn" aria-label="Delete" title="Delete" onClick={onDelete}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2m1 0-1 14H8L7 6" /></svg>
           </button>
         ) : null}
@@ -774,8 +774,8 @@ export function MediaCard({ thumb, thumbClass = '', flags, title, meta, extra, a
 
 export function MediaSkeleton({ count = 8 }: { count?: number }) {
   return (
-    <div className="ad-media-grid">
-      {Array.from({ length: count }).map((_, i) => <div key={i} className="ad-skeleton is-card" />)}
+    <div className="cp-media-grid">
+      {Array.from({ length: count }).map((_, i) => <div key={i} className="cp-skeleton is-card" />)}
     </div>
   );
 }

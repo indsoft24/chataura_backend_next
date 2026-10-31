@@ -65,40 +65,40 @@ export default function BattlePage() {
   }
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <PageHeader
         title="Battle"
         subtitle="The host, co-host or a room admin starts a timed gifting battle: left seats (red) vs right seats (blue). When time ends the team with more gifts wins. Rewards are paid in coins."
       />
-      {msg && <div className={`ad-alert is-flush ${msg.ok ? 'is-success' : ''}`} style={{ marginBottom: 14 }}>{msg.text}</div>}
-      <section className="ad-card">
-        <div className="ad-card-head"><div><h2>Settings</h2></div></div>
-        <div className="ad-card-body">
-          <div className="ad-toggle-row">
+      {msg && <div className={`cp-alert is-flush ${msg.ok ? 'is-success' : ''}`} style={{ marginBottom: 14 }}>{msg.text}</div>}
+      <section className="cp-card">
+        <div className="cp-card-head"><div><h2>Settings</h2></div></div>
+        <div className="cp-card-body">
+          <div className="cp-toggle-row">
             <div>
-              <div className="ad-toggle-title">Battle</div>
-              <div className={`ad-toggle-hint ${enabled ? 'tone-green' : 'tone-red'}`}>
+              <div className="cp-toggle-title">Battle</div>
+              <div className={`cp-toggle-hint ${enabled ? 'tone-green' : 'tone-red'}`}>
                 {enabled ? 'On — rooms can start a battle' : 'Off — nobody can start one (a running battle keeps going until it ends)'}
               </div>
             </div>
             <Switch label="Battle enabled" checked={enabled} onChange={setEnabled} />
           </div>
-          <div className="ad-form-grid is-2up">
+          <div className="cp-form-grid is-2up">
             <Field label="Winning team share" hint="% of all gifts sent during the battle, split evenly among the seated winners.">
-              <div className="ad-unit"><input type="number" min={0} max={100} step="0.1" value={winnerPct} onChange={(e) => setWinnerPct(e.target.value)} /><span>%</span></div>
+              <div className="cp-unit"><input type="number" min={0} max={100} step="0.1" value={winnerPct} onChange={(e) => setWinnerPct(e.target.value)} /><span>%</span></div>
             </Field>
             <Field label="Initiator share" hint="% of all gifts paid to whoever started the battle. Both shares together can't pass 100%.">
-              <div className="ad-unit"><input type="number" min={0} max={100} step="0.1" value={initiatorPct} onChange={(e) => setInitiatorPct(e.target.value)} /><span>%</span></div>
+              <div className="cp-unit"><input type="number" min={0} max={100} step="0.1" value={initiatorPct} onChange={(e) => setInitiatorPct(e.target.value)} /><span>%</span></div>
             </Field>
             <Field label="Shortest battle">
-              <div className="ad-unit"><input type="number" min={1} max={120} value={minMinutes} onChange={(e) => setMinMinutes(e.target.value)} /><span>min</span></div>
+              <div className="cp-unit"><input type="number" min={1} max={120} value={minMinutes} onChange={(e) => setMinMinutes(e.target.value)} /><span>min</span></div>
             </Field>
             <Field label="Longest battle">
-              <div className="ad-unit"><input type="number" min={1} max={240} value={maxMinutes} onChange={(e) => setMaxMinutes(e.target.value)} /><span>min</span></div>
+              <div className="cp-unit"><input type="number" min={1} max={240} value={maxMinutes} onChange={(e) => setMaxMinutes(e.target.value)} /><span>min</span></div>
             </Field>
           </div>
-          <div className="ad-form-actions">
-            <button type="button" className="ad-btn ad-btn-primary ad-btn-lg" onClick={save} disabled={busy}>
+          <div className="cp-form-actions">
+            <button type="button" className="cp-btn cp-btn-primary cp-btn-lg" onClick={save} disabled={busy}>
               {busy ? 'Working…' : 'Save'}
             </button>
           </div>

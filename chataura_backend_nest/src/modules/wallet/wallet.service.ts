@@ -25,6 +25,7 @@ import { ensureExtraGiftCatalogs } from '../room/extra-gift-catalogs';
 import { RelationshipEngineService } from '../relationship/relationship-engine.service';
 import { LedgerService } from './ledger.service';
 import { isWholesaleAudience, splitPackagesForViewer } from './coin-seller.rules';
+import { tierOf } from '../../common/admin-tier';
 
 @Injectable()
 export class WalletService {
@@ -458,12 +459,13 @@ export class WalletService {
     const sender = await this.prisma.user.findUniqueOrThrow({
       where: { id: senderId },
     });
-    if (sender.role !== 'seller' && sender.role !== 'admin') {
+    // Staff (ceo/manager/admin) never hand out coins; only sellers, from coins they bought.
+    if (sender.role !== 'seller' && tierOf(sender.role, sender.staffBadgeType) !== 'superadmin') {
       throw new ForbiddenException({
         success: false,
         error: {
           code: 'FORBIDDEN',
-          message: 'Only sellers can transfer coins',
+          message: 'Only coin sellers can transfer coins',
         },
       });
     }

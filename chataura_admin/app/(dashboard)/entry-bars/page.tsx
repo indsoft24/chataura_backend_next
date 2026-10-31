@@ -136,15 +136,15 @@ export default function EntryBarsPage() {
   const set = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <PageHeader
         title="Entry Bars"
         subtitle="Arrival effects shown when users enter party rooms, unlocked by user level or SVIP level. A video plays full screen over the room."
-        actions={<button type="button" className="ad-btn ad-btn-accent ad-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New entry bar</button>}
+        actions={<button type="button" className="cp-btn cp-btn-accent cp-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New entry bar</button>}
       />
 
-      <section className="ad-card">
-        <div className="ad-toolbar">
+      <section className="cp-card">
+        <div className="cp-toolbar">
           <SearchBox value={q} onChange={setQ} placeholder="Search name or ID" />
           <Field label="Status">
             <select value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -161,16 +161,16 @@ export default function EntryBarsPage() {
             </select>
           </Field>
         </div>
-        <div className="ad-summary">Showing <strong>{visible.length}</strong> of <strong>{bars.length}</strong></div>
+        <div className="cp-summary">Showing <strong>{visible.length}</strong> of <strong>{bars.length}</strong></div>
         {loading && bars.length === 0 ? (
           <MediaSkeleton count={4} />
         ) : visible.length === 0 ? (
-          <div className="ad-empty">
-            <div className="ad-empty-title">{bars.length ? 'No entry bars match' : 'No entry bars yet'}</div>
+          <div className="cp-empty">
+            <div className="cp-empty-title">{bars.length ? 'No entry bars match' : 'No entry bars yet'}</div>
             {bars.length ? 'Try a different filter.' : 'Add the first arrival banner.'}
           </div>
         ) : (
-          <div className="ad-media-grid is-wide">
+          <div className="cp-media-grid is-wide">
             {visible.map((b) => (
               <MediaCard
                 key={b.id}
@@ -178,7 +178,7 @@ export default function EntryBarsPage() {
                 thumb={<MediaThumb imageUrl={b.image_url} animationUrl={b.animation_url} composite={b.composite_mode} alt={b.name} fallback="🚀" />}
                 flags={
                   <>
-                    <span className="ad-badge amber">{b.svip_level ? `SVIP ${b.svip_level}+` : `Lv ${b.level_required}+`}</span>
+                    <span className="cp-badge amber">{b.svip_level ? `SVIP ${b.svip_level}+` : `Lv ${b.level_required}+`}</span>
                     <span />
                   </>
                 }
@@ -217,12 +217,12 @@ export default function EntryBarsPage() {
           onSubmit={() => void save()}
           footer={
             <>
-              <button type="button" className="ad-btn ad-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
-              <button type="submit" className="ad-btn ad-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create entry bar'}</button>
+              <button type="button" className="cp-btn cp-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
+              <button type="submit" className="cp-btn cp-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create entry bar'}</button>
             </>
           }
         >
-          <div className="ad-form-grid is-2up">
+          <div className="cp-form-grid is-2up">
             <Field label="Name *">
               <input autoFocus placeholder="e.g. Phoenix Dragon Entrance" value={draft.name} onChange={(e) => set({ name: e.target.value })} />
             </Field>
@@ -259,12 +259,12 @@ export default function EntryBarsPage() {
             </select>
           </Field>
           {draft.id ? (
-            <div className="ad-toggle-row">
-              <div className="ad-toggle-title">Active</div>
+            <div className="cp-toggle-row">
+              <div className="cp-toggle-title">Active</div>
               <Switch label="Active" checked={draft.isActive} onChange={(v) => set({ isActive: v })} />
             </div>
           ) : null}
-          {formError && <div className="ad-alert">{formError}</div>}
+          {formError && <div className="cp-alert">{formError}</div>}
         </Modal>
       )}
       {confirmNode}

@@ -148,18 +148,18 @@ export default function PackagesPage() {
   const set = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <PageHeader
         title="Coin Packages"
         subtitle="Coin bundles, pricing and discounts shown in the recharge store, for users and for authorized sellers."
         actions={
-          <button type="button" className="ad-btn ad-btn-accent ad-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>
+          <button type="button" className="cp-btn cp-btn-accent cp-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>
             + New package
           </button>
         }
       />
 
-      <section className="ad-card">
+      <section className="cp-card">
         <Tabs
           value={audience}
           onChange={setAudience}
@@ -169,7 +169,7 @@ export default function PackagesPage() {
             { value: 'coin_seller', label: 'Sellers', count: counts.coin_seller },
           ]}
         />
-        <div className="ad-toolbar">
+        <div className="cp-toolbar">
           <SearchBox value={q} onChange={setQ} placeholder="Search coins, price or ID" />
           <Field label="Status">
             <select value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -186,25 +186,25 @@ export default function PackagesPage() {
             </select>
           </Field>
         </div>
-        <div className="ad-summary">
+        <div className="cp-summary">
           Showing <strong>{visible.length}</strong> of <strong>{rows.length}</strong>
           {filtered ? (
             <>
               {' · '}
-              <button type="button" className="ad-link" onClick={() => { setAudience(''); setStatus(''); setQ(''); }}>Clear filters</button>
+              <button type="button" className="cp-link" onClick={() => { setAudience(''); setStatus(''); setQ(''); }}>Clear filters</button>
             </>
           ) : null}
         </div>
 
-        <div className="ad-table-wrap">
-          <table className="ad-table is-stack">
+        <div className="cp-table-wrap">
+          <table className="cp-table is-stack">
             <thead>
               <tr>
-                <th className="ad-th">Package</th>
-                <th className="ad-th">Audience</th>
-                <th className="ad-th ad-num">Price</th>
-                <th className="ad-th">Active</th>
-                <th className="ad-th ad-num">Actions</th>
+                <th className="cp-th">Package</th>
+                <th className="cp-th">Audience</th>
+                <th className="cp-th cp-num">Price</th>
+                <th className="cp-th">Active</th>
+                <th className="cp-th cp-num">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -219,30 +219,30 @@ export default function PackagesPage() {
                 />
               ) : (
                 visible.map((p) => (
-                  <tr key={p.id} className={`ad-row ${busyId === p.id ? 'is-busy' : ''} ${p.is_active ? '' : 'is-muted'}`}>
-                    <td className="ad-td is-main">
+                  <tr key={p.id} className={`cp-row ${busyId === p.id ? 'is-busy' : ''} ${p.is_active ? '' : 'is-muted'}`}>
+                    <td className="cp-td is-main">
                       <div>
-                        <div className="ad-name" style={{ fontSize: '1rem' }}>🪙 {p.coins.toLocaleString()}</div>
-                        <div className="ad-sub">Package #{p.id}</div>
+                        <div className="cp-name" style={{ fontSize: '1rem' }}>🪙 {p.coins.toLocaleString()}</div>
+                        <div className="cp-sub">Package #{p.id}</div>
                       </div>
-                      <span className="ad-mobile-only"><span className={`ad-badge ${p.audience === 'user' ? 'indigo' : 'amber'}`}>{AUDIENCE_LABEL[p.audience] ?? p.audience}</span></span>
+                      <span className="cp-mobile-only"><span className={`cp-badge ${p.audience === 'user' ? 'indigo' : 'amber'}`}>{AUDIENCE_LABEL[p.audience] ?? p.audience}</span></span>
                     </td>
-                    <td className="ad-td is-hide-sm">
-                      <span className={`ad-badge ${p.audience === 'user' ? 'indigo' : 'amber'}`}>{AUDIENCE_LABEL[p.audience] ?? p.audience}</span>
+                    <td className="cp-td is-hide-sm">
+                      <span className={`cp-badge ${p.audience === 'user' ? 'indigo' : 'amber'}`}>{AUDIENCE_LABEL[p.audience] ?? p.audience}</span>
                     </td>
-                    <td className="ad-td ad-num" data-label="Price">
+                    <td className="cp-td cp-num" data-label="Price">
                       <strong className="tone-green">{p.price} {p.currency}</strong>
-                      {p.original_price ? <span className="ad-hint" style={{ marginLeft: 6, textDecoration: 'line-through', fontSize: '0.8rem' }}>{p.original_price}</span> : null}
+                      {p.original_price ? <span className="cp-hint" style={{ marginLeft: 6, textDecoration: 'line-through', fontSize: '0.8rem' }}>{p.original_price}</span> : null}
                     </td>
-                    <td className="ad-td" data-label="Active">
+                    <td className="cp-td" data-label="Active">
                       <Switch label={`Package #${p.id} active`} checked={p.is_active} disabled={busyId === p.id} onChange={() => void toggleActive(p)} />
                     </td>
-                    <td className="ad-td ad-num is-actions">
-                      <div className="ad-actions">
-                        <button type="button" className="ad-btn ad-btn-ghost" onClick={() => { setFormError(''); setDraft({ id: p.id, coins: String(p.coins), price: String(p.price), originalPrice: p.original_price ? String(p.original_price) : '', currency: p.currency, audience: p.audience, isActive: p.is_active }); }}>
+                    <td className="cp-td cp-num is-actions">
+                      <div className="cp-actions">
+                        <button type="button" className="cp-btn cp-btn-ghost" onClick={() => { setFormError(''); setDraft({ id: p.id, coins: String(p.coins), price: String(p.price), originalPrice: p.original_price ? String(p.original_price) : '', currency: p.currency, audience: p.audience, isActive: p.is_active }); }}>
                           Edit
                         </button>
-                        <button type="button" className="ad-btn ad-btn-danger-soft" onClick={() => remove(p)}>Delete</button>
+                        <button type="button" className="cp-btn cp-btn-danger-soft" onClick={() => remove(p)}>Delete</button>
                       </div>
                     </td>
                   </tr>
@@ -261,14 +261,14 @@ export default function PackagesPage() {
           onSubmit={() => void save()}
           footer={
             <>
-              <button type="button" className="ad-btn ad-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
-              <button type="submit" className="ad-btn ad-btn-primary" disabled={saving || !draft.coins || !draft.price}>
+              <button type="button" className="cp-btn cp-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
+              <button type="submit" className="cp-btn cp-btn-primary" disabled={saving || !draft.coins || !draft.price}>
                 {saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create package'}
               </button>
             </>
           }
         >
-          <div className="ad-form-grid is-2up">
+          <div className="cp-form-grid is-2up">
             <Field label="Audience" wide>
               <select value={draft.audience} onChange={(e) => set({ audience: e.target.value })}>
                 <option value="user">Standard users</option>
@@ -289,14 +289,14 @@ export default function PackagesPage() {
             </Field>
           </div>
           {draft.id ? (
-            <div className="ad-toggle-row">
+            <div className="cp-toggle-row">
               <div>
-                <div className="ad-toggle-title">Visible in the recharge store</div>
+                <div className="cp-toggle-title">Visible in the recharge store</div>
               </div>
               <Switch label="Active" checked={draft.isActive} onChange={(v) => set({ isActive: v })} />
             </div>
           ) : null}
-          {formError && <div className="ad-alert">{formError}</div>}
+          {formError && <div className="cp-alert">{formError}</div>}
         </Modal>
       )}
       {confirmNode}

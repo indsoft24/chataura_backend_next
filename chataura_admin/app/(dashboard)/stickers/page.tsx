@@ -155,14 +155,14 @@ export default function StickersPage() {
   const clear = () => { setPrice(''); setStatus(''); setQ(''); };
 
   return (
-    <main className="ad-page">
+    <main className="cp-page">
       <PageHeader
         title="Stickers"
         subtitle={`Stickers users send in room chats and direct messages · ${stickers.filter((x) => x.is_active).length} of ${stickers.length} active`}
-        actions={<button type="button" className="ad-btn ad-btn-accent ad-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New sticker</button>}
+        actions={<button type="button" className="cp-btn cp-btn-accent cp-btn-lg" onClick={() => { setFormError(''); setDraft({ ...NEW_DRAFT }); }}>+ New sticker</button>}
       />
 
-      <section className="ad-card">
+      <section className="cp-card">
         <Tabs
           value={price}
           onChange={setPrice}
@@ -172,7 +172,7 @@ export default function StickersPage() {
             { value: 'paid' as const, label: 'Paid', count: stickers.length - free },
           ]}
         />
-        <div className="ad-toolbar">
+        <div className="cp-toolbar">
           <SearchBox value={q} onChange={setQ} placeholder="Search name or ID" />
           <Field label="Status">
             <select value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -190,20 +190,20 @@ export default function StickersPage() {
             </select>
           </Field>
         </div>
-        <div className="ad-summary">
+        <div className="cp-summary">
           Showing <strong>{visible.length}</strong> of <strong>{stickers.length}</strong>
-          {filtered ? <>{' · '}<button type="button" className="ad-link" onClick={clear}>Clear filters</button></> : null}
+          {filtered ? <>{' · '}<button type="button" className="cp-link" onClick={clear}>Clear filters</button></> : null}
         </div>
 
         {loading && stickers.length === 0 ? (
           <MediaSkeleton />
         ) : visible.length === 0 ? (
-          <div className="ad-empty">
-            <div className="ad-empty-title">{stickers.length ? 'No stickers match' : 'No stickers yet'}</div>
+          <div className="cp-empty">
+            <div className="cp-empty-title">{stickers.length ? 'No stickers match' : 'No stickers yet'}</div>
             {stickers.length ? 'Try a different filter.' : 'Create the first sticker for chats.'}
           </div>
         ) : (
-          <div className="ad-media-grid">
+          <div className="cp-media-grid">
             {pageItems.map((x) => (
               <MediaCard
                 key={x.id}
@@ -211,14 +211,14 @@ export default function StickersPage() {
                 flags={
                   x.animation_url || (x.required_svip_level ?? 0) > 0 ? (
                     <>
-                      {(x.required_svip_level ?? 0) > 0 ? <span className="ad-badge amber">SVIP {x.required_svip_level}</span> : <span />}
-                      {x.animation_url ? <span className="ad-badge indigo" title="Animated">✨</span> : <span />}
+                      {(x.required_svip_level ?? 0) > 0 ? <span className="cp-badge amber">SVIP {x.required_svip_level}</span> : <span />}
+                      {x.animation_url ? <span className="cp-badge indigo" title="Animated">✨</span> : <span />}
                     </>
                   ) : undefined
                 }
                 title={x.name}
                 meta={`#${x.id}`}
-                extra={<div className={x.coin_cost > 0 ? 'ad-media-price' : 'ad-media-price tone-green'}>{x.coin_cost > 0 ? `🪙 ${x.coin_cost.toLocaleString()}` : 'Free'}</div>}
+                extra={<div className={x.coin_cost > 0 ? 'cp-media-price' : 'cp-media-price tone-green'}>{x.coin_cost > 0 ? `🪙 ${x.coin_cost.toLocaleString()}` : 'Free'}</div>}
                 active={x.is_active}
                 busy={busyId === x.id}
                 onToggle={() => void toggleActive(x)}
@@ -243,17 +243,17 @@ export default function StickersPage() {
           onSubmit={() => void save()}
           footer={
             <>
-              <button type="button" className="ad-btn ad-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
-              <button type="submit" className="ad-btn ad-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create sticker'}</button>
+              <button type="button" className="cp-btn cp-btn-ghost" disabled={saving} onClick={() => setDraft(null)}>Cancel</button>
+              <button type="submit" className="cp-btn cp-btn-primary" disabled={saving}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Create sticker'}</button>
             </>
           }
         >
-          <div className="ad-form-grid is-2up">
+          <div className="cp-form-grid is-2up">
             <Field label="Sticker name *">
               <input autoFocus placeholder="e.g. Laughing Emoji" value={draft.name} onChange={(e) => set({ name: e.target.value })} />
             </Field>
             <Field label="Coin cost" hint="0 = free.">
-              <div className="ad-unit"><input type="number" inputMode="numeric" value={draft.coinCost} onChange={(e) => set({ coinCost: e.target.value })} /><span>coins</span></div>
+              <div className="cp-unit"><input type="number" inputMode="numeric" value={draft.coinCost} onChange={(e) => set({ coinCost: e.target.value })} /><span>coins</span></div>
             </Field>
             <Field label="SVIP emoji" hint="0 = everyone. N = only SVIP N or higher can send it.">
               <input type="number" min={0} max={9} inputMode="numeric" value={draft.svipLevel} onChange={(e) => set({ svipLevel: e.target.value })} />
@@ -276,12 +276,12 @@ export default function StickersPage() {
             helpText="Looping sticker. GIF, WebP, Lottie JSON, SVGA, MP4 or WebM."
           />
           {draft.id ? (
-            <div className="ad-toggle-row">
-              <div className="ad-toggle-title">Available to users</div>
+            <div className="cp-toggle-row">
+              <div className="cp-toggle-title">Available to users</div>
               <Switch label="Active" checked={draft.isActive} onChange={(v) => set({ isActive: v })} />
             </div>
           ) : null}
-          {formError && <div className="ad-alert">{formError}</div>}
+          {formError && <div className="cp-alert">{formError}</div>}
         </Modal>
       )}
       {confirmNode}
