@@ -30,7 +30,7 @@ describe('AdminController access table', () => {
     expect(tierOf('staff')).toBe('manager');
     expect(tierOf('saveRockitLevels')).toBe('manager');
     expect(tierOf('dashboard')).toBe('ceo');
-    expect(tierOf('adjustBalance')).toBe('ceo');
+    expect(tierOf('adjustBalance')).toBe('superadmin');
     expect(tierOf('packages')).toBe('ceo');
     expect(tierOf('settings')).toBe('ceo');
     expect(tierOf('updateSettings')).toBe('ceo');
@@ -55,12 +55,8 @@ describe('AdminController access table', () => {
     expect(catalog.updateSettings).toHaveBeenCalledTimes(2);
   });
 
-  it('caps CEO coin adjustments and blocks self-credit', () => {
-    const body = (amount: number) => ({ asset: 'coins', action: 'add', amount }) as any;
-    expect(() => ctrl.adjustBalance(staff(9, 'ceo'), '9', body(10))).toThrow(ForbiddenException);
-    expect(() => ctrl.adjustBalance(staff(9, 'ceo'), '50', body(1_000_001))).toThrow(ForbiddenException);
-    void ctrl.adjustBalance(staff(9, 'ceo'), '50', body(1_000_000));
-    void ctrl.adjustBalance(staff(2, 'superadmin'), '2', body(5_000_000));
-    expect(admin.adjustBalance).toHaveBeenCalledTimes(2);
+  it('lets the superadmin adjust any amount, including own balance', () => {
+    void ctrl.adjustBalance(staff(2, 'superadmin'), '2', { asset: 'coins', action: 'add', amount: 5_000_000 } as any);
+    expect(admin.adjustBalance).toHaveBeenCalledTimes(1);
   });
 });

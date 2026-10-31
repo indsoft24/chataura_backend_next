@@ -62,9 +62,6 @@ const CEO_SETTING_KEYS = [
   'coin_seller_message_template',
 ];
 
-/** Largest coin/gem adjustment a non-superadmin may make in one action. */
-const CEO_MAX_ADJUST = 1_000_000;
-
 const isSuperadmin = (u: AuthUser) => tierOf(u.role, u.staffBadgeType) === 'superadmin';
 
 function parseId(id: string): bigint {
@@ -293,21 +290,15 @@ export class AdminController {
     return this.admin.deactivate(actor, BigInt(id), body?.reason);
   }
 
-  @MinTier('ceo')
+  // Coins/gems are minted or removed only here, only by the superadmin. Sellers then
+  // distribute what they bought from their own balance via POST /wallet/transfer.
+  @MinTier('superadmin')
   @Post('users/:id/adjust-balance')
   adjustBalance(
     @CurrentUser() admin: AuthUser,
     @Param('id') id: string,
     @Body() body: AdjustBalanceDto,
   ) {
-    if (!isSuperadmin(admin)) {
-      const deny = (message: string) =>
-        new ForbiddenException({ success: false, error: { code: 'FORBIDDEN', message } });
-      if (String(admin.id) === id) throw deny('You cannot adjust your own balance.');
-      if (Number(body?.amount) > CEO_MAX_ADJUST) {
-        throw deny(`Max ${CEO_MAX_ADJUST.toLocaleString('en-US')} per adjustment; ask the superadmin for more.`);
-      }
-    }
     return this.admin.adjustBalance(BigInt(id), body, admin.id);
   }
 

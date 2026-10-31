@@ -810,7 +810,7 @@ export default function UsersPage() {
                       </td>
                       <td className="um-td um-actions-cell" style={{ textAlign: 'right' }}>
                         <div className="um-actions">
-                          {atLeast(myTier, 'ceo') && (
+                          {myTier === 'superadmin' && (
                             <button
                               type="button"
                               className="um-btn um-btn-primary-soft"
