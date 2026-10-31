@@ -41,14 +41,14 @@ export class GameHistoryService {
     });
   }
 
-  /** One row per user for a settled Greedy / Lucky 77 round, set-based so a 100-player round stays one statement. */
+  /** One row per user for a settled Greedy / Lucky 77 round (win = any pick hit), set-based so a 100-player round stays one statement. */
   async recordRound(tx: Tx, game: 'greedy' | 'lucky77', roundId: bigint) {
     if (game === 'greedy') {
       await tx.$executeRaw`
         INSERT INTO game_history (user_id, game, round_ref, total_bet, payout, net, result, detail, settled_at)
         SELECT b.user_id, 'greedy', b.round_id::text, SUM(b.chip_amount), SUM(b.actual_payout),
           SUM(b.actual_payout) - SUM(b.chip_amount),
-          CASE WHEN SUM(b.actual_payout) > SUM(b.chip_amount) THEN 'win' WHEN SUM(b.actual_payout) < SUM(b.chip_amount) THEN 'loss' ELSE 'even' END,
+          CASE WHEN SUM(b.actual_payout) > 0 THEN 'win' ELSE 'loss' END,
           jsonb_build_object('winning_item', r.winning_item, 'multiplier', r.winning_multiplier,
             'picks', jsonb_agg(jsonb_build_object('item', b.item, 'bet', b.chip_amount))),
           COALESCE(r.settled_at, now())
@@ -61,7 +61,7 @@ export class GameHistoryService {
         INSERT INTO game_history (user_id, game, round_ref, total_bet, payout, net, result, detail, settled_at)
         SELECT b.user_id, 'lucky77', b.round_id::text, SUM(b.chip_amount), SUM(b.actual_payout),
           SUM(b.actual_payout) - SUM(b.chip_amount),
-          CASE WHEN SUM(b.actual_payout) > SUM(b.chip_amount) THEN 'win' WHEN SUM(b.actual_payout) < SUM(b.chip_amount) THEN 'loss' ELSE 'even' END,
+          CASE WHEN SUM(b.actual_payout) > 0 THEN 'win' ELSE 'loss' END,
           jsonb_build_object('winning_item', r.winning_item, 'multiplier', r.winning_multiplier,
             'picks', jsonb_agg(jsonb_build_object('item', b.option, 'bet', b.chip_amount))),
           COALESCE(r.settled_at, now())
