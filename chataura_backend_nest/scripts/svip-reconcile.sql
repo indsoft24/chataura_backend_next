@@ -140,3 +140,13 @@ WHERE g.recharge_coins > 0
                               'svip_admin_rc_' || g.request_id)
   )
 LIMIT 100;
+
+\echo '14) Bought entry bars whose coins_paid differs from what the ledger took'
+SELECT b.user_id, b.entry_bar_id, b.coins_paid, COALESCE(l.paid, 0) AS ledger_paid
+FROM user_entry_bars b
+LEFT JOIN LATERAL (
+  SELECT SUM(-ct.coin_amount) AS paid FROM coin_transactions ct
+  WHERE ct.user_id = b.user_id AND ct.reference_id LIKE 'entry\_bar:' || b.entry_bar_id || ':%'
+) l ON true
+WHERE b.coins_paid <> COALESCE(l.paid, 0)
+LIMIT 100;

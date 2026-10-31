@@ -759,9 +759,11 @@ export class AdminCatalogService {
     compositeMode: string;
     sortOrder: number;
     isActive: boolean;
+    coinCost: bigint;
   }) {
     return {
       id: Number(eb.id),
+      coin_cost: Number(eb.coinCost),
       name: eb.name,
       slug: eb.slug,
       level_required: eb.levelRequired,
@@ -782,6 +784,7 @@ export class AdminCatalogService {
     animation_url?: string;
     composite_mode?: string;
     sort_order?: number;
+    coin_cost?: number;
   }) {
     const anim =
       body.animation_url?.trim() ||
@@ -799,6 +802,7 @@ export class AdminCatalogService {
         animationUrl: anim ?? null,
         compositeMode: normalizeFrameComposite(body.composite_mode),
         sortOrder: Number(body.sort_order ?? 0),
+        coinCost: BigInt(Math.max(0, Math.floor(Number(body.coin_cost ?? 0)) || 0)),
       },
     });
     return this.adminEntryBar(eb);
@@ -815,10 +819,13 @@ export class AdminCatalogService {
       composite_mode?: string;
       sort_order?: number;
       is_active?: boolean;
+      coin_cost?: number;
     },
   ) {
     const data: Record<string, unknown> = {};
     if (body.name !== undefined) data.name = body.name;
+    if (body.coin_cost !== undefined)
+      data.coinCost = BigInt(Math.max(0, Math.floor(Number(body.coin_cost)) || 0));
     if (body.level_required !== undefined)
       data.levelRequired = Number(body.level_required);
     if (body.svip_level !== undefined) data.svipLevel = Number(body.svip_level);

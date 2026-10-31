@@ -12,7 +12,13 @@ import { svipLevelOf } from '../svip/svip-chrome';
 import { buildRoleBadge } from '../user/user.serializer';
 import { periodKey } from '../relationship/relationship-period';
 import { eligibleFrames, type FrameSource } from './frame-eligibility';
-import { canWearEntryBar, ENTRY_BAR_ORDER, entryBarMedia } from './entry-bar.rules';
+import {
+  canWearEntryBar,
+  ENTRY_BAR_ORDER,
+  entryBarMedia,
+  entryBarOffer,
+  entryBarSettings,
+} from './entry-bar.rules';
 import {
   bandForXp,
   ensureLaravelLevelBands,
@@ -595,26 +601,56 @@ export class GamificationService {
     };
   }
 
-  async entryBars(userId: bigint) {
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      include: { svip: true },
+  private async entryBarConfig() {
+    const row = await this.prisma.adminSetting.findUnique({
+      where: { id: 1 },
+      select: { extraSettings: true },
     });
-    const wearer = { level: user.level, svipLevel: svipLevelOf(user.svip) };
+    return entryBarSettings(row?.extraSettings);
+  }
+
+  async entryBars(userId: bigint) {
+    const [user, owned, settings] = await Promise.all([
+      this.prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        include: { svip: true },
+      }),
+      this.prisma.userEntryBar.findMany({ where: { userId } }),
+      this.entryBarConfig(),
+    ]);
+    const until = new Map(owned.map((o) => [o.entryBarId, o.expiresAt]));
+    const now = new Date();
     const bars = await this.prisma.entryBar.findMany({
       where: { isActive: true },
       orderBy: [{ svipLevel: 'asc' }, { levelRequired: 'asc' }, ...ENTRY_BAR_ORDER],
     });
     const items = bars.map((b) => {
       const media = entryBarMedia(b);
+      const paidUntil = until.get(b.id) ?? null;
+      const offer = entryBarOffer(b, user.level, paidUntil, settings, now);
       return {
         ...media,
         // Older apps show `image_url` only; keep the poster there.
         image_url: media.image_url ?? b.imageUrl,
         level_required: b.levelRequired,
         svip_level_required: b.svipLevel,
-        unlocked: canWearEntryBar(b, wearer),
+        unlocked: canWearEntryBar(
+          b,
+          { level: user.level, svipLevel: svipLevelOf(user.svip), paidUntil },
+          now,
+        ),
         is_selected: user.selectedEntryBarId === b.id,
+        coin_cost: Number(b.coinCost),
+        owned_until: paidUntil ? paidUntil.toISOString() : null,
+        // What the Buy / Renew button does now and what it costs; null = nothing to buy.
+        purchase:
+          offer.action === null
+            ? null
+            : {
+                action: offer.action,
+                price: Number(offer.price),
+                days: settings.periodDays,
+              },
       };
     });
     return {
@@ -643,18 +679,138 @@ export class GamificationService {
       where: { id: userId },
       include: { svip: true },
     });
-    if (!canWearEntryBar(bar, { level: user.level, svipLevel: svipLevelOf(user.svip) })) {
+    const owned = await this.prisma.userEntryBar.findUnique({
+      where: { userId_entryBarId: { userId, entryBarId } },
+    });
+    const paidUntil = owned?.expiresAt ?? null;
+    const svipLevel = svipLevelOf(user.svip);
+    if (!canWearEntryBar(bar, { level: user.level, svipLevel, paidUntil })) {
       throw new BadRequestException({
         success: false,
         error:
           bar.svipLevel > 0
             ? { code: 'SVIP_REQUIRED', message: `Requires SVIP ${bar.svipLevel}` }
-            : { code: 'LEVEL_REQUIRED', message: `Requires level ${bar.levelRequired}` },
+            : bar.coinCost > 0n
+              ? {
+                  code: 'PURCHASE_REQUIRED',
+                  message: `Buy this bar or reach level ${bar.levelRequired}`,
+                }
+              : { code: 'LEVEL_REQUIRED', message: `Requires level ${bar.levelRequired}` },
       });
     }
+    // Only a bought bar can run out; level / SVIP bars carry no expiry.
+    const bought = bar.svipLevel === 0 && user.level < bar.levelRequired;
     await this.prisma.user.update({
       where: { id: userId },
-      data: { selectedEntryBarId: entryBarId },
+      data: {
+        selectedEntryBarId: entryBarId,
+        selectedEntryBarPaidUntil: bought ? paidUntil : null,
+      },
+    });
+    return this.entryBars(userId);
+  }
+
+  /**
+   * Buy a level entry bar for the period, or renew it (cheaper, adds a period to the current end).
+   * `expect` is what the app showed on the button; if the state moved on (double tap, already renewed)
+   * nothing is charged.
+   */
+  async purchaseEntryBar(userId: bigint, entryBarId: bigint, expect?: string) {
+    const bar = await this.prisma.entryBar.findFirst({
+      where: { id: entryBarId, isActive: true },
+    });
+    if (!bar) {
+      throw new NotFoundException({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Entry bar not found' },
+      });
+    }
+    const settings = await this.entryBarConfig();
+    await this.prisma.$transaction(async (tx) => {
+      const locked = await this.ledger.lockUser(tx, userId);
+      if (!locked) {
+        throw new NotFoundException({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'User not found' },
+        });
+      }
+      const user = await tx.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { level: true, selectedEntryBarId: true },
+      });
+      const owned = await tx.userEntryBar.findUnique({
+        where: { userId_entryBarId: { userId, entryBarId } },
+      });
+      const offer = entryBarOffer(bar, user.level, owned?.expiresAt ?? null, settings, new Date());
+      if (offer.action === null) {
+        throw new BadRequestException({
+          success: false,
+          error: {
+            code: 'NOT_FOR_SALE',
+            message: 'This entry bar cannot be bought (your level unlocks it, or it is not for sale)',
+          },
+        });
+      }
+      if (expect && expect !== offer.action) {
+        throw new BadRequestException({
+          success: false,
+          error: { code: 'STATE_CHANGED', message: 'This entry bar changed, please check and try again' },
+        });
+      }
+      // The counter makes every buy / renew its own ledger reference (a replay never charges twice).
+      const referenceId = `entry_bar:${bar.id}:${owned ? owned.renewCount + 1 : 0}`;
+      let replayed = false;
+      if (offer.price > 0n) {
+        try {
+          ({ replayed } = await this.ledger.debitCoins(
+            tx,
+            userId,
+            offer.price,
+            'ENTRY_BAR',
+            `Entry bar: ${bar.name} (${offer.action})`,
+            referenceId,
+            locked,
+            {
+              source: 'store',
+              currency: 'coins',
+              entry_bar_id: Number(bar.id),
+              action: offer.action,
+              days: settings.periodDays,
+            },
+            'store',
+          ));
+        } catch (e) {
+          if ((e as { code?: string }).code === 'INSUFFICIENT_BALANCE') {
+            throw new BadRequestException({
+              success: false,
+              error: { code: 'INSUFFICIENT_BALANCE', message: 'Insufficient coin balance' },
+            });
+          }
+          throw e;
+        }
+      }
+      if (replayed) return;
+      await tx.userEntryBar.upsert({
+        where: { userId_entryBarId: { userId, entryBarId } },
+        create: {
+          userId,
+          entryBarId,
+          expiresAt: offer.newExpiry,
+          coinsPaid: offer.price,
+          renewCount: 0,
+        },
+        update: {
+          expiresAt: offer.newExpiry,
+          coinsPaid: { increment: offer.price },
+          renewCount: { increment: 1 },
+        },
+      });
+      if (user.selectedEntryBarId === entryBarId) {
+        await tx.user.update({
+          where: { id: userId },
+          data: { selectedEntryBarPaidUntil: offer.newExpiry },
+        });
+      }
     });
     return this.entryBars(userId);
   }

@@ -16,6 +16,7 @@ type EntryBar = {
   svip_level?: number;
   composite_mode?: 'alpha' | 'screen';
   sort_order?: number;
+  coin_cost?: number;
   is_active: boolean;
 };
 
@@ -28,9 +29,10 @@ type Draft = {
   animationUrl: string;
   composite: 'alpha' | 'screen';
   sortOrder: string;
+  coinCost: string;
   isActive: boolean;
 };
-const NEW_DRAFT: Draft = { name: '', levelReq: '5', svipLevel: '0', imageUrl: '', animationUrl: '', composite: 'alpha', sortOrder: '0', isActive: true };
+const NEW_DRAFT: Draft = { name: '', levelReq: '5', svipLevel: '0', imageUrl: '', animationUrl: '', composite: 'alpha', sortOrder: '0', coinCost: '0', isActive: true };
 
 export default function EntryBarsPage() {
   const { token } = useAdminAuth();
@@ -87,6 +89,7 @@ export default function EntryBarsPage() {
       animation_url: draft.animationUrl.trim() || undefined,
       composite_mode: draft.composite,
       sort_order: Number(draft.sortOrder) || 0,
+      coin_cost: Math.max(0, Math.floor(Number(draft.coinCost)) || 0),
     };
     try {
       if (draft.id) {
@@ -179,7 +182,7 @@ export default function EntryBarsPage() {
                 flags={
                   <>
                     <span className="cp-badge amber">{b.svip_level ? `SVIP ${b.svip_level}+` : `Lv ${b.level_required}+`}</span>
-                    <span />
+                    {(b.coin_cost ?? 0) > 0 && !b.svip_level ? <span className="cp-badge green" title="Coins to buy for the period">🪙 {(b.coin_cost ?? 0).toLocaleString()}</span> : <span />}
                   </>
                 }
                 title={b.name}
@@ -198,6 +201,7 @@ export default function EntryBarsPage() {
                     animationUrl: b.animation_url ?? '',
                     composite: b.composite_mode === 'screen' ? 'screen' : 'alpha',
                     sortOrder: String(b.sort_order ?? 0),
+                    coinCost: String(b.coin_cost ?? 0),
                     isActive: b.is_active,
                   });
                 }}
@@ -231,6 +235,9 @@ export default function EntryBarsPage() {
             </Field>
             <Field label="SVIP level (0 = not SVIP)">
               <input type="number" inputMode="numeric" min={0} value={draft.svipLevel} onChange={(e) => set({ svipLevel: e.target.value })} />
+            </Field>
+            <Field label="Price to buy (coins, 0 = not for sale)" hint="Buying lasts 30 days; renewing costs 20% of this. Not used for SVIP bars.">
+              <div className="cp-unit"><input type="number" inputMode="numeric" min={0} value={draft.coinCost} onChange={(e) => set({ coinCost: e.target.value })} /><span>coins</span></div>
             </Field>
             <Field label="Sort order (lowest = SVIP default)">
               <input type="number" inputMode="numeric" value={draft.sortOrder} onChange={(e) => set({ sortOrder: e.target.value })} />

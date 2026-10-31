@@ -63,6 +63,15 @@ export class GamificationController {
     return this.game.entryBars(user.id);
   }
 
+  @Post('profile/entry-bars/:id/purchase')
+  purchaseEntryBar(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { action?: string },
+  ) {
+    return this.game.purchaseEntryBar(user.id, BigInt(id), body?.action);
+  }
+
   @Post('profile/select-entry-bar')
   selectEntryBar(
     @CurrentUser() user: AuthUser,

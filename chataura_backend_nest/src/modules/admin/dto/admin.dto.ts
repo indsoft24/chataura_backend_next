@@ -339,6 +339,11 @@ export class CreateEntryBarDto {
   sort_order?: number;
 
   @IsOptional()
+  @IsInt()
+  @Min(0)
+  coin_cost?: number;
+
+  @IsOptional()
   @IsString()
   image_url?: string;
 
@@ -369,6 +374,11 @@ export class UpdateEntryBarDto {
   @IsOptional()
   @IsInt()
   sort_order?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  coin_cost?: number;
 
   @IsOptional()
   @IsString()

@@ -72,6 +72,7 @@ type UserLite = {
   selectedRoleFrame?: FrameAsset | null;
   svip?: SvipChromeRow;
   selectedEntryBar?: EntryBarRow | null;
+  selectedEntryBarPaidUntil?: Date | null;
 };
 
 function coverUrlFromBody(body: {
