@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { AdminTier, tierFromUser } from '@/lib/tier';
@@ -47,6 +47,8 @@ export function LoginForm({
   const [wait, setWait] = useState(0);
   // Sending the code takes a few seconds; without this a second click mails a second code.
   const [busy, setBusy] = useState(false);
+  // State updates land a tick late, so two fast clicks would both pass `busy`; the ref closes that gap at once.
+  const inflight = useRef(false);
 
   useEffect(() => {
     if (wait <= 0) return;
@@ -105,7 +107,8 @@ export function LoginForm({
 
   async function onVerify(e: FormEvent) {
     e.preventDefault();
-    if (!challenge || busy) return;
+    if (!challenge || inflight.current) return;
+    inflight.current = true;
     setBusy(true);
     setError('');
     try {
@@ -119,6 +122,7 @@ export function LoginForm({
       if (err?.name === 'ApiError' && err.status === 401) setChallenge(null);
       failure(err);
     } finally {
+      inflight.current = false;
       setBusy(false);
     }
   }
@@ -147,7 +151,8 @@ export function LoginForm({
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (busy) return;
+    if (inflight.current) return;
+    inflight.current = true;
     setBusy(true);
     setError('');
     setWrongTier(false);
@@ -175,6 +180,7 @@ export function LoginForm({
     } catch (err: any) {
       failure(err);
     } finally {
+      inflight.current = false;
       setBusy(false);
     }
   }
