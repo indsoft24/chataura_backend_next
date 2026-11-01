@@ -5,6 +5,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { TokenService } from './token.service';
 import { OtpService } from './otp.service';
+import { Panel2faService } from './panel-2fa.service';
 import { UserModule } from '../user/user.module';
 
 @Module({
@@ -25,7 +26,7 @@ import { UserModule } from '../user/user.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, TokenService, OtpService],
+  providers: [AuthService, TokenService, OtpService, Panel2faService],
   exports: [AuthService, TokenService, OtpService],
 })
 export class AuthModule {}

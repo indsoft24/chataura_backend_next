@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomInt } from 'crypto';
 import * as nodemailer from 'nodemailer';
 import { RedisService } from '../../common/redis/redis.service';
 
@@ -13,7 +14,7 @@ export class OtpService {
   ) {}
 
   generateOtp(): string {
-    return String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0');
+    return String(randomInt(0, 1_000_000)).padStart(6, '0');
   }
 
   async store(key: string, otp: string, ttlSeconds: number): Promise<void> {
@@ -63,15 +64,7 @@ export class OtpService {
       return { sent: true, devOtp: otp };
     }
 
-    const transporter = nodemailer.createTransport({
-      host,
-      port: Number(this.config.get('SMTP_PORT', '587')),
-      secure: false,
-      auth: {
-        user: this.config.get('SMTP_USER'),
-        pass: this.config.get('SMTP_PASS'),
-      },
-    });
+    const transporter = this.transporter(host);
 
     await transporter.sendMail({
       from: this.config.get('SMTP_FROM', 'noreply@chataura.local'),
@@ -80,5 +73,38 @@ export class OtpService {
       text: `Your verification code is ${otp}. It expires in 15 minutes.`,
     });
     return { sent: true };
+  }
+
+  /** Admin-panel sign-in code, sent to every address in `to` at once. Throws when it cannot be sent. */
+  async sendPanelCode(to: string[], code: string, minutes: number, who: string): Promise<void> {
+    const host = this.config.get<string>('SMTP_HOST');
+    if (!host) {
+      if (this.config.get('NODE_ENV') === 'production') {
+        this.logger.error('SMTP_HOST is not configured: panel sign-in code not sent');
+        throw new Error('Email delivery service is unconfigured in production');
+      }
+      this.logger.warn(`SMTP unset — panel code for ${to.join(', ')}: ${code}`);
+      return;
+    }
+    await this.transporter(host).sendMail({
+      from: this.config.get('SMTP_FROM', 'noreply@chataura.local'),
+      to: to.join(', '),
+      subject: 'ChatAura admin sign-in code',
+      text:
+        `Sign-in code for ${who}: ${code}\n\nIt expires in ${minutes} minutes and works once.\n` +
+        'If this was not you, do not share the code and change the password.',
+    });
+  }
+
+  private transporter(host: string) {
+    return nodemailer.createTransport({
+      host,
+      port: Number(this.config.get('SMTP_PORT', '587')),
+      secure: false,
+      auth: {
+        user: this.config.get('SMTP_USER'),
+        pass: this.config.get('SMTP_PASS'),
+      },
+    });
   }
 }

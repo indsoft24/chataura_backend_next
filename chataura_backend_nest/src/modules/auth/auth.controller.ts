@@ -7,6 +7,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { AuthService } from './auth.service';
 import { normalizeDeviceId } from './session.rules';
+import { cookieValue, TRUSTED_COOKIE, TRUSTED_DEVICE_DAYS } from './panel-2fa.rules';
 import { FcmService } from '../../common/fcm/fcm.service';
 import {
   ChangePasswordRequestDto,
@@ -14,6 +15,8 @@ import {
   ForgotPasswordDto,
   GoogleLoginDto,
   LoginDto,
+  PanelOtpResendDto,
+  PanelOtpVerifyDto,
   RefreshTokenDto,
   RegisterDto,
   ResetPasswordDto,
@@ -53,8 +56,45 @@ export class AuthController {
     @Body() dto: LoginDto,
     @Headers('x-device-id') deviceId?: string,
     @Headers('x-client') client?: string,
+    @Headers('cookie') cookie?: string,
   ) {
-    return this.auth.login(dto, normalizeDeviceId(deviceId), client === 'admin-panel');
+    return this.auth.login(
+      dto,
+      normalizeDeviceId(deviceId),
+      client === 'admin-panel',
+      cookieValue(cookie, TRUSTED_COOKIE),
+    );
+  }
+
+  /** Admin panel step 2: the emailed code. A trusted browser's cookie is HttpOnly, so page scripts never see it. */
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: seconds(60) } })
+  @Post('panel-otp/verify')
+  async panelOtpVerify(
+    @Body() dto: PanelOtpVerifyDto,
+    @Headers('user-agent') userAgent: string | undefined,
+    @Res({ passthrough: true }) res: FastifyReply,
+  ) {
+    const { payload, trustToken } = await this.auth.panelOtpVerify(
+      dto.challenge_id,
+      dto.code,
+      dto.trust_device === true,
+      userAgent,
+    );
+    if (trustToken) {
+      res.header(
+        'Set-Cookie',
+        `${TRUSTED_COOKIE}=${trustToken}; Max-Age=${TRUSTED_DEVICE_DAYS * 86400}; Path=/; HttpOnly; Secure; SameSite=Strict`,
+      );
+    }
+    return payload;
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: seconds(60) } })
+  @Post('panel-otp/resend')
+  panelOtpResend(@Body() dto: PanelOtpResendDto) {
+    return this.auth.panelOtpResend(dto.challenge_id);
   }
 
   @Public()

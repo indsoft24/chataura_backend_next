@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsEmail,
   IsOptional,
   IsString,
@@ -129,4 +130,24 @@ export class ChangePasswordVerifyDto {
   @IsString()
   @MinLength(6)
   new_password!: string;
+}
+
+export class PanelOtpVerifyDto {
+  @IsString()
+  @Matches(/^[0-9a-f]{64}$/)
+  challenge_id!: string;
+
+  @IsString()
+  @Matches(/^\d{6}$/)
+  code!: string;
+
+  @IsOptional()
+  @IsBoolean()
+  trust_device?: boolean;
+}
+
+export class PanelOtpResendDto {
+  @IsString()
+  @Matches(/^[0-9a-f]{64}$/)
+  challenge_id!: string;
 }
