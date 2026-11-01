@@ -45,6 +45,8 @@ export function LoginForm({
   const [code, setCode] = useState('');
   const [trust, setTrust] = useState(true);
   const [wait, setWait] = useState(0);
+  // Sending the code takes a few seconds; without this a second click mails a second code.
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (wait <= 0) return;
@@ -103,7 +105,8 @@ export function LoginForm({
 
   async function onVerify(e: FormEvent) {
     e.preventDefault();
-    if (!challenge) return;
+    if (!challenge || busy) return;
+    setBusy(true);
     setError('');
     try {
       const json = await api<LoginResponse>('/auth/panel-otp/verify', null, {
@@ -115,6 +118,8 @@ export function LoginForm({
       // A used-up or expired code cannot be retried: go back to the password step.
       if (err?.name === 'ApiError' && err.status === 401) setChallenge(null);
       failure(err);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -137,6 +142,8 @@ export function LoginForm({
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (busy) return;
+    setBusy(true);
     setError('');
     setWrongTier(false);
     setNotice('');
@@ -162,6 +169,8 @@ export function LoginForm({
       router.push('/');
     } catch (err: any) {
       failure(err);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -192,7 +201,7 @@ export function LoginForm({
             </p>
             {notice ? <p>{notice}</p> : null}
             {error ? <p className="err">{error}</p> : null}
-            <button type="submit" disabled={code.length !== 6}>Verify and sign in</button>
+            <button type="submit" disabled={busy || code.length !== 6}>Verify and sign in</button>
             <p>
               <a href="#" onClick={(e) => { e.preventDefault(); onResend(); }} style={wait > 0 ? { opacity: 0.5 } : undefined}>
                 {wait > 0 ? `Resend code in ${wait}s` : 'Resend code'}
@@ -243,7 +252,7 @@ export function LoginForm({
             </p>
           ) : null}
           {notice ? <p>{notice}</p> : null}
-          <button type="submit">Sign In to Dashboard</button>
+          <button type="submit" disabled={busy}>{busy ? 'Sending code…' : 'Sign In to Dashboard'}</button>
           <p>
             <a href="#" onClick={(e) => { e.preventDefault(); setMode('forgot'); setError(''); setNotice(''); }}>Forgot password?</a>
           </p>

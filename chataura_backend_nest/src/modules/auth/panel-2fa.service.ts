@@ -84,6 +84,16 @@ export class Panel2faService {
   /** Password was right: create a code, email it, and hand back the challenge to answer. */
   async start(user: User) {
     const c = this.redis.getClient();
+    // Double click or retry within a minute: hand back the code already sent instead of mailing another.
+    const liveId = await c.get(`p2fa:u:${user.id}`);
+    const live = liveId ? await this.load(liveId) : null;
+    if (liveId && live) {
+      const left = Math.ceil(PANEL_OTP_RESEND_AFTER_SECONDS - (Date.now() - live.sentAt) / 1000);
+      if (left > 0) {
+        const to = this.recipientsFor(user);
+        return { otp_required: true, challenge_id: liveId, expires_in: PANEL_OTP_TTL_SECONDS, resend_after: left, sent_to: to.map(maskEmail) };
+      }
+    }
     const sends = await c.incr(`p2fa:s:${user.id}`);
     if (sends === 1) await c.expire(`p2fa:s:${user.id}`, 3600);
     if (sends > PANEL_OTP_SENDS_PER_HOUR) throw this.tooMany('Too many codes requested. Try again later.');
@@ -116,12 +126,14 @@ export class Panel2faService {
     const c = this.redis.getClient();
     // Store first, mail second: a failed mail leaves a code nobody holds, which simply expires.
     await c.set(`p2fa:c:${id}`, JSON.stringify(ch), 'EX', PANEL_OTP_TTL_SECONDS);
+    await c.set(`p2fa:u:${user.id}`, id, 'EX', PANEL_OTP_TTL_SECONDS);
     await c.del(`p2fa:a:${id}`);
     try {
       await this.otp.sendPanelCode(to, code, PANEL_OTP_TTL_SECONDS / 60, user.email ?? `#${user.id}`);
     } catch (err) {
       this.logger.error(`Panel code mail failed: ${(err as Error).message}`);
       await c.del(`p2fa:c:${id}`);
+      await c.del(`p2fa:u:${user.id}`);
       throw new ServiceUnavailableException({ success: false, error: { code: 'EMAIL_FAILED', message: 'Could not send the code. Try again shortly.' } });
     }
     return to;

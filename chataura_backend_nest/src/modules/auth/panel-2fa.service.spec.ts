@@ -53,8 +53,15 @@ describe('Panel2faService', () => {
 
   it('limits mails per hour, resends and password tries', async () => {
     const s = make();
-    for (let i = 0; i < 6; i++) await s.start(user);
+    const real = Date.now();
+    let t = real;
+    jest.spyOn(Date, 'now').mockImplementation(() => t);
+    for (let i = 0; i < 6; i++) {
+      await s.start(user);
+      t += 61_000; // past the one-minute reuse window, so each start really mails
+    }
     await expect(s.start(user)).rejects.toMatchObject({ status: 429 });
+    jest.restoreAllMocks();
     const s2 = make();
     const ch = await s2.start(user);
     await expect(s2.resend(ch.challenge_id)).rejects.toMatchObject({ status: 429 }); // 60 s cooldown
@@ -62,6 +69,20 @@ describe('Panel2faService', () => {
     await expect(s2.guardPassword('a@x.com')).rejects.toMatchObject({ status: 429 });
     await s2.passwordOk('a@x.com');
     await expect(s2.guardPassword('a@x.com')).resolves.toBeUndefined();
+  });
+
+  it('a second sign-in within a minute reuses the code already sent', async () => {
+    const s = make();
+    let mails = 0;
+    otp.sendPanelCode = async (to: string[], code: string) => {
+      mails++;
+      sentCode = code;
+      sentTo = to;
+    };
+    const a = await s.start(user);
+    const b = await s.start(user);
+    expect(b.challenge_id).toBe(a.challenge_id);
+    expect(mails).toBe(1);
   });
 
   it('rejects a malformed challenge id', async () => {
