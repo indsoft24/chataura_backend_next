@@ -1,3 +1,4 @@
+import Fastify from 'fastify';
 import { adminPath, redact } from './admin-approval';
 
 describe('admin-approval', () => {
@@ -17,5 +18,12 @@ describe('admin-approval', () => {
       nested: [{ apiToken: '***', ok: 1 }],
     });
     expect(redact(null)).toBeNull();
+  });
+
+  it('an encoded URL still resolves to the admin route pattern', async () => {
+    const app = Fastify();
+    app.post('/api/v2/admin/x/:id', async (req) => ({ raw: adminPath(req.url), route: adminPath(req.routeOptions.url ?? '') }));
+    const res = await app.inject({ method: 'POST', url: '/api/v2/%61dmin/x/5' });
+    expect(res.json()).toEqual({ raw: null, route: '/admin/x/:id' });
   });
 });

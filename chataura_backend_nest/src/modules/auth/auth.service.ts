@@ -14,6 +14,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { userForApi } from '../user/user.serializer';
 import { UserService } from '../user/user.service';
 import { OtpService } from './otp.service';
+import { Panel2faService } from './panel-2fa.service';
 import { TokenService } from './token.service';
 import {
   ChangePasswordRequestDto,
@@ -37,6 +38,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly tokens: TokenService,
     private readonly otp: OtpService,
+    private readonly p2fa: Panel2faService,
     private readonly config: ConfigService,
     private readonly online: OnlinePresenceService,
     private readonly users: UserService,
@@ -93,7 +95,14 @@ export class AuthService {
     return this.authPayload(user);
   }
 
-  async login(dto: LoginDto, deviceId: string | null = null, panel = false) {
+  async login(
+    dto: LoginDto,
+    deviceId: string | null = null,
+    panel = false,
+    trustToken: string | null = null,
+  ) {
+    const panelEmail = panel ? (dto.email ?? '').toLowerCase() : '';
+    if (panel) await this.p2fa.guardPassword(panelEmail);
     const user = await this.prisma.user.findFirst({
       where: {
         OR: [
@@ -104,6 +113,7 @@ export class AuthService {
     });
 
     if (!user || !(await bcrypt.compare(dto.password, user.password))) {
+      if (panel) await this.p2fa.passwordFailed(panelEmail);
       throw new UnauthorizedException({
         success: false,
         error: {
@@ -125,7 +135,15 @@ export class AuthService {
       });
     }
 
-    if (panel) return this.panelPayload(user);
+    if (panel) {
+      await this.p2fa.passwordOk(panelEmail);
+      this.assertPanelRole(user);
+      // Password was right, but the panel also needs the emailed code unless this browser is trusted.
+      if (this.p2fa.enabled() && !(await this.p2fa.isTrusted(user.id, trustToken))) {
+        return this.p2fa.start(user);
+      }
+      return this.panelPayload(user);
+    }
     await this.assertDeviceAllowsLogin(user, deviceId);
     await this.recordDevice(user.id, deviceId);
     return this.authPayload(user);
@@ -381,6 +399,7 @@ export class AuthService {
       where: { id: user.id },
       data: { password: await bcrypt.hash(dto.password, 10) },
     });
+    await this.p2fa.revokeAll(user.id);
 
     return {
       success: true,
@@ -446,6 +465,7 @@ export class AuthService {
     await this.otp.del(`email_otp:change_password:${userId}`);
     await this.otp.del(`change_password_pending:${userId}`);
     await this.tokens.revokeAllForUser(userId);
+    await this.p2fa.revokeAll(userId);
 
     return {
       success: true,
@@ -521,13 +541,32 @@ export class AuthService {
   }
 
   /** Admin panel login: its own token channel, so it never logs the admin out of their phone. */
-  private panelPayload(user: User) {
+  private assertPanelRole(user: User) {
     if (user.role !== 'admin') {
       throw new ForbiddenException({
         success: false,
         error: { code: 'FORBIDDEN', message: 'Admin role required' },
       });
     }
+  }
+
+  /** Second step: the emailed code. Optionally returns a trusted-browser secret for the cookie. */
+  async panelOtpVerify(challengeId: string, code: string, trust: boolean, userAgent?: string) {
+    const userId = await this.p2fa.verify(challengeId, code);
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException({ success: false, error: { code: 'INVALID_OTP', message: 'Invalid or expired code. Sign in again.' } });
+    this.assertAccountActive(user);
+    this.assertPanelRole(user);
+    const trustToken = trust ? await this.p2fa.trust(user.id, userAgent) : null;
+    return { payload: this.panelPayload(user), trustToken };
+  }
+
+  panelOtpResend(challengeId: string) {
+    return this.p2fa.resend(challengeId);
+  }
+
+  private panelPayload(user: User) {
+    this.assertPanelRole(user);
     return {
       user: userForApi(user),
       access_token: this.tokens.generateAccessToken(user, PANEL_SESSION),
