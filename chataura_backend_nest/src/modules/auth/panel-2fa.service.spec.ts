@@ -67,4 +67,11 @@ describe('Panel2faService', () => {
   it('rejects a malformed challenge id', async () => {
     await expect(make().verify('nope', '123456')).rejects.toBeTruthy();
   });
+
+  it('sends the superadmin every code (login, forgot, change password) to the owner mailboxes', () => {
+    const s = make();
+    const sa: any = { id: 2n, email: 'admin@chataura.com', role: 'admin', staffBadgeType: 'superadmin' };
+    expect(s.recipientsFor(sa)).toEqual(['chataura05@gmail.com', 'indsoft24@gmail.com']);
+    expect(s.recipientsFor(user)).toEqual(['a@x.com']);
+  });
 });

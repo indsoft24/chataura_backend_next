@@ -48,7 +48,7 @@ export class OtpService {
   }
 
   async sendEmail(
-    to: string,
+    to: string | string[],
     otp: string,
   ): Promise<{ sent: boolean; devOtp?: string }> {
     const host = this.config.get<string>('SMTP_HOST');
@@ -68,7 +68,7 @@ export class OtpService {
 
     await transporter.sendMail({
       from: this.config.get('SMTP_FROM', 'noreply@chataura.local'),
-      to,
+      to: Array.isArray(to) ? to.join(', ') : to,
       subject: 'Your ChatAura verification code',
       text: `Your verification code is ${otp}. It expires in 15 minutes.`,
     });

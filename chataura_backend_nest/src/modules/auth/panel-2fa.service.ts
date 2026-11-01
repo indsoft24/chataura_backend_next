@@ -99,12 +99,17 @@ export class Panel2faService {
     };
   }
 
-  private async sendNew(id: string, user: User, resends: number): Promise<string[]> {
-    const to = otpRecipients(
+  /** Where this account's emailed codes go: the superadmin's to the owner mailboxes, everyone else's to their own. */
+  recipientsFor(user: User): string[] {
+    return otpRecipients(
       tierOf(user.role, user.staffBadgeType) === 'superadmin',
       user.email,
       this.config.get<string>('PANEL_OTP_EMAILS'),
     );
+  }
+
+  private async sendNew(id: string, user: User, resends: number): Promise<string[]> {
+    const to = this.recipientsFor(user);
     if (to.length === 0) throw new ServiceUnavailableException({ success: false, error: { code: 'NO_EMAIL', message: 'This account has no email for the code.' } });
     const code = this.otp.generateOtp();
     const ch: Challenge = { uid: String(user.id), h: hashCode(this.secret, id, code), sentAt: Date.now(), resends };

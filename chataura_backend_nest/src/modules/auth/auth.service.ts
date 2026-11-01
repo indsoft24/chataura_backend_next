@@ -360,7 +360,8 @@ export class AuthService {
 
     const code = this.otp.generateOtp();
     await this.otp.store(`email_otp:forgot_password:${email}`, code, 600);
-    const result = await this.otp.sendEmail(user.email!, code);
+    await this.otp.del(`reset_password_fails:${email}`);
+    const result = await this.otp.sendEmail(this.p2fa.recipientsFor(user), code);
     const isProd = this.config.get<string>('NODE_ENV') === 'production';
     return {
       success: true,
@@ -377,6 +378,10 @@ export class AuthService {
       dto.otp,
     );
     if (!ok) {
+      // 5 wrong guesses burn the code, so a 6-digit code cannot be brute-forced inside its 10 minutes.
+      if ((await this.otp.incrRate(`reset_password_fails:${email}`, 600)) >= 5) {
+        await this.otp.del(`email_otp:forgot_password:${email}`);
+      }
       return {
         success: false,
         message: 'Invalid or expired OTP',
@@ -384,6 +389,7 @@ export class AuthService {
         _status: 400,
       };
     }
+    await this.otp.del(`reset_password_fails:${email}`);
 
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) {
@@ -423,7 +429,7 @@ export class AuthService {
     const pendingHash = await bcrypt.hash(dto.new_password, 10);
     await this.otp.store(`email_otp:change_password:${userId}`, code, 600);
     await this.otp.store(`change_password_pending:${userId}`, pendingHash, 600);
-    const result = await this.otp.sendEmail(user.email, code);
+    const result = await this.otp.sendEmail(this.p2fa.recipientsFor(user), code);
     const isProd = this.config.get('NODE_ENV') === 'production';
     return {
       success: true,
