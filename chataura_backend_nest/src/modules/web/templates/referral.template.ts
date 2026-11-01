@@ -1,11 +1,18 @@
 export function renderReferralPage(
   referralCode: string | null,
   baseUrl = 'https://chataura.in',
-  playStoreUrl = 'https://play.google.com/store/apps/details?id=com.chataura.app',
+  storeUrl = 'https://play.google.com/store/apps/details?id=com.chataura.app',
 ): string {
-  const code = referralCode ? String(referralCode).trim() : null;
+  // Codes are hex; strip everything else so the path can't inject markup into the page.
+  const code = String(referralCode ?? '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32) || null;
+  // The Play Store hands `referrer` to the app after install, so the code never has to be typed.
+  const playStoreUrl = code
+    ? `${storeUrl}${storeUrl.includes('?') ? '&' : '?'}referrer=${encodeURIComponent(`invite_code=${code}`)}`
+    : storeUrl;
+  // market:// opens the Play app directly; the https link above is the fallback when it can't.
+  const marketUrl = `market://details?id=com.chataura.app${code ? `&referrer=${encodeURIComponent(`invite_code=${code}`)}` : ''}`;
   const deepLink = code
-    ? `chataura://referral?code=${encodeURIComponent(code)}`
+    ? `chataura://register?referral=${encodeURIComponent(code)}`
     : `chataura://app`;
   const title = code
     ? `Join Chat Aura with Invite Code ${code}`
@@ -183,7 +190,7 @@ export function renderReferralPage(
             </div>
 
             <div class="hint">
-                If the app doesn't open automatically, install from Google Play and enter referral code <strong>${code || ''}</strong> during signup.
+                ${code ? `Install from Google Play — your invite code <strong>${code}</strong> is applied automatically.` : `Install Chat Aura from Google Play.`}
             </div>
         </div>
     </main>
@@ -192,7 +199,8 @@ export function renderReferralPage(
         (function () {
             var deepLink = ${JSON.stringify(deepLink)};
             var playStoreUrl = ${JSON.stringify(playStoreUrl)};
-            var fallbackDelay = 1800;
+            var marketUrl = ${JSON.stringify(marketUrl)};
+            var fallbackDelay = 1000;
             var start = Date.now();
             var didHide = false;
 
@@ -210,7 +218,10 @@ export function renderReferralPage(
                     var ua = navigator.userAgent || '';
                     var isAndroid = /Android/i.test(ua);
                     if (isAndroid && playStoreUrl) {
-                        window.location.href = playStoreUrl;
+                        window.location.href = marketUrl;
+                        setTimeout(function () {
+                            if (!document.hidden) window.location.href = playStoreUrl;
+                        }, 1200);
                     }
                 }
             }, fallbackDelay);

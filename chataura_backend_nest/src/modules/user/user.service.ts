@@ -1,3 +1,4 @@
+import { referrerIsActive, withinReferralWindow } from './referral.rules';
 import { recordVisit } from '../svip/svip-visits';
 import { wornMedals } from '../medal/medal.rules';
 import { withUniqueDisplayId } from './display-id';
@@ -114,8 +115,15 @@ export class UserService {
     return hit > 0;
   }
 
-  /** Farming guard: only a phone's first account earns, and never by inviting yourself. */
+  /** Farming guard: only a phone's first account earns (never by inviting yourself), only while the account is new, and only from a live inviter. */
   async referralEligible(inviteeId: bigint, referrerId: bigint): Promise<boolean> {
+    const pair = await this.prisma.user.findMany({
+      where: { id: { in: [inviteeId, referrerId] } },
+      select: { id: true, createdAt: true, deletedAt: true, accountStatus: true, isSuspended: true },
+    });
+    const invitee = pair.find((u) => u.id === inviteeId);
+    const referrer = pair.find((u) => u.id === referrerId);
+    if (!invitee || !referrer || !referrerIsActive(referrer) || !withinReferralWindow(invitee.createdAt)) return false;
     return (
       (await this.isFirstAccountOnDevice(inviteeId)) &&
       !(await this.shareDevice(inviteeId, referrerId))
