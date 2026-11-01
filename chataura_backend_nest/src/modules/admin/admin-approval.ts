@@ -52,7 +52,8 @@ export class AdminApprovalInterceptor implements NestInterceptor {
   async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<unknown>> {
     if (context.getType() !== 'http') return next.handle();
     const req = context.switchToHttp().getRequest<FastifyRequest & { user?: AuthUser }>();
-    const path = adminPath(req.url);
+    // The matched route, not the raw URL: `/api/v2/%61dmin/...` reaches the same handler but its URL has no "admin" in it.
+    const path = adminPath(req.routeOptions?.url ?? req.url);
     const user = req.user;
     if (!path || !MUTATING.has(req.method) || !user || user.role !== 'admin') return next.handle();
     if (tierOf(user.role, user.staffBadgeType) === 'superadmin') return next.handle();
