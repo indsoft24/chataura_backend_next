@@ -10,7 +10,11 @@ function fakeRedis() {
   const m = new Map<string, string>();
   const c = {
     get: async (k: string) => m.get(k) ?? null,
-    set: async (k: string, v: string) => (m.set(k, v), 'OK'),
+    set: async (k: string, v: string, ...opts: unknown[]) => {
+      if (opts.includes('NX') && m.has(k)) return null;
+      m.set(k, v);
+      return 'OK';
+    },
     del: async (k: string) => (m.delete(k) ? 1 : 0),
     incr: async (k: string) => {
       const n = Number(m.get(k) ?? 0) + 1;
@@ -34,7 +38,7 @@ describe('Panel2faService', () => {
     },
   };
   const config: any = { get: (k: string, d?: string) => (k === 'JWT_SECRET' ? 'secret' : d) };
-  const make = () => new Panel2faService({} as any, fakeRedis() as any, config, otp);
+  const make = () => new Panel2faService({ user: { findUnique: async () => user } } as any, fakeRedis() as any, config, otp);
 
   it('accepts the right code once', async () => {
     const s = make();
@@ -83,6 +87,37 @@ describe('Panel2faService', () => {
     const b = await s.start(user);
     expect(b.challenge_id).toBe(a.challenge_id);
     expect(mails).toBe(1);
+  });
+
+  it('five parallel sign-ins (button hammered) send exactly one mail', async () => {
+    const s = make();
+    let mails = 0;
+    otp.sendPanelCode = async (to: string[], code: string) => {
+      mails++;
+      sentCode = code;
+      sentTo = to;
+      await new Promise((r) => setTimeout(r, 40)); // SMTP takes a moment
+    };
+    const all = await Promise.all([1, 2, 3, 4, 5].map(() => s.start(user)));
+    expect(mails).toBe(1);
+    expect(new Set(all.map((a) => a.challenge_id)).size).toBe(1);
+  });
+
+  it('parallel resends send at most one mail', async () => {
+    const s = make();
+    let mails = 0;
+    otp.sendPanelCode = async () => {
+      mails++;
+      await new Promise((r) => setTimeout(r, 40));
+    };
+    const ch = await s.start(user);
+    mails = 0;
+    const real = Date.now();
+    jest.spyOn(Date, 'now').mockImplementation(() => real + 61_000);
+    const res = await Promise.allSettled([1, 2, 3, 4].map(() => s.resend(ch.challenge_id)));
+    jest.restoreAllMocks();
+    expect(mails).toBe(1);
+    expect(res.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
   });
 
   it('rejects a malformed challenge id', async () => {

@@ -124,7 +124,9 @@ export function LoginForm({
   }
 
   async function onResend() {
-    if (!challenge || wait > 0) return;
+    if (!challenge || wait > 0 || inflight.current) return;
+    inflight.current = true;
+    setBusy(true);
     setError('');
     setNotice('');
     try {
@@ -137,6 +139,9 @@ export function LoginForm({
     } catch (err: any) {
       if (err?.name === 'ApiError' && err.status === 401) setChallenge(null);
       failure(err);
+    } finally {
+      inflight.current = false;
+      setBusy(false);
     }
   }
 
@@ -203,7 +208,7 @@ export function LoginForm({
             {error ? <p className="err">{error}</p> : null}
             <button type="submit" disabled={busy || code.length !== 6}>Verify and sign in</button>
             <p>
-              <a href="#" onClick={(e) => { e.preventDefault(); onResend(); }} style={wait > 0 ? { opacity: 0.5 } : undefined}>
+              <a href="#" onClick={(e) => { e.preventDefault(); onResend(); }} style={wait > 0 || busy ? { opacity: 0.5 } : undefined}>
                 {wait > 0 ? `Resend code in ${wait}s` : 'Resend code'}
               </a>
               {' · '}

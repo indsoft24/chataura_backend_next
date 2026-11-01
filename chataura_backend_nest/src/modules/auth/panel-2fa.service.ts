@@ -82,31 +82,58 @@ export class Panel2faService {
   }
 
   /** Password was right: create a code, email it, and hand back the challenge to answer. */
-  async start(user: User) {
-    const c = this.redis.getClient();
-    // Double click or retry within a minute: hand back the code already sent instead of mailing another.
-    const liveId = await c.get(`p2fa:u:${user.id}`);
+  /** The code sent less than a minute ago, if any — what a double click or retry should get back. */
+  private async recent(user: User) {
+    const liveId = await this.redis.getClient().get(`p2fa:u:${user.id}`);
     const live = liveId ? await this.load(liveId) : null;
-    if (liveId && live) {
-      const left = Math.ceil(PANEL_OTP_RESEND_AFTER_SECONDS - (Date.now() - live.sentAt) / 1000);
-      if (left > 0) {
-        const to = this.recipientsFor(user);
-        return { otp_required: true, challenge_id: liveId, expires_in: PANEL_OTP_TTL_SECONDS, resend_after: left, sent_to: to.map(maskEmail) };
-      }
-    }
-    const sends = await c.incr(`p2fa:s:${user.id}`);
-    if (sends === 1) await c.expire(`p2fa:s:${user.id}`, 3600);
-    if (sends > PANEL_OTP_SENDS_PER_HOUR) throw this.tooMany('Too many codes requested. Try again later.');
-
-    const id = randomBytes(32).toString('hex');
-    const sent = await this.sendNew(id, user, 0);
+    const left = live ? Math.ceil(PANEL_OTP_RESEND_AFTER_SECONDS - (Date.now() - live.sentAt) / 1000) : 0;
+    if (!liveId || !live || left <= 0) return null;
     return {
       otp_required: true,
-      challenge_id: id,
+      challenge_id: liveId,
       expires_in: PANEL_OTP_TTL_SECONDS,
-      resend_after: PANEL_OTP_RESEND_AFTER_SECONDS,
-      sent_to: sent.map(maskEmail),
+      resend_after: left,
+      sent_to: this.recipientsFor(user).map(maskEmail),
     };
+  }
+
+  /** One mail per account at a time: parallel clicks cannot all pass the checks before the first one records its send. */
+  private async sendLock<T>(userId: bigint, work: () => Promise<T>): Promise<T | null> {
+    const c = this.redis.getClient();
+    if ((await c.set(`p2fa:l:${userId}`, '1', 'EX', 30, 'NX')) !== 'OK') return null;
+    try {
+      return await work();
+    } finally {
+      await c.del(`p2fa:l:${userId}`);
+    }
+  }
+
+  /** Password was right: create a code, email it, and hand back the challenge to answer. */
+  async start(user: User) {
+    for (let i = 0; i < 20; i++) {
+      const reused = await this.recent(user);
+      if (reused) return reused;
+      const fresh = await this.sendLock(user.id, async () => {
+        const again = await this.recent(user); // another request may have finished while we waited for the lock
+        if (again) return again;
+        const c = this.redis.getClient();
+        const sends = await c.incr(`p2fa:s:${user.id}`);
+        if (sends === 1) await c.expire(`p2fa:s:${user.id}`, 3600);
+        if (sends > PANEL_OTP_SENDS_PER_HOUR) throw this.tooMany('Too many codes requested. Try again later.');
+        const id = randomBytes(32).toString('hex');
+        const sent = await this.sendNew(id, user, 0);
+        return {
+          otp_required: true,
+          challenge_id: id,
+          expires_in: PANEL_OTP_TTL_SECONDS,
+          resend_after: PANEL_OTP_RESEND_AFTER_SECONDS,
+          sent_to: sent.map(maskEmail),
+        };
+      });
+      if (fresh) return fresh;
+      await new Promise((r) => setTimeout(r, 300)); // another request is mailing right now: wait for its code
+    }
+    throw this.tooMany('A code is already being sent. Wait a few seconds.');
   }
 
   /** Where this account's emailed codes go: the superadmin's to the owner mailboxes, everyone else's to their own. */
@@ -151,14 +178,22 @@ export class Panel2faService {
     const wait = PANEL_OTP_RESEND_AFTER_SECONDS * 1000 - (Date.now() - ch.sentAt);
     if (wait > 0) throw this.tooMany(`Wait ${Math.ceil(wait / 1000)} seconds before asking for another code.`);
     if (ch.resends >= PANEL_OTP_MAX_RESENDS) throw this.tooMany('No more resends for this sign-in. Sign in again.');
-    const c = this.redis.getClient();
-    const sends = await c.incr(`p2fa:s:${ch.uid}`);
-    if (sends === 1) await c.expire(`p2fa:s:${ch.uid}`, 3600);
-    if (sends > PANEL_OTP_SENDS_PER_HOUR) throw this.tooMany('Too many codes requested. Try again later.');
     const user = await this.prisma.user.findUnique({ where: { id: BigInt(ch.uid) } });
     if (!user) throw this.invalid();
-    const sent = await this.sendNew(id, user, ch.resends + 1);
-    return { challenge_id: id, expires_in: PANEL_OTP_TTL_SECONDS, resend_after: PANEL_OTP_RESEND_AFTER_SECONDS, sent_to: sent.map(maskEmail) };
+    const out = await this.sendLock(user.id, async () => {
+      const now = await this.load(id); // re-read inside the lock: a parallel resend may have just sent
+      if (!now || Date.now() - now.sentAt < PANEL_OTP_RESEND_AFTER_SECONDS * 1000 || now.resends >= PANEL_OTP_MAX_RESENDS) {
+        throw this.tooMany('A code was just sent. Wait a minute before asking again.');
+      }
+      const c = this.redis.getClient();
+      const sends = await c.incr(`p2fa:s:${ch.uid}`);
+      if (sends === 1) await c.expire(`p2fa:s:${ch.uid}`, 3600);
+      if (sends > PANEL_OTP_SENDS_PER_HOUR) throw this.tooMany('Too many codes requested. Try again later.');
+      const sent = await this.sendNew(id, user, now.resends + 1);
+      return { challenge_id: id, expires_in: PANEL_OTP_TTL_SECONDS, resend_after: PANEL_OTP_RESEND_AFTER_SECONDS, sent_to: sent.map(maskEmail) };
+    });
+    if (!out) throw this.tooMany('A code is being sent. Wait a few seconds.');
+    return out;
   }
 
   /** Checks the code; returns the account id it was issued for. A code works once, with 5 guesses in total. */
