@@ -38,7 +38,6 @@ type PrizeBody = {
 /** Frames that come from their own system (role, CP/BCP, rewards, SVIP) can't be Gold Mine prizes. */
 const NON_PRIZE_FRAME_CATEGORIES = new Set([
   ...REWARD_ONLY_FRAME_CATEGORIES,
-  'role',
   'relationship',
 ]);
 

@@ -32,7 +32,7 @@ export interface LockedUser {
 }
 
 /** Frames won (rocket, daily rank), given by admin (support) or granted by SVIP — never sold or auto-unlocked. */
-export const REWARD_ONLY_FRAME_CATEGORIES = ['rocket', 'rank', 'special', 'svip'];
+export const REWARD_ONLY_FRAME_CATEGORIES = ['rocket', 'rank', 'special', 'svip', 'role'];
 
 @Injectable()
 export class LedgerService {
