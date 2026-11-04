@@ -1085,6 +1085,8 @@ export class AdminCatalogService {
         referral_milestone_required_count: extra.referral_milestone_required_count ?? 5,
         referral_milestone_coins: extra.referral_milestone_coins ?? 100,
         referral_coin_conversion_rate: extra.referral_coin_conversion_rate ?? 1,
+        app_latest_version_code: extra.app_latest_version_code ?? 0,
+        app_min_version_code: extra.app_min_version_code ?? 0,
         admob_enabled: extra.admob_enabled ?? false,
         admob_ad_coins: extra.admob_ad_coins ?? 10,
         admob_daily_ad_limit: extra.admob_daily_ad_limit ?? 5,

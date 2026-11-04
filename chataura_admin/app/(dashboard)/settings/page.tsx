@@ -9,7 +9,7 @@ type Num = { kind: 'num'; key: string; label: string; hint?: string; unit?: stri
 type Toggle = { kind: 'toggle'; key: string; label: string; hint?: string; defaultOn?: boolean };
 type Note = { kind: 'note'; text: React.ReactNode };
 type Group = { title?: string; hint?: string; cols?: 2 | 3 | 4; items: (Num | Toggle | Note)[] };
-type TabId = 'commissions' | 'withdrawals' | 'streaks' | 'games' | 'staff' | 'animations' | 'rooms';
+type TabId = 'commissions' | 'withdrawals' | 'streaks' | 'app-update' | 'games' | 'staff' | 'animations' | 'rooms';
 
 const pct = (key: string, label: string, hint?: string): Num => ({ kind: 'num', key, label, hint, unit: '%', min: 0, max: 100 });
 const coins = (key: string, label: string, hint?: string, min = 0): Num => ({ kind: 'num', key, label, hint, unit: 'coins', min });
@@ -61,6 +61,17 @@ const TABS: { id: TabId; label: string; groups: Group[] }[] = [
       { items: [
         { kind: 'num', key: 'referral_milestone_required_count', label: 'Friends required', min: 1 },
         coins('referral_milestone_coins', 'Milestone bonus'),
+      ] },
+    ],
+  },
+  {
+    id: 'app-update',
+    label: 'App update',
+    groups: [
+      { title: 'Play Store builds', items: [
+        { kind: 'note', text: 'Enter the versionCode of a build (for example 63 for 1.6.3). Users on an older build see an update prompt; below the minimum they must update. 0 = off. Set these only after the build is live on Google Play.' },
+        { kind: 'num', key: 'app_latest_version_code', label: 'Latest version code', min: 0 },
+        { kind: 'num', key: 'app_min_version_code', label: 'Minimum version code (forced update)', min: 0 },
       ] },
     ],
   },
@@ -146,6 +157,8 @@ const DEFAULTS: Record<string, any> = {
   referral_milestone_required_count: 5,
   referral_milestone_coins: 100,
   referral_coin_conversion_rate: 1,
+  app_latest_version_code: 0,
+  app_min_version_code: 0,
   admob_enabled: false,
   admob_ad_coins: 10,
   admob_daily_ad_limit: 5,

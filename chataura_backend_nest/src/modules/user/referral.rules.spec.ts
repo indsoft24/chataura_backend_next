@@ -1,4 +1,4 @@
-import { referrerIsActive, withinReferralWindow } from './referral.rules';
+import { REFERRAL_REJECTIONS, referrerIsActive, withinReferralWindow } from './referral.rules';
 
 describe('referral rules', () => {
   const now = new Date('2026-11-10T00:00:00Z');
@@ -11,5 +11,12 @@ describe('referral rules', () => {
     expect(referrerIsActive({ deletedAt: new Date(), accountStatus: 'active', isSuspended: false })).toBe(false);
     expect(referrerIsActive({ deletedAt: null, accountStatus: 'suspended', isSuspended: false })).toBe(false);
     expect(referrerIsActive({ deletedAt: null, accountStatus: 'active', isSuspended: true })).toBe(false);
+  });
+
+  it('explains every rejection with a code the app understands', () => {
+    expect(REFERRAL_REJECTIONS.device.code).toBe('REFERRAL_NOT_ELIGIBLE');
+    expect(REFERRAL_REJECTIONS.late.code).toBe('REFERRAL_TOO_LATE');
+    expect(REFERRAL_REJECTIONS.late.message).toContain('7 days');
+    expect(REFERRAL_REJECTIONS.referrer.code).toBe('INVALID_CODE');
   });
 });
