@@ -1,3 +1,4 @@
+import { createHmac } from 'crypto';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -5,7 +6,46 @@ import { ConfigService } from '@nestjs/config';
 export class AgoraService {
   constructor(private readonly config: ConfigService) {}
 
-  buildToken(
+  /**
+   * Every room/seat response spreads this. Agora fields are always present (old apps keep working);
+   * `provider`/`url`/`token` are added so new apps can pick LiveKit. RTC_PROVIDER=livekit only
+   * takes effect when LIVEKIT_URL / KEY / SECRET are all set, otherwise it stays 'agora'.
+   */
+  buildToken(channel: string, uid: number, publisher: boolean) {
+    const base = this.buildAgoraToken(channel, uid, publisher);
+    const lk = this.livekit(channel, uid, publisher, base.expires_in);
+    return lk
+      ? { ...base, provider: 'livekit' as const, url: lk.url, token: lk.token, identity: String(uid) }
+      : { ...base, provider: 'agora' as const };
+  }
+
+  private livekit(channel: string, uid: number, publisher: boolean, expiresIn: number) {
+    if (this.config.get('RTC_PROVIDER') !== 'livekit') return null;
+    const url = this.config.get<string>('LIVEKIT_URL');
+    const key = this.config.get<string>('LIVEKIT_API_KEY');
+    const secret = this.config.get<string>('LIVEKIT_API_SECRET');
+    if (!url || !key || !secret) return null;
+    const now = Math.floor(Date.now() / 1000);
+    const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const head = b64({ alg: 'HS256', typ: 'JWT' });
+    const body = b64({
+      iss: key,
+      sub: String(uid),
+      nbf: now,
+      exp: now + expiresIn,
+      video: {
+        room: channel,
+        roomJoin: true,
+        canSubscribe: true,
+        canPublish: publisher, // the server decides; the client can never grant itself the mic
+        canPublishData: true,
+      },
+    });
+    const sig = createHmac('sha256', secret).update(`${head}.${body}`).digest('base64url');
+    return { url, token: `${head}.${body}.${sig}` };
+  }
+
+  private buildAgoraToken(
     channel: string,
     uid: number,
     publisher: boolean,
