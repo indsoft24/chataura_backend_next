@@ -140,3 +140,25 @@ export const ENTRY_BAR_ORDER = [
   { sortOrder: 'asc' as const },
   { id: 'asc' as const },
 ];
+
+/**
+ * `CMD:ENTRY_BAR:{json}` — the room event the server writes when someone with an entrance VIDEO joins.
+ * The video is chosen by the server (what the joiner wears), never by the joiner's phone, so it plays
+ * for everyone whatever app version the joiner has. Null when they wear no video bar.
+ */
+export function entryBarJoinCommand(
+  user: Parameters<typeof wornEntryBarFields>[0] & { id: bigint; displayName: string | null; name: string | null },
+  svipLevel: number,
+  agoraUid: number,
+): string | null {
+  const worn = wornEntryBarFields(user, svipLevel) as { entry_bar?: ReturnType<typeof entryBarMedia> | null };
+  const bar = worn.entry_bar;
+  if (!bar || !bar.overlay || !bar.animation_url) return null;
+  return `CMD:ENTRY_BAR:${JSON.stringify({
+    v: 1,
+    user_id: Number(user.id),
+    agora_uid: agoraUid,
+    name: user.displayName ?? user.name ?? '',
+    entry_bar: bar,
+  })}`;
+}
