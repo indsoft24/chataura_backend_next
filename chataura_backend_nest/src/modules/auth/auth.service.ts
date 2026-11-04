@@ -15,6 +15,12 @@ import { userForApi } from '../user/user.serializer';
 import { UserService } from '../user/user.service';
 import { OtpService } from './otp.service';
 import { Panel2faService } from './panel-2fa.service';
+import { REFERRAL_REJECTIONS } from '../user/referral.rules';
+
+type ReferralOutcome =
+  | { status: 'none' }
+  | { status: 'applied'; coins: number }
+  | { status: 'rejected'; reason: string; message: string };
 import { TokenService } from './token.service';
 import {
   ChangePasswordRequestDto,
@@ -86,13 +92,14 @@ export class AuthService {
     }));
 
     await this.recordDevice(user.id, deviceId);
+    let referral = this.noReferral(dto.referral_code ?? dto.invite_code, invitedBy);
     if (invitedBy) {
-      await this.grantReferralCoins(user.id, invitedBy);
+      referral = await this.grantReferralCoins(user.id, invitedBy);
       // Also grant the standard signup bonus for the new user (idempotent via ledger check below).
       await this.grantSignupBonus(user.id);
     }
 
-    return this.authPayload(user);
+    return { ...(await this.authPayload(user)), referral };
   }
 
   async login(
@@ -164,6 +171,7 @@ export class AuthService {
     const email = String(payload.email).toLowerCase();
     let user = await this.prisma.user.findUnique({ where: { email } });
     let isNew = false;
+    let referral: ReferralOutcome | undefined;
 
     if (!user) {
       isNew = true;
@@ -203,8 +211,9 @@ export class AuthService {
       }));
 
       await this.recordDevice(user.id, deviceId);
+      referral = this.noReferral(dto.referral_code ?? dto.invite_code, invitedBy);
       if (invitedBy) {
-        await this.grantReferralCoins(user.id, invitedBy);
+        referral = await this.grantReferralCoins(user.id, invitedBy);
       }
       if (emailVerified) {
         await this.grantSignupBonus(user.id);
@@ -232,7 +241,7 @@ export class AuthService {
 
     void isNew;
     await this.recordDevice(user.id, deviceId);
-    return this.authPayload(user);
+    return referral ? { ...(await this.authPayload(user)), referral } : this.authPayload(user);
   }
 
   async refresh(dto: RefreshTokenDto) {
@@ -676,13 +685,24 @@ export class AuthService {
     return { coins, bonus_type: 'signup' };
   }
 
-  private async grantReferralCoins(inviteeId: bigint, referrerId: bigint) {
-    if (!(await this.users.referralEligible(inviteeId, referrerId))) {
+  /** A code was typed but matched nobody (or none was given). */
+  private noReferral(rawCode: string | null | undefined, invitedBy: bigint | null): ReferralOutcome {
+    return String(rawCode ?? '').trim() && !invitedBy
+      ? { status: 'rejected', reason: 'invalid_code', message: 'This invite code was not found' }
+      : { status: 'none' };
+  }
+
+  /** Pays a signup referral. The result goes back to the app so a rejected invite is explained, never silent. */
+  private async grantReferralCoins(inviteeId: bigint, referrerId: bigint): Promise<ReferralOutcome> {
+    const check = await this.users.referralCheck(inviteeId, referrerId);
+    if (check !== 'ok') {
+      this.logger.warn(`Signup referral not paid: invitee ${inviteeId} inviter ${referrerId} reason ${check}`);
       // Unpaid invites must not count toward the referrer's total or milestone.
       await this.prisma.user.update({ where: { id: inviteeId }, data: { invitedBy: null } });
-      return null;
+      return { status: 'rejected', reason: check, message: REFERRAL_REJECTIONS[check].message };
     }
-    return this.prisma.$transaction((tx) => this.users.payReferral(tx, inviteeId, referrerId));
+    const paid = await this.prisma.$transaction((tx) => this.users.payReferral(tx, inviteeId, referrerId));
+    return { status: 'applied', coins: paid.invitee_coins };
   }
 
   private async creditSpendable(

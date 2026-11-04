@@ -5,6 +5,7 @@ import {
 } from '@nestjs/platform-fastify';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { ValidationPipe } from '@nestjs/common';
+import { PUBLIC_WEB_PATHS } from './common/public-web-paths';
 import { ConfigService } from '@nestjs/config';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
@@ -89,20 +90,7 @@ async function bootstrap() {
 
   const apiPrefix = config.get<string>('API_PREFIX', 'api/v2').replace(/^\/+|\/+$/g, '');
   app.setGlobalPrefix(apiPrefix, {
-    exclude: [
-      '/',
-      'privacy-policy',
-      'terms-and-conditions',
-      'delete-account',
-      'child-safety',
-      'register',
-      'invite/:code',
-      '.well-known/assetlinks.json',
-      'app-ads.txt',
-      'robots.txt',
-      'apk',
-      'apk/:file',
-    ],
+    exclude: PUBLIC_WEB_PATHS,
   });
   app.enableCors({
     origin: corsOrigin === '*' ? true : corsOrigin.split(','),

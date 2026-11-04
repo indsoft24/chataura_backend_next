@@ -1,10 +1,11 @@
-import { referrerIsActive, withinReferralWindow } from './referral.rules';
+import { REFERRAL_REJECTIONS, referrerIsActive, withinReferralWindow, type ReferralCheck } from './referral.rules';
 import { recordVisit } from '../svip/svip-visits';
 import { wornMedals } from '../medal/medal.rules';
 import { withUniqueDisplayId } from './display-id';
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { createWriteStream, existsSync, mkdirSync } from 'fs';
@@ -31,6 +32,8 @@ const PUBLIC_BASE =
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
@@ -48,7 +51,8 @@ export class UserService {
     return {
       invite_code: code,
       invite_link: `${PUBLIC_BASE}/invite/${code}`,
-      referral_register_url: `${PUBLIC_BASE}/${(process.env.API_PREFIX || 'api/v2').replace(/^\/+|\/+$/g, '')}/auth/register?invite_code=${code}`,
+      // Old apps share this field, so it must be the working landing page (the API register URL is POST-only and 404s in a browser).
+      referral_register_url: `${PUBLIC_BASE}/invite/${code}`,
       reward_rules: {
         signup_bonus: rewards.referee_coins,
         referrer_bonus: rewards.referrer_coins,
@@ -117,17 +121,25 @@ export class UserService {
 
   /** Farming guard: only a phone's first account earns (never by inviting yourself), only while the account is new, and only from a live inviter. */
   async referralEligible(inviteeId: bigint, referrerId: bigint): Promise<boolean> {
+    return (await this.referralCheck(inviteeId, referrerId)) === 'ok';
+  }
+
+  /** Why an invite would not pay: 'device' (not the phone's first account / same phone as the inviter), 'late' (account older than 7 days), 'referrer' (inviter deleted or suspended). */
+  async referralCheck(
+    inviteeId: bigint,
+    referrerId: bigint,
+    opts: { ignoreAge?: boolean } = {},
+  ): Promise<ReferralCheck> {
     const pair = await this.prisma.user.findMany({
       where: { id: { in: [inviteeId, referrerId] } },
       select: { id: true, createdAt: true, deletedAt: true, accountStatus: true, isSuspended: true },
     });
     const invitee = pair.find((u) => u.id === inviteeId);
     const referrer = pair.find((u) => u.id === referrerId);
-    if (!invitee || !referrer || !referrerIsActive(referrer) || !withinReferralWindow(invitee.createdAt)) return false;
-    return (
-      (await this.isFirstAccountOnDevice(inviteeId)) &&
-      !(await this.shareDevice(inviteeId, referrerId))
-    );
+    if (!invitee || !referrer || !referrerIsActive(referrer)) return 'referrer';
+    if (!opts.ignoreAge && !withinReferralWindow(invitee.createdAt)) return 'late';
+    if (!(await this.isFirstAccountOnDevice(inviteeId)) || (await this.shareDevice(inviteeId, referrerId))) return 'device';
+    return 'ok';
   }
 
   /**
@@ -230,14 +242,11 @@ export class UserService {
       });
     }
     // Same guard as signup, so a code typed later can't be used to farm extra accounts.
-    if (!(await this.referralEligible(userId, referrer.id))) {
-      throw new BadRequestException({
-        success: false,
-        error: {
-          code: 'REFERRAL_NOT_ELIGIBLE',
-          message: 'Referral rewards are only for the first account on a phone',
-        },
-      });
+    const check = await this.referralCheck(userId, referrer.id);
+    if (check !== 'ok') {
+      this.logger.warn(`Referral not applied: invitee ${userId} code "${code}" reason ${check}`);
+      const e = REFERRAL_REJECTIONS[check];
+      throw new BadRequestException({ success: false, error: { code: e.code, message: e.message } });
     }
 
     return this.prisma.$transaction(async (tx) => {

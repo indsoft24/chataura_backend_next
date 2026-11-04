@@ -9,3 +9,12 @@ export function withinReferralWindow(createdAt: Date, now = new Date()): boolean
 export function referrerIsActive(u: { deletedAt: Date | null; accountStatus: string | null; isSuspended: boolean }): boolean {
   return !u.deletedAt && !u.isSuspended && u.accountStatus !== 'deleted' && u.accountStatus !== 'suspended';
 }
+
+export type ReferralCheck = 'ok' | 'device' | 'late' | 'referrer';
+
+/** What the app is told when an invite does not pay, so the user is never left guessing. */
+export const REFERRAL_REJECTIONS: Record<Exclude<ReferralCheck, 'ok'>, { code: string; message: string }> = {
+  device: { code: 'REFERRAL_NOT_ELIGIBLE', message: 'Referral rewards are only for the first account on a phone' },
+  late: { code: 'REFERRAL_TOO_LATE', message: `A referral code can only be added within ${REFERRAL_APPLY_DAYS} days of signing up` },
+  referrer: { code: 'INVALID_CODE', message: 'This invite code is no longer active' },
+};
