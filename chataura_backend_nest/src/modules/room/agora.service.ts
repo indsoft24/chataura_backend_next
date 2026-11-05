@@ -8,8 +8,9 @@ export class AgoraService {
 
   /**
    * Every room/seat response spreads this. Agora fields are always present (old apps keep working);
-   * `provider`/`url`/`token` are added so new apps can pick LiveKit. RTC_PROVIDER=livekit only
-   * takes effect when LIVEKIT_URL / KEY / SECRET are all set, otherwise it stays 'agora'.
+   * `provider`/`url`/`token` are added so new apps use LiveKit. LiveKit is the first choice whenever
+   * LIVEKIT_URL / KEY / SECRET are all set; otherwise (or with RTC_PROVIDER=agora) it is 'agora'.
+   * LIVEKIT_ROOM_PREFIX keeps two backends that share one LiveKit server (staging / production) apart.
    */
   buildToken(channel: string, uid: number, publisher: boolean) {
     const base = this.buildAgoraToken(channel, uid, publisher);
@@ -20,7 +21,7 @@ export class AgoraService {
   }
 
   private livekit(channel: string, uid: number, publisher: boolean, expiresIn: number) {
-    if (this.config.get('RTC_PROVIDER') !== 'livekit') return null;
+    if (this.config.get('RTC_PROVIDER') === 'agora') return null;
     const url = this.config.get<string>('LIVEKIT_URL');
     const key = this.config.get<string>('LIVEKIT_API_KEY');
     const secret = this.config.get<string>('LIVEKIT_API_SECRET');
@@ -34,7 +35,7 @@ export class AgoraService {
       nbf: now,
       exp: now + expiresIn,
       video: {
-        room: channel,
+        room: `${this.config.get<string>('LIVEKIT_ROOM_PREFIX') ?? ''}${channel}`,
         roomJoin: true,
         canSubscribe: true,
         canPublish: publisher, // the server decides; the client can never grant itself the mic

@@ -12,12 +12,23 @@ describe('AgoraService provider', () => {
     expect(t.agora_uid).toBe(7);
   });
 
-  it('stays agora when livekit is requested but not fully configured', () => {
-    expect(svc({ RTC_PROVIDER: 'livekit' }).buildToken('room_1', 7, true).provider).toBe('agora');
+  it('stays agora when livekit is not fully configured', () => {
+    expect(svc({ LIVEKIT_URL: 'wss://x' }).buildToken('room_1', 7, true).provider).toBe('agora');
+  });
+
+  it('prefers livekit when configured, agora only when forced', () => {
+    const lk = { LIVEKIT_URL: 'wss://x', LIVEKIT_API_KEY: 'k', LIVEKIT_API_SECRET: 's' };
+    expect(svc(lk).buildToken('room_1', 7, true).provider).toBe('livekit');
+    expect(svc({ ...lk, RTC_PROVIDER: 'agora' }).buildToken('room_1', 7, true).provider).toBe('agora');
+  });
+
+  it('prefixes the livekit room name when LIVEKIT_ROOM_PREFIX is set', () => {
+    const t = svc({ LIVEKIT_URL: 'wss://x', LIVEKIT_API_KEY: 'k', LIVEKIT_API_SECRET: 's', LIVEKIT_ROOM_PREFIX: 'stg_' }).buildToken('room_1', 7, true) as { token: string };
+    expect(JSON.parse(Buffer.from(t.token.split('.')[1], 'base64url').toString()).video.room).toBe('stg_room_1');
   });
 
   it('signs a livekit token whose publish right follows the role', () => {
-    const env = { RTC_PROVIDER: 'livekit', LIVEKIT_URL: 'wss://x', LIVEKIT_API_KEY: 'k', LIVEKIT_API_SECRET: 's' };
+    const env = { LIVEKIT_URL: 'wss://x', LIVEKIT_API_KEY: 'k', LIVEKIT_API_SECRET: 's' };
     for (const publisher of [true, false]) {
       const t = svc(env).buildToken('room_1', 7, publisher) as { provider: string; url: string; token: string; agora_token: string };
       expect(t.provider).toBe('livekit');
