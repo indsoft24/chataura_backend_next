@@ -27,6 +27,9 @@ import { buildServerGiftCommand } from './server-gift-event';
 import { BattleService } from '../battle/battle.service';
 import { RoomRewardService } from './room-reward/room-reward.service';
 
+/** Double-tap guard for gift requests that carry no idempotency_key (older apps): a real repeat must go through. */
+const GIFT_REPEAT_GUARD_SECONDS = 2;
+
 @Injectable()
 export class RoomGiftingService {
   constructor(
@@ -381,7 +384,7 @@ export class RoomGiftingService {
         throw e;
       }
     });
-      await redisClient.set(idemKey, 'COMPLETED', 'EX', 30);
+      await redisClient.set(idemKey, 'COMPLETED', 'EX', (body as any).idempotency_key ? 30 : GIFT_REPEAT_GUARD_SECONDS);
     } catch (e) {
       await redisClient.del(idemKey);
       throw e;
@@ -694,7 +697,7 @@ export class RoomGiftingService {
         throw e;
       }
     });
-      await redisClient.set(batchIdemKey, 'COMPLETED', 'EX', 30);
+      await redisClient.set(batchIdemKey, 'COMPLETED', 'EX', (body as any).idempotency_key ? 30 : GIFT_REPEAT_GUARD_SECONDS);
     } catch (e) {
       await redisClient.del(batchIdemKey);
       throw e;
