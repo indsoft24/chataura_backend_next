@@ -41,7 +41,8 @@ import {
   type RocketListSummary,
 } from './rocket-launch.service';
 import { pickCpSeat } from './cp-seat-placement';
-import { EntryBarRow, wornEntryBarFields } from '../gamification/entry-bar.rules';
+import { EntryBarRow, entryBarJoinCommand, wornEntryBarFields } from '../gamification/entry-bar.rules';
+import { RealtimeService } from '../../common/fcm/realtime.service';
 import { resolveActingHost } from './room-authority';
 
 const KICK_SECONDS = 600;
@@ -110,6 +111,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     private readonly roomState: RoomStateService,
     private readonly redis: RedisService,
     private readonly musicalChair: MusicalChairService,
+    private readonly realtime: RealtimeService,
   ) {
     this.roomState.setBuilder((roomId) => this.buildLiveState(roomId));
   }
@@ -803,6 +805,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     await this.syncRoomAuthority(room.id);
     // New member (count, possibly host reclaim / seat): publish the room state.
     this.stateChanged(room.id);
+    void this.announceEntryBar(room.id, user, agoraUid);
 
     const publisher = ['host', 'co_host', 'speaker'].includes(member.role);
     const token = this.agora.buildToken(
@@ -2792,6 +2795,27 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       ...svipClientFields(user.svip),
       ...this.entryBarFields(user),
     };
+  }
+
+  /**
+   * Tells the room to play this member's entrance video. Written by the server after the join commits, so it does not
+   * depend on the joiner's phone (an old app version never sent what the video needs). One per member per 45 s, so
+   * reconnects and quick re-joins do not replay it. Never fails the join.
+   */
+  private async announceEntryBar(roomId: string, user: UserLite & { svip?: SvipChromeRow }, agoraUid: number) {
+    try {
+      const text = entryBarJoinCommand(
+        user as Parameters<typeof entryBarJoinCommand>[0],
+        svipLevelOf(user.svip),
+        agoraUid,
+      );
+      if (!text) return;
+      const fresh = await this.redis.getClient().set(`entry_evt:${roomId}:${user.id}`, '1', 'EX', 45, 'NX');
+      if (fresh !== 'OK') return;
+      await this.realtime.publishRoomEvent(roomId, { text });
+    } catch (e) {
+      this.logger.warn(`announceEntryBar(${roomId}, ${user.id}) failed: ${String(e)}`);
+    }
   }
 
   /** Worn entry bar for the room's join effect — from the server, never from the joiner's chat message. */

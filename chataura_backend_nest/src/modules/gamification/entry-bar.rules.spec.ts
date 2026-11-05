@@ -1,6 +1,7 @@
 import {
   canWearEntryBar,
   wornEntryBarFields,
+  entryBarJoinCommand,
   entryBarOffer,
   entryBarSettings,
   ENTRY_BAR_DEFAULTS,
@@ -143,5 +144,31 @@ describe('bought level entry bars', () => {
     const lv = { level: 5, selectedEntryBar: lvBar };
     expect(wornEntryBarFields({ ...lv, selectedEntryBarPaidUntil: new Date(Date.now() + day) }, 0)).toMatchObject({ entry_bar_id: 5 });
     expect(wornEntryBarFields({ ...lv, selectedEntryBarPaidUntil: new Date(Date.now() - day) }, 0)).toEqual({ entry_bar_id: 0, entry_bar: null });
+  });
+});
+
+describe('entryBarJoinCommand', () => {
+  const user = (selectedEntryBar: EntryBarRow | null | undefined, level = 1) => ({
+    id: 7n,
+    displayName: 'Rani',
+    name: 'rani',
+    level,
+    selectedEntryBar,
+  });
+
+  it('is a server room command carrying the video the joiner wears', () => {
+    const cmd = entryBarJoinCommand(user(bar()), 1, 4242)!;
+    expect(cmd.startsWith('CMD:ENTRY_BAR:')).toBe(true);
+    const json = JSON.parse(cmd.slice('CMD:ENTRY_BAR:'.length));
+    expect(json).toMatchObject({ v: 1, user_id: 7, agora_uid: 4242, name: 'Rani' });
+    expect(json.entry_bar).toMatchObject({ id: 5, overlay: true, media_type: 'video', composite: 'screen' });
+    expect(json.entry_bar.animation_url).toContain('wolf.mp4');
+  });
+
+  it('says nothing for no bar, a bar they may not wear, or a non-video bar', () => {
+    expect(entryBarJoinCommand(user(null), 1, 1)).toBeNull();
+    expect(entryBarJoinCommand(user(undefined), 1, 1)).toBeNull();
+    expect(entryBarJoinCommand(user(bar()), 0, 1)).toBeNull(); // SVIP bar after SVIP ended
+    expect(entryBarJoinCommand(user(bar({ svipLevel: 0, animationUrl: null, compositeMode: 'alpha' })), 0, 1)).toBeNull();
   });
 });
