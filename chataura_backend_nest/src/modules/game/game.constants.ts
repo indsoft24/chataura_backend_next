@@ -64,6 +64,30 @@ export function pickWeighted(
   return entries[0][0];
 }
 
+/** admin_settings.extra_settings keys: { item: weight } for every item of the game. */
+export const GAME_WEIGHT_KEYS = { greedy: 'greedy_weights', lucky77: 'lucky77_weights' } as const;
+
+/**
+ * Built-in odds with the weights replaced by the database ones. Multipliers never change (the app shows them).
+ * Anything not exactly "every item, weight a whole number 1..10,000,000" is ignored, so a bad entry can't break a round.
+ */
+export function withWeights<T extends Record<string, { multiplier: number; weight: number }>>(
+  base: T,
+  override: unknown,
+): T {
+  if (!override || typeof override !== 'object' || Array.isArray(override)) return base;
+  const o = override as Record<string, unknown>;
+  const keys = Object.keys(base);
+  if (Object.keys(o).length !== keys.length) return base;
+  const out: Record<string, { multiplier: number; weight: number }> = {};
+  for (const k of keys) {
+    const w = o[k];
+    if (typeof w !== 'number' || !Number.isInteger(w) || w < 1 || w > 10_000_000) return base;
+    out[k] = { multiplier: base[k].multiplier, weight: w };
+  }
+  return out as T;
+}
+
 export function secondsRemaining(endsAt: Date): number {
   return Math.max(0, Math.ceil((endsAt.getTime() - Date.now()) / 1000));
 }

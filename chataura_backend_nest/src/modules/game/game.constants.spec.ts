@@ -3,6 +3,7 @@ import {
   LUCKY77_OPTIONS,
   lucky77ComboError,
   pickWeighted,
+  withWeights,
 } from './game.constants';
 
 function empiricalRtp(
@@ -69,5 +70,30 @@ describe('lucky77 bet combinations', () => {
     [['lucky_77', 'plum'], 'watermelon'],
   ])('rejects %j + %s (both fruits)', (existing, option) => {
     expect(lucky77ComboError(existing, option)).toBe('FRUIT_CONFLICT');
+  });
+});
+
+describe('withWeights (database odds)', () => {
+  const g = { carrot: 1975, tomato: 1975, corn: 1975, chilli: 1975, chicken: 2111, cow: 3800, crab: 6333, fish: 9500 };
+  it('replaces weights, keeps multipliers', () => {
+    const out = withWeights(GREEDY_ITEMS, { ...g, chicken: 100 });
+    expect(out.chicken).toEqual({ multiplier: 45, weight: 100 });
+    expect(out.cow.multiplier).toBe(25);
+  });
+  it.each([
+    ['missing', undefined],
+    ['array', []],
+    ['one item short', { lucky_77: 1, watermelon: 1 }],
+    ['extra item', { ...g, extra: 1 }],
+    ['zero weight', { ...g, cow: 0 }],
+    ['fraction', { ...g, cow: 1.5 }],
+    ['string', { ...g, cow: '5' }],
+  ])('ignores a bad entry: %s', (_n, bad) => {
+    expect(withWeights(GREEDY_ITEMS, bad)).toBe(GREEDY_ITEMS);
+  });
+  it('lucky77 override works with its own keys', () => {
+    const out = withWeights(LUCKY77_OPTIONS, { lucky_77: 11111, watermelon: 44444, plum: 44445 });
+    expect(out.lucky_77.weight).toBe(11111);
+    expect(out.lucky_77.multiplier).toBe(8);
   });
 });

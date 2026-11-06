@@ -15,6 +15,7 @@ import { GameEvents } from './game.events';
 import {
   BETTING_SECONDS,
   GREEDY_FEAST,
+  GAME_WEIGHT_KEYS,
   GREEDY_ITEMS,
   GREEDY_MAX,
   GREEDY_MIN,
@@ -25,6 +26,7 @@ import {
   lucky77ComboError,
   pickWeighted,
   secondsRemaining,
+  withWeights,
 } from './game.constants';
 
 const STAFF_ROLES = new Set([
@@ -57,6 +59,12 @@ export class GameService {
     private readonly events: GameEvents,
     private readonly history: GameHistoryService,
   ) {}
+
+  /** Odds override from admin_settings.extra_settings, read at each draw so a change applies to the next round. */
+  private async oddsSetting(tx: Prisma.TransactionClient, key: string): Promise<unknown> {
+    const row = await tx.adminSetting.findUnique({ where: { id: 1 }, select: { extraSettings: true } });
+    return (row?.extraSettings as Record<string, unknown> | null)?.[key];
+  }
 
   /**
    * Every player polls state/result each round; history + today's leaderboard are the same for
@@ -736,8 +744,9 @@ export class GameService {
       }
 
       // Winner rolled within single-claimer lock
-      const winner = pickWeighted(GREEDY_ITEMS);
-      const mult = GREEDY_ITEMS[winner].multiplier;
+      const odds = withWeights(GREEDY_ITEMS, await this.oddsSetting(tx, GAME_WEIGHT_KEYS.greedy));
+      const winner = pickWeighted(odds);
+      const mult = odds[winner].multiplier;
 
       await tx.greedyRound.update({
         where: { id: current.id },
@@ -827,8 +836,9 @@ export class GameService {
         return null;
       }
 
-      const winner = pickWeighted(LUCKY77_OPTIONS);
-      const mult = LUCKY77_OPTIONS[winner].multiplier;
+      const odds = withWeights(LUCKY77_OPTIONS, await this.oddsSetting(tx, GAME_WEIGHT_KEYS.lucky77));
+      const winner = pickWeighted(odds);
+      const mult = odds[winner].multiplier;
 
       await tx.lucky77Round.update({
         where: { id: current.id },
