@@ -1,19 +1,16 @@
 import { renderReferralPage } from './referral.template';
 
 describe('renderReferralPage', () => {
-  it('embeds the code in the Play Store link as the install referrer', () => {
-    const html = renderReferralPage('ab12cd34');
-    expect(html).toContain('id=com.chataura.app&referrer=invite_code%3Dab12cd34');
-    expect(html).toContain('market://details?id=com.chataura.app&referrer=invite_code%3Dab12cd34');
-    expect(html).toContain('chataura://register?referral=ab12cd34');
+  it('direct APK mode: tracked download link, clipboard hand-off, no Play redirect', () => {
+    const html = renderReferralPage('ab12', 'https://x.in', 'https://play/x', true);
+    expect(html).toContain('/apk/ChatAura.apk?c=ab12');
+    expect(html).toContain('chataura-invite:ab12');
+    expect(html).not.toContain('Download on Google Play');
+    expect(html).toContain('var hasApk = true');
   });
-
-  it('strips markup from the code', () => {
-    const html = renderReferralPage('x"><script>alert(1)</script>');
-    expect(html).not.toContain('<script>alert');
-  });
-
-  it('has no referrer without a code', () => {
-    expect(renderReferralPage(null)).not.toContain('referrer=');
+  it('without an APK it keeps the Play Store flow', () => {
+    const html = renderReferralPage('ab12', 'https://x.in', 'https://play/x', false);
+    expect(html).toContain('Download on Google Play');
+    expect(html).not.toContain('id="apk-btn"');
   });
 });

@@ -210,6 +210,18 @@ model PanelTrustedDevice {
   @@map("panel_trusted_devices")
 }
 
+/// Direct-APK invite downloads: the new install claims the code by IP when the clipboard hand-off fails.
+model InviteClick {
+  id        BigInt    @id @default(autoincrement())
+  code      String    @db.VarChar(32)
+  ip        String    @db.VarChar(64)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  matchedAt DateTime? @map("matched_at") @db.Timestamptz(6)
+
+  @@index([ip, createdAt])
+  @@map("invite_clicks")
+}
+
 /// Phones each account signed up or logged in on (X-Device-Id), for the accounts-per-phone cap.
 model AuthDevice {
   id          BigInt   @id @default(autoincrement())

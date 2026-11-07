@@ -1,6 +1,9 @@
-import { Controller, Get, Param, Res } from '@nestjs/common';
+import { Controller, Get, Param, Query, Req, Res } from '@nestjs/common';
+import { createReadStream, existsSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { ConfigService } from '@nestjs/config';
-import type { FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import { PrismaService } from '../../common/prisma/prisma.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { renderLandingPage } from './templates/landing.template';
 import {
@@ -33,7 +36,16 @@ const ROBOTS_TXT = 'User-agent: *\nAllow: /\n';
 
 @Controller()
 export class WebController {
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {}
+
+  /** The direct-download APK. Delete this file and every download link goes back to Google Play. */
+  private apkFile() {
+    return join(process.cwd(), 'uploads', 'apk', 'ChatAura.apk');
+  }
+
 
   private getAppConfig() {
     const baseUrl = this.config.get<string>('PUBLIC_BASE_URL', 'https://chataura.in');
@@ -45,17 +57,40 @@ export class WebController {
       appName: 'Chat Aura',
       baseUrl,
       playStoreUrl,
-      // No direct APK: a locally signed APK can't be updated from Play (different signing key).
-      hasLocalApk: false,
+      // Only a Play-signed APK may be placed here: it then updates over the Play install.
+      hasLocalApk: existsSync(this.apkFile()),
       apkDownloadUrl: `${baseUrl}/apk/ChatAura.apk`,
     };
   }
 
-  /** Old shared APK links go to the Play Store, so installs stay updatable. */
+  /** Direct APK (invite code in ?c= is remembered for the new install); Play Store when no APK is uploaded. */
   @Get(['apk', 'apk/:file'])
   @Public()
-  apkToPlayStore(@Res() res: FastifyReply) {
-    return res.redirect(this.getAppConfig().playStoreUrl, 302);
+  async apkDownload(
+    @Query('c') rawCode: string | undefined,
+    @Req() req: FastifyRequest,
+    @Res() res: FastifyReply,
+  ) {
+    const file = this.apkFile();
+    if (!existsSync(file)) return res.redirect(this.getAppConfig().playStoreUrl, 302);
+    const code = String(rawCode ?? '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32);
+    if (code) {
+      const owner = await this.prisma.user.findFirst({
+        where: { inviteCode: { equals: code, mode: 'insensitive' } },
+        select: { id: true },
+      });
+      if (owner) {
+        await this.prisma.inviteClick
+          .create({ data: { code, ip: req.ip.slice(0, 64) } })
+          .catch(() => undefined); // tracking must never block the download
+      }
+    }
+    return res
+      .header('Content-Type', 'application/vnd.android.package-archive')
+      .header('Content-Disposition', 'attachment; filename="ChatAura.apk"')
+      .header('Content-Length', statSync(file).size)
+      .header('Cache-Control', 'no-store')
+      .send(createReadStream(file));
   }
 
   @Get()
@@ -93,11 +128,11 @@ export class WebController {
     return res.type('text/html; charset=utf-8').send(html);
   }
 
-  @Get('register')
+  @Get(['register', 'download'])
   @Public()
   getRegisterLanding(@Res() res: FastifyReply) {
     const appConfig = this.getAppConfig();
-    const html = renderReferralPage(null, appConfig.baseUrl, appConfig.playStoreUrl);
+    const html = renderReferralPage(null, appConfig.baseUrl, appConfig.playStoreUrl, appConfig.hasLocalApk);
     return res.type('text/html; charset=utf-8').send(html);
   }
 
@@ -105,7 +140,7 @@ export class WebController {
   @Public()
   getInviteLanding(@Param('code') code: string, @Res() res: FastifyReply) {
     const appConfig = this.getAppConfig();
-    const html = renderReferralPage(code, appConfig.baseUrl, appConfig.playStoreUrl);
+    const html = renderReferralPage(code, appConfig.baseUrl, appConfig.playStoreUrl, appConfig.hasLocalApk);
     return res.type('text/html; charset=utf-8').send(html);
   }
 

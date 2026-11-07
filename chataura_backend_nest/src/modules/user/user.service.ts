@@ -212,6 +212,23 @@ export class UserService {
     return { invitee_coins: referee, referrer_coins: referrerAmt };
   }
 
+  /**
+   * Code from the newest unclaimed APK download on this IP in the last 24 h. If different codes
+   * downloaded from the same IP (shared Wi-Fi), nothing is returned: a wrong inviter is worse than none.
+   */
+  async matchInviteClick(ip: string) {
+    const clicks = await this.prisma.inviteClick.findMany({
+      where: { ip: ip.slice(0, 64), matchedAt: null, createdAt: { gte: new Date(Date.now() - 24 * 3600 * 1000) } },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    });
+    if (clicks.length === 0 || new Set(clicks.map((c) => c.code.toLowerCase())).size > 1) {
+      return { success: true, data: { code: null } };
+    }
+    await this.prisma.inviteClick.updateMany({ where: { id: { in: clicks.map((c) => c.id) } }, data: { matchedAt: new Date() } });
+    return { success: true, data: { code: clicks[0].code } };
+  }
+
   async applyInvite(userId: bigint, rawCode: string) {
     const code = rawCode.trim();
     if (!code) {
