@@ -64,6 +64,13 @@ export class UserController {
     return this.users.availability(user.id);
   }
 
+  /** New install of the direct APK claims the invite code its phone's IP downloaded with (clipboard fallback). */
+  @Public()
+  @Post('invite/match')
+  matchInvite(@Req() req: FastifyRequest) {
+    return this.users.matchInviteClick(req.ip);
+  }
+
   @Post('invite/apply')
   applyInvite(
     @CurrentUser() user: AuthUser,

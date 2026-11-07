@@ -9,6 +9,7 @@ export const PUBLIC_WEB_PATHS: (string | RouteInfo)[] = [
   'delete-account',
   'child-safety',
   'register',
+  'download',
   // GET only: the landing page. A bare path here also pulled POST invite/apply out of the API prefix (404 for the app).
   { path: 'invite/:code', method: RequestMethod.GET },
   '.well-known/assetlinks.json',

@@ -2,6 +2,7 @@ export function renderReferralPage(
   referralCode: string | null,
   baseUrl = 'https://chataura.in',
   storeUrl = 'https://play.google.com/store/apps/details?id=com.chataura.app',
+  hasApk = false,
 ): string {
   // Codes are hex; strip everything else so the path can't inject markup into the page.
   const code = String(referralCode ?? '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32) || null;
@@ -14,6 +15,9 @@ export function renderReferralPage(
   const deepLink = code
     ? `chataura://register?referral=${encodeURIComponent(code)}`
     : `chataura://app`;
+  // Direct APK: the code rides in the link (server remembers it) and is also copied to the clipboard for the app.
+  const apkUrl = `/apk/ChatAura.apk${code ? `?c=${encodeURIComponent(code)}` : ''}`;
+  const clipText = code ? `chataura-invite:${code}` : '';
   const title = code
     ? `Join Chat Aura with Invite Code ${code}`
     : `Join Chat Aura — Voice, Video & Party Rooms`;
@@ -186,11 +190,13 @@ export function renderReferralPage(
 
             <div class="actions">
                 <a class="btn-open" href="${deepLink}">Open in Chat Aura App</a>
-                <a class="btn-store" href="${playStoreUrl}" target="_blank" rel="noopener noreferrer">Download on Google Play</a>
+                ${hasApk
+                  ? `<a class="btn-store" id="apk-btn" href="${apkUrl}">Download Chat Aura (APK)</a>`
+                  : `<a class="btn-store" href="${playStoreUrl}" target="_blank" rel="noopener noreferrer">Download on Google Play</a>`}
             </div>
 
             <div class="hint">
-                ${code ? `Install from Google Play — your invite code <strong>${code}</strong> is applied automatically.` : `Install Chat Aura from Google Play.`}
+                ${hasApk ? `Tap Download, open the file and press Install (allow "Install unknown apps" if asked).${code ? ` Your invite code <strong>${code}</strong> is applied automatically.` : ''}` : code ? `Install from Google Play — your invite code <strong>${code}</strong> is applied automatically.` : `Install Chat Aura from Google Play.`}
             </div>
         </div>
     </main>
@@ -209,6 +215,23 @@ export function renderReferralPage(
                     didHide = true;
                 }
             });
+
+            var hasApk = ${JSON.stringify(hasApk)};
+            if (hasApk) {
+                // Copy the invite code so the freshly installed app can read it; download then starts via the link.
+                var clip = ${JSON.stringify(clipText)};
+                var btn = document.getElementById('apk-btn');
+                if (btn && clip) btn.addEventListener('click', function () {
+                    try {
+                        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(clip);
+                        else {
+                            var t = document.createElement('textarea'); t.value = clip; document.body.appendChild(t);
+                            t.select(); document.execCommand('copy'); document.body.removeChild(t);
+                        }
+                    } catch (e) {}
+                });
+                return;
+            }
 
             window.location.href = deepLink;
 
