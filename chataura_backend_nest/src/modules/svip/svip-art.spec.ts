@@ -12,6 +12,10 @@ describe('svipArtOf', () => {
       }),
     ).toEqual({ medal: 'https://storage.googleapis.com/chataura/svip/v1/svip1_medal.webp' });
   });
+  it('also serves the title and vehicle art', () => {
+    const u = 'https://storage.googleapis.com/chataura/svip/v1/svip2_title.webp';
+    expect(svipArtOf({ title: u, vehicle: u })).toEqual({ title: u, vehicle: u });
+  });
   it('null when nothing usable', () => {
     expect(svipArtOf(null)).toBeNull();
     expect(svipArtOf([])).toBeNull();

@@ -3,7 +3,7 @@
  * Stored per level in svip_level_configs.art, e.g. {"medal": "https://storage.googleapis.com/chataura/svip/v1/svip1_medal.webp"}.
  * File convention: svip/v1/svip<level>_<key>.webp — see docs/SVIP_LEVEL_ART_GCS.md.
  */
-export const SVIP_ART_KEYS = ['medal', 'frame', 'room_card', 'bubble'] as const;
+export const SVIP_ART_KEYS = ['medal', 'frame', 'room_card', 'bubble', 'title', 'vehicle'] as const;
 export type SvipArtKey = (typeof SVIP_ART_KEYS)[number];
 
 /** Only known keys with https URLs reach the app; anything else in the column is ignored. */
