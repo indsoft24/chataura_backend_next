@@ -1,6 +1,6 @@
 import { ForbiddenException } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { svipLevelOf } from './svip-chrome';
+import { svipFullLevelOf } from './svip-chrome';
 
 /** Lowest SVIP level that unlocks the functional privileges (pictures, visitors, profile background). */
 export const SVIP_PRIVILEGE_LEVEL = 1;
@@ -8,7 +8,7 @@ export const SVIP_PRIVILEGE_LEVEL = 1;
 type Tx = Prisma.TransactionClient | PrismaClient;
 
 export async function svipLevelFor(tx: Tx, userId: bigint): Promise<number> {
-  return svipLevelOf(await tx.userSvip.findUnique({ where: { userId } }));
+  return svipFullLevelOf(await tx.userSvip.findUnique({ where: { userId } }));
 }
 
 /** 403 SVIP_REQUIRED unless the user holds at least `required`. Server-side gate for every privilege. */

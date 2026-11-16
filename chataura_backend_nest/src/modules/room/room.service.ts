@@ -1,5 +1,5 @@
 import { assertSvipLevel, SVIP_PRIVILEGE_LEVEL } from '../svip/svip-gates';
-import { SvipChromeRow, svipClientFields, svipLevelOf } from '../svip/svip-chrome';
+import { SvipChromeRow, svipClientFields, svipFullLevelOf, svipLevelOf } from '../svip/svip-chrome';
 import { bandForXp, ensureLaravelLevelBands } from '../gamification/level-bands';
 import { readMemberTimeoutSeconds } from './room-state/room-runtime.config';
 import { RedisService } from '../../common/redis/redis.service';
@@ -1024,7 +1024,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       return true;
     });
     // SVIP privilege: SVIP members are listed first, higher level first (stable otherwise).
-    unique.sort((a, b) => svipLevelOf(b.user.svip) - svipLevelOf(a.user.svip));
+    unique.sort((a, b) => svipFullLevelOf(b.user.svip) - svipFullLevelOf(a.user.svip));
     // Same XP → level rule as the profile screen, so the list shows each user's real level.
     const bands = await ensureLaravelLevelBands(this.prisma);
     return {

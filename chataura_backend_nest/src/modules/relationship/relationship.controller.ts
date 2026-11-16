@@ -82,6 +82,14 @@ export class RelationshipController {
     return this.relationships.accept(user.id, id);
   }
 
+  @Post('relationships/:id/decline')
+  decline(
+    @CurrentUser() user: { id: bigint },
+    @Param('id') id: string,
+  ) {
+    return this.relationships.decline(user.id, id);
+  }
+
   @Post('relationships/:id/unbind')
   unbind(
     @CurrentUser() user: { id: bigint },

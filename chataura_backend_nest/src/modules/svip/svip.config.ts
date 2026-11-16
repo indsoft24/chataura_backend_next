@@ -35,7 +35,7 @@ export const SVIP_SETTING_KEYS = {
 export const SVIP_DEFAULTS: SvipSettings = {
   enabled: false,
   maintenancePct: 20,
-  graceDays: 3,
+  graceDays: 30,
   periodDays: 30,
   rechargeDays: 5,
   renewDays: 5,

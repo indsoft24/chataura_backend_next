@@ -130,10 +130,13 @@ export class SvipService {
   }
 
   async perksOf(userId: bigint): Promise<SvipPerks> {
-    const [{ levels }, level] = await Promise.all([
+    const [{ levels, settings }, m] = await Promise.all([
       this.config(),
-      this.levelOf(userId),
+      this.prisma.userSvip.findUnique({ where: { userId } }),
     ]);
+    const now = new Date();
+    // Grace keeps the look (title, entrance, bubble, frame) but none of the extra perks.
+    const level = svipStatus(m, now, settings.graceDays) === 'active' ? effectiveLevel(m, now, settings.graceDays) : 0;
     const row = levels.find((l) => l.level === level);
     return {
       level,
