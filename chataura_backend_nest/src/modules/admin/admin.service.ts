@@ -2025,6 +2025,46 @@ export class AdminService {
     }
   }
 
+  /** Plain-words line for Greedy / Lucky77 win rows: how many bets, how much staked, what it paid, round net. */
+  private async gameRoundSummaries(
+    rows: Array<{ id: bigint; userId: bigint; type: string; referenceId: string | null }>,
+  ): Promise<Map<bigint, string>> {
+    const out = new Map<bigint, string>();
+    const n = (v: bigint | number) => Number(v).toLocaleString('en-IN');
+    const wins = rows.flatMap((r) => {
+      const m = /^(greedy|lucky77)_win_(\d+)$/.exec(r.referenceId ?? '');
+      return m && r.type.endsWith('_WIN') ? [{ r, game: m[1], round: BigInt(m[2]) }] : [];
+    });
+    for (const game of ['greedy', 'lucky77']) {
+      const list = wins.filter((w) => w.game === game);
+      if (!list.length) continue;
+      const or = list.map((w) => ({ userId: w.r.userId, roundId: w.round }));
+      const bets: Array<{ userId: bigint; roundId: bigint; key: string; chip: bigint; paid: bigint; mult: number }> =
+        game === 'greedy'
+          ? (await this.prisma.greedyBet.findMany({ where: { OR: or } })).map((b) => ({
+              userId: b.userId, roundId: b.roundId, key: b.item, chip: b.chipAmount, paid: b.actualPayout, mult: b.multiplier,
+            }))
+          : (await this.prisma.lucky77Bet.findMany({ where: { OR: or } })).map((b) => ({
+              userId: b.userId, roundId: b.roundId, key: b.option, chip: b.chipAmount, paid: b.actualPayout, mult: b.multiplier,
+            }));
+      for (const w of list) {
+        const mine = bets.filter((b) => b.userId === w.r.userId && b.roundId === w.round);
+        const won = mine.filter((b) => b.paid > 0n);
+        if (!won.length) continue;
+        const stakedAll = mine.reduce((s, b) => s + b.chip, 0n);
+        const paidAll = won.reduce((s, b) => s + b.paid, 0n);
+        const wStake = won.reduce((s, b) => s + b.chip, 0n);
+        const net = paidAll - stakedAll;
+        out.set(
+          w.r.id,
+          `Round #${w.round}: won on ${won[0].key} — ${won.length} bet${won.length > 1 ? 's' : ''} (${n(wStake)} total) x${won[0].mult} = ${n(paidAll)}. ` +
+            `This round you bet ${n(stakedAll)} on ${mine.length} bet${mine.length > 1 ? 's' : ''} and got ${n(paidAll)} back: ${net >= 0n ? 'profit +' : 'loss -'}${n(net >= 0n ? net : -net)}.`,
+        );
+      }
+    }
+    return out;
+  }
+
   async adminTransactions(query: Record<string, string | undefined> = {}) {
     const limitRaw = Number(query.limit ?? 25);
     const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? Math.floor(limitRaw) : 25, 1), 200);
@@ -2064,6 +2104,7 @@ export class AdminService {
       }),
     ]);
 
+    const summaries = await this.gameRoundSummaries(rows);
     const pages = Math.max(1, Math.ceil(total / limit));
     return {
       analytics: {
@@ -2079,6 +2120,7 @@ export class AdminService {
       },
       types: typeGroups.map((g) => ({ type: g.type, count: g._count._all })),
       transactions: rows.map((t) => ({
+        summary: summaries.get(t.id) ?? null,
         id: Number(t.id),
         user_id: Number(t.userId),
         user_name: t.user.displayName ?? t.user.name,

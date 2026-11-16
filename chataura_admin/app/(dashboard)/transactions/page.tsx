@@ -15,6 +15,7 @@ type Transaction = {
   user_avatar?: string | null;
   type: string;
   title?: string | null;
+  summary?: string | null;
   amount: number;
   net_amount: number | null;
   commission_amount: number | null;
@@ -738,6 +739,7 @@ function LedgerView({ tabs }: { tabs: ReactNode }) {
                       <td className="tx-td tx-wide" data-label="Type">
                         <span className="tx-type" style={{ color: cat.color, background: cat.bg }} title={t.type}>{typeLabel(t.type)}</span>
                         {t.title && <div className="tx-sub tx-title" title={t.title}>{t.title}</div>}
+                        {t.summary && <div className="tx-sub" style={{ whiteSpace: 'normal', fontWeight: 600 }}>{t.summary}</div>}
                       </td>
                       <td className={`tx-td tx-num tx-amount-cell tx-d-only ${t.amount > 0 ? 'pos' : t.amount < 0 ? 'neg' : 'zero'}`}>
                         {signed(t.amount)}
@@ -826,6 +828,7 @@ function LedgerView({ tabs }: { tabs: ReactNode }) {
                 {selected.user_email && <div className="tx-sub">{selected.user_email}</div>}
               </dd>
               {selected.title && (<><dt>Description</dt><dd>{selected.title}</dd></>)}
+              {selected.summary && (<><dt>Explanation</dt><dd>{selected.summary}</dd></>)}
               <dt>Type code</dt><dd><code>{selected.type}</code></dd>
               <dt>Commission</dt><dd>{selected.commission_amount !== null ? fmt(selected.commission_amount) : '—'}</dd>
               <dt>Net amount</dt><dd>{selected.net_amount !== null ? fmt(selected.net_amount) : '—'}</dd>
