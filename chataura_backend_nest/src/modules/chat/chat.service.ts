@@ -9,6 +9,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { toWebp } from '../media/compress-image';
 import { Prisma } from '@prisma/client';
 import { existsSync, mkdirSync, promises as fsp } from 'fs';
 import { resolve } from 'path';
@@ -1166,8 +1167,9 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
 
     const dir = resolve(process.cwd(), 'uploads', 'chat');
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    const filename = `chat_${Date.now()}_${randomUUID()}.${detected.ext}`;
-    await fsp.writeFile(resolve(dir, filename), buf);
+    const webp = detected.ext === 'gif' ? null : await toWebp(buf, 1600);
+    const filename = `chat_${Date.now()}_${randomUUID()}.${webp ? 'webp' : detected.ext}`;
+    await fsp.writeFile(resolve(dir, filename), webp ?? buf);
     const publicBase = this.config
       .get<string>('PUBLIC_BASE_URL', 'http://localhost:3000')
       .replace(/\/+$/, '');
