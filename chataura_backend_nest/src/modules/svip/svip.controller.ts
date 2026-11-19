@@ -210,6 +210,19 @@ export class SvipPrivilegesController {
     return this.privileges.setProfileBackground(user.id, body?.url ?? null);
   }
 
+  /** Add one picture to the background slider (multipart "file"). */
+  @Throttle({ default: { limit: 10, ttl: seconds(60) } })
+  @Post('svip/profile-backgrounds')
+  addBackground(@CurrentUser() user: AuthUser, @Req() req: FastifyRequest) {
+    return this.privileges.addProfileBackground(user.id, req);
+  }
+
+  /** Reorder / remove slides ({ urls }: only pictures already in my list). */
+  @Put('svip/profile-backgrounds')
+  setBackgrounds(@CurrentUser() user: AuthUser, @Body() body: { urls?: unknown }) {
+    return this.privileges.setProfileBackgrounds(user.id, body?.urls);
+  }
+
   @Delete('svip/profile-background')
   clearBackground(@CurrentUser() user: AuthUser) {
     return this.privileges.setProfileBackground(user.id, null);

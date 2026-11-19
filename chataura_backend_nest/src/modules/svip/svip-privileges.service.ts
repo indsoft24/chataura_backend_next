@@ -9,6 +9,12 @@ import { isAllowedMediaUrl } from '../chat/chat-rules';
 import { MediaService } from '../media/media.service';
 import { svipLevelOf } from './svip-chrome';
 import {
+  BACKGROUND_URL_RE,
+  MAX_BACKGROUND_BYTES,
+  MAX_PROFILE_BACKGROUNDS,
+  pickOwnBackgrounds,
+} from './svip-backgrounds';
+import {
   SVIP_PRIVILEGE_LEVEL,
   assertSvipLevel,
   svipLevelFor,
@@ -137,26 +143,68 @@ export class SvipPrivilegesService {
     };
   }
 
-  /** Custom profile background: an image already uploaded to our storage. Null clears it. */
+  /** Older apps: one picture already in our storage (clears all with null). Images only, no videos or other files. */
   async setProfileBackground(userId: bigint, url: string | null) {
-    await assertSvipLevel(
-      this.prisma,
-      userId,
-      SVIP_PRIVILEGE_LEVEL,
-      'set a profile background',
-    );
+    await assertSvipLevel(this.prisma, userId, SVIP_PRIVILEGE_LEVEL, 'set a profile background');
     const clean = url?.trim() || null;
-    if (clean && !isAllowedMediaUrl(clean, this.mediaPrefixes())) {
+    if (clean && (!isAllowedMediaUrl(clean, this.mediaPrefixes()) || !BACKGROUND_URL_RE.test(clean))) {
       throw new BadRequestException({
         success: false,
         error: { code: 'INVALID_MEDIA', message: 'Upload the picture first' },
       });
     }
+    await this.saveBackgrounds(userId, clean ? [clean] : []);
+    return { profile_bg_url: clean, profile_bg_urls: clean ? [clean] : [] };
+  }
+
+  /** Add one picture to my background slider (SVIP, at most 5, images up to 6 MB). */
+  async addProfileBackground(userId: bigint, req: { file?: () => Promise<any> }) {
+    await assertSvipLevel(this.prisma, userId, SVIP_PRIVILEGE_LEVEL, 'set a profile background');
+    const row = await this.prisma.userSvip.findUnique({ where: { userId }, select: { profileBgUrls: true } });
+    const list = row?.profileBgUrls ?? [];
+    if (list.length >= MAX_PROFILE_BACKGROUNDS) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'TOO_MANY', message: `You can add up to ${MAX_PROFILE_BACKGROUNDS} pictures` },
+      });
+    }
+    const url = await this.media.storeFromRequest(req, undefined, { imagesOnly: true, maxBytes: MAX_BACKGROUND_BYTES });
+    if (!url || !BACKGROUND_URL_RE.test(url)) {
+      throw new BadRequestException({
+        success: false,
+        error: { code: 'UPLOAD_FAILED', message: 'Send a JPG, PNG or WEBP picture under 6 MB' },
+      });
+    }
+    const next = [...list, url];
+    await this.saveBackgrounds(userId, next);
+    return { profile_bg_url: next[0], profile_bg_urls: next };
+  }
+
+  /** Reorder or remove slides. Only pictures already in my own list are accepted, so no one can point at another file. */
+  async setProfileBackgrounds(userId: bigint, urls: unknown) {
+    await assertSvipLevel(this.prisma, userId, SVIP_PRIVILEGE_LEVEL, 'set a profile background');
+    const row = await this.prisma.userSvip.findUnique({ where: { userId }, select: { profileBgUrls: true } });
+    const picked = pickOwnBackgrounds(urls, row?.profileBgUrls ?? []);
+    if ('error' in picked) {
+      throw new BadRequestException({
+        success: false,
+        error:
+          picked.error === 'BAD_REQUEST'
+            ? { code: 'BAD_REQUEST', message: `Send up to ${MAX_PROFILE_BACKGROUNDS} picture links` }
+            : { code: 'INVALID_MEDIA', message: 'Upload the picture first' },
+      });
+    }
+    const next = picked.list;
+    await this.saveBackgrounds(userId, next);
+    return { profile_bg_url: next[0] ?? null, profile_bg_urls: next };
+  }
+
+  /** The list and the single legacy url always move together. */
+  private async saveBackgrounds(userId: bigint, urls: string[]) {
     await this.prisma.userSvip.update({
       where: { userId },
-      data: { profileBgUrl: clean },
+      data: { profileBgUrls: urls, profileBgUrl: urls[0] ?? null },
     });
-    return { profile_bg_url: clean };
   }
 
   private mediaPrefixes(): string[] {

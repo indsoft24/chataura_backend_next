@@ -14,6 +14,7 @@ export type SvipChromeRow =
       roomCardOn: boolean;
       micWaveOn: boolean;
       profileBgUrl?: string | null;
+      profileBgUrls?: string[];
       periodEndsAt?: Date;
     }
   | null
@@ -36,6 +37,13 @@ export function svipFullLevelOf(m: SvipChromeRow): number {
 /** Custom profile background, only while SVIP is fully active (not in grace). */
 export function svipProfileBg(m: SvipChromeRow): string | null {
   return svipFullLevelOf(m) > 0 ? (m!.profileBgUrl ?? null) : null;
+}
+
+/** Background slides, only while SVIP is fully active (not in grace). Older rows fall back to the single url. */
+export function svipProfileBgs(m: SvipChromeRow): string[] {
+  if (svipFullLevelOf(m) <= 0) return [];
+  const list = m!.profileBgUrls ?? [];
+  return list.length ? list : m!.profileBgUrl ? [m!.profileBgUrl] : [];
 }
 
 export function svipClientFields(m: SvipChromeRow) {

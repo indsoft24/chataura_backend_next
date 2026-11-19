@@ -1,4 +1,4 @@
-import { SvipChromeRow, svipClientFields, svipProfileBg } from '../svip/svip-chrome';
+import { SvipChromeRow, svipClientFields, svipProfileBg, svipProfileBgs } from '../svip/svip-chrome';
 import { User } from '@prisma/client';
 import { presenceFields } from '../../common/presence/online-status';
 import {
@@ -182,7 +182,7 @@ export function userForApi(
         ? Number(user.selectedRoleFrameId)
         : null,
     ...selectedFrameClientFields(selected),
-    ...('svip' in user ? { ...svipClientFields(user.svip), profile_bg_url: svipProfileBg(user.svip) } : {}),
+    ...('svip' in user ? { ...svipClientFields(user.svip), profile_bg_url: svipProfileBg(user.svip), profile_bg_urls: svipProfileBgs(user.svip) } : {}),
     role_badge: badge,
     role_badge_type: badge?.type ?? null,
     role_badge_label: badge?.label ?? null,

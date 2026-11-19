@@ -1782,6 +1782,8 @@ model UserSvip {
   micWaveOn           Boolean   @default(true) @map("mic_wave_on")
   /// Custom profile background (SVIP privilege); shown only while SVIP is active.
   profileBgUrl        String?   @map("profile_bg_url") @db.Text
+  /// Profile background slides (max 5, first = profile_bg_url). Only the server adds to it, from its own upload endpoint.
+  profileBgUrls       String[]  @default([]) @map("profile_bg_urls")
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 

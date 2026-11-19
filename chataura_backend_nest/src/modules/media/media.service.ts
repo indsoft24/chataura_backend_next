@@ -562,7 +562,7 @@ export class MediaService {
   async storeFromRequest(
     req: { file?: () => Promise<any> },
     fallback?: string,
-    opts: { imagesOnly?: boolean } = {},
+    opts: { imagesOnly?: boolean; maxBytes?: number } = {},
   ): Promise<string | undefined> {
     if (typeof req.file !== 'function') return fallback;
     try {
@@ -574,7 +574,7 @@ export class MediaService {
         // Trust the bytes, not the client's name or type; save under the real extension.
         const buf: Buffer = await part.toBuffer();
         const kind = imageKind(buf);
-        if (!kind || buf.length > MAX_IMAGE_BYTES) return fallback;
+        if (!kind || buf.length > (opts.maxBytes ?? MAX_IMAGE_BYTES)) return fallback;
         const base = basename(part.filename || 'image').replace(/\.[^.]*$/, '');
         return this.storeLocalFile(`${base}.${kind}`, Readable.from(buf));
       }
