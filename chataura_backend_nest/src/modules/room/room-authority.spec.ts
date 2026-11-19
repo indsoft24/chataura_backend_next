@@ -147,3 +147,29 @@ describe('resolveActingHost', () => {
     ).toBeNull();
   });
 });
+
+import { BlockInput, canBlockTarget } from './room-authority';
+
+describe('canBlockTarget', () => {
+  const b = (over: Partial<BlockInput>): BlockInput => ({
+    actorId: 1n, targetId: 9n, ownerId: 1n, hostId: 1n, actingHostId: null, coHostId: 2n, adminIds: [3n, 4n], ...over,
+  });
+  it('host can act on anyone except the owner', () => {
+    expect(canBlockTarget(b({ targetId: 3n }))).toBe(true);
+    expect(canBlockTarget(b({ actorId: 7n, hostId: 7n, targetId: 1n }))).toBe(false);
+  });
+  it('acting host acts like the host', () => {
+    expect(canBlockTarget(b({ actorId: 8n, actingHostId: 8n, targetId: 2n }))).toBe(true);
+  });
+  it('co-host and admins can act on ordinary members only', () => {
+    for (const actorId of [2n, 3n]) {
+      expect(canBlockTarget(b({ actorId, targetId: 9n }))).toBe(true);
+      for (const targetId of [1n, 2n, 3n, 4n]) {
+        expect(canBlockTarget(b({ actorId, targetId }))).toBe(false);
+      }
+    }
+  });
+  it('an ordinary member cannot act', () => {
+    expect(canBlockTarget(b({ actorId: 9n, targetId: 8n }))).toBe(false);
+  });
+});
