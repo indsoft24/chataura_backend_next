@@ -1,4 +1,4 @@
-import { assertSvipLevel, SVIP_PRIVILEGE_LEVEL } from '../svip/svip-gates';
+import { assertSvipLevel, SVIP_PRIVILEGE_LEVEL, assertKickable } from '../svip/svip-gates';
 import { SvipChromeRow, svipClientFields, svipFullLevelOf, svipLevelOf } from '../svip/svip-chrome';
 import { bandForXp, ensureLaravelLevelBands } from '../gamification/level-bands';
 import { readMemberTimeoutSeconds } from './room-state/room-runtime.config';
@@ -1076,6 +1076,7 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
         error: { code: 'FORBIDDEN', message: 'Cannot block the owner' },
       });
     }
+    if (kind === 'kick') await assertKickable(this.prisma, targetId);
     await this.prisma.roomBlock.create({
       data: {
         roomId: room.id,

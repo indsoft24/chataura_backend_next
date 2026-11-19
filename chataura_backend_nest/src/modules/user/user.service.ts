@@ -1,5 +1,6 @@
 import { REFERRAL_REJECTIONS, referrerIsActive, withinReferralWindow, type ReferralCheck } from './referral.rules';
 import { recordVisit } from '../svip/svip-visits';
+import { SVIP_STEALTH_LEVEL, svipLevelFor } from '../svip/svip-gates';
 import { wornMedals } from '../medal/medal.rules';
 import { withUniqueDisplayId } from './display-id';
 import {
@@ -689,7 +690,11 @@ export class UserService {
     }
 
     const resolvedTargetId = user.id;
-    if (viewerId && viewerId !== resolvedTargetId) {
+    if (
+      viewerId &&
+      viewerId !== resolvedTargetId &&
+      (await svipLevelFor(this.prisma, viewerId)) < SVIP_STEALTH_LEVEL
+    ) {
       await recordVisit(this.prisma, resolvedTargetId, viewerId).catch(() => undefined);
     }
     const [counts, medals] = await Promise.all([
