@@ -148,7 +148,7 @@ function OverviewTab({ token, flash, confirm }: { token: string; flash: Flash; c
   const [data, setData] = useState<Config | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [pct, setPct] = useState('20');
-  const [grace, setGrace] = useState('3');
+  const [grace, setGrace] = useState('30');
   const [period, setPeriod] = useState('30');
   const [rechargeDays, setRechargeDays] = useState('5');
   const [renewDays, setRenewDays] = useState('5');

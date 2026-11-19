@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { FcmService } from '../../common/fcm/fcm.service';
 import {
   PERIOD_TYPES,
   canonicalUserPair,
@@ -39,6 +40,8 @@ export type FormationProgress = {
   remaining_coins: number;
   formed: boolean;
   blocked_reason: PartnerBlockReason | null;
+  /** Threshold reached: a request waits for the receiver to accept. The gifts still count as normal gifts. */
+  awaiting_accept?: boolean;
   is_outbid_challenge?: boolean;
   outbid_target_score?: number;
   is_disconnect_progress?: boolean;
@@ -109,7 +112,10 @@ function defaultRulesText(name: string, micExp: boolean): string {
 
 @Injectable()
 export class RelationshipEngineService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fcm: FcmService,
+  ) {}
 
   async applyContribution(
     tx: Tx,
@@ -341,29 +347,18 @@ export class RelationshipEngineService {
       const restart = !rel || rel.status === 'ended';
       const progress = (restart ? 0n : rel!.progressCoins) + giftCoins;
       const score = (restart ? 0n : rel!.totalScore) + contribution;
-      const forms = progress >= effectiveThreshold;
-
-      if (forms) {
-        if (existingSenderRel) {
-          await tx.userRelationship.update({
-            where: { id: existingSenderRel.id },
-            data: { status: 'ended', totalScore: 0n, progressCoins: 0n, level: null },
-          });
-        }
-        if (existingReceiverRel && existingReceiverRel.id !== existingSenderRel?.id) {
-          await tx.userRelationship.update({
-            where: { id: existingReceiverRel.id },
-            data: { status: 'ended', totalScore: 0n, progressCoins: 0n, level: null },
-          });
-        }
-      }
+      // Reaching the threshold only sends a request. The relationship starts when the receiver accepts
+      // (see activatePending); until then, and if it is declined, the gifts are plain gifts.
+      const wasPending = rel?.status === 'pending';
+      const forms = wasPending || progress >= effectiveThreshold;
+      const newRequest = forms && !wasPending;
 
       const data = {
-        status: forms ? 'active' : 'building',
+        status: forms ? 'pending' : 'building',
         progressCoins: progress,
         totalScore: score,
-        level: forms && type.levelsEnabled ? 1 : null,
-        ...(restart || forms ? { initiatorId: input.senderId } : {}),
+        level: null,
+        ...(restart || newRequest ? { initiatorId: input.senderId } : {}),
       };
       rel = rel
         ? await tx.userRelationship.update({ where: { id: rel.id }, data })
@@ -382,22 +377,21 @@ export class RelationshipEngineService {
         progress_coins: Number(progress),
         threshold_coins: Number(effectiveThreshold),
         remaining_coins: Math.max(0, Number(effectiveThreshold - progress)),
-        formed: forms,
+        formed: false,
+        awaiting_accept: forms,
         blocked_reason: null,
         is_outbid_challenge: isOutbidChallenge,
         outbid_target_score: maxExistingScore,
       };
 
-      if (!forms) {
-        await this.recordLedger(tx, rel.id, input, quantity, pointValue, contribution);
-        return {
-          ...empty,
-          applied: true,
-          contribution: Number(contribution),
-          formation_progress: formationProgress,
-        };
-      }
-      created = true;
+      await this.recordLedger(tx, rel.id, input, quantity, pointValue, contribution);
+      if (newRequest) void this.notifyRequest(tx, type.name, input.senderId, input.receiverId, rel.id);
+      return {
+        ...empty,
+        applied: true,
+        contribution: Number(contribution),
+        formation_progress: formationProgress,
+      };
     } else if (!rel) {
       const atCap = await this.isAtPartnerCap(
         tx,
@@ -461,10 +455,7 @@ export class RelationshipEngineService {
 
     await this.recordLedger(tx, rel.id, input, quantity, pointValue, contribution);
 
-    // Gifts sent while building count towards the boards on the forming gift.
-    const boardContribution = formationProgress?.formed
-      ? rel.totalScore
-      : contribution;
+    const boardContribution = contribution; // gifts before an accepted request are added in activatePending
 
     rel = await this.refreshLevelAndRings(tx, rel.id, type.id);
 
@@ -938,6 +929,61 @@ export class RelationshipEngineService {
       }
     }
     return { applied };
+  }
+
+  private async notifyRequest(tx: Tx, typeName: string, senderId: bigint, receiverId: bigint, relationshipId: string) {
+    try {
+      const sender = await tx.user.findUnique({ where: { id: senderId }, select: { name: true } });
+      await this.fcm.sendUserNotification({
+        userId: receiverId,
+        title: `${typeName} request`,
+        body: `${sender?.name ?? 'Someone'} wants to be your ${typeName}. Open the app to accept.`,
+        data: { type: 'relationship_request', relationship_id: relationshipId },
+      });
+    } catch {
+      /* the in-app prompt still finds the request */
+    }
+  }
+
+  /**
+   * The receiver accepted a gift-formed request: the pair becomes a relationship now. Any other partner of
+   * either user ends (same rule the forming gift used to apply), and the gifts counted so far go on the boards.
+   */
+  async activatePending(tx: Tx, relationshipId: string) {
+    const pending = await tx.userRelationship.findUniqueOrThrow({
+      where: { id: relationshipId },
+      include: { relationshipType: true },
+    });
+    const type = pending.relationshipType;
+    await this.lockPairUsers(tx, type.id, pending.userLowId, pending.userHighId);
+    const others = await tx.userRelationship.findMany({
+      where: {
+        relationshipTypeId: type.id,
+        id: { not: pending.id },
+        status: { in: ['active', 'disconnect_pending'] },
+        OR: [
+          { userLowId: { in: [pending.userLowId, pending.userHighId] } },
+          { userHighId: { in: [pending.userLowId, pending.userHighId] } },
+        ],
+      },
+    });
+    for (const o of others) {
+      await tx.userRelationship.update({
+        where: { id: o.id },
+        data: { status: 'ended', totalScore: 0n, progressCoins: 0n, level: null },
+      });
+    }
+    await tx.userRelationship.update({
+      where: { id: pending.id },
+      data: { status: 'active', level: type.levelsEnabled ? 1 : null },
+    });
+    const rel = await this.refreshLevelAndRings(tx, pending.id, type.id);
+    const now = new Date();
+    for (const period of PERIOD_TYPES) {
+      await this.bumpPeriodScore(tx, rel.id, period, periodKey(period, now), '', rel.totalScore);
+    }
+    await this.refreshRankAndDetectRank1(tx, rel.id, 'all_time', periodKey('all_time', now), '');
+    return rel;
   }
 
   /** Seed / ensure CP + BCP types exist. */

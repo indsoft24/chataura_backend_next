@@ -21,6 +21,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { FcmService } from '../../common/fcm/fcm.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { RelationshipEngineService, DEFAULT_FORMATION_THRESHOLD_COINS, DEFAULT_UNBIND_COST_COINS } from './relationship-engine.service';
 import {
@@ -38,6 +39,7 @@ export class RelationshipService {
     private readonly engine: RelationshipEngineService,
     @Inject(forwardRef(() => LedgerService))
     private readonly ledger: LedgerService,
+    private readonly fcm: FcmService,
   ) {}
 
   async listTypes(enabledOnly = true) {
@@ -79,6 +81,8 @@ export class RelationshipService {
     const page = hasMore ? rows.slice(0, take) : rows;
     const items = await Promise.all(page.map((r) => this.mapRelationship(r)));
     const pending = items.filter((i) => i.status === 'pending');
+    // Requests waiting for THIS user to accept (the other person reached the gift threshold).
+    const incomingRequests = pending.filter((i) => i.initiator_id !== Number(userId));
     const count = type
       ? await this.prisma.userRelationship.count({
           where: {
@@ -102,6 +106,7 @@ export class RelationshipService {
     return {
       items,
       pending,
+      incoming_requests: incomingRequests,
       in_progress: inProgress,
       count,
       max_partners: type?.maxPartners ?? null,
@@ -528,6 +533,11 @@ export class RelationshipService {
     const payer = row.initiatorId ?? (row.userLowId === userId ? row.userHighId : row.userLowId);
     const updated = await this.prisma.$transaction(async (tx) => {
       await this.engine.lockPairUsers(tx, row.relationshipTypeId, row.userLowId, row.userHighId);
+      // Gift-formed request: it was paid for with gifts, so accepting is free and replaces any other partner.
+      if (row.relationshipType.formationThresholdCoins > 0n) {
+        await this.engine.activatePending(tx, row.id);
+        return tx.userRelationship.findUniqueOrThrow({ where: { id: row.id }, include: { relationshipType: true } });
+      }
       if (
         await this.engine.isAtPartnerCap(
           tx,
@@ -553,6 +563,33 @@ export class RelationshipService {
         data: { status: 'active' },
         include: { relationshipType: true },
       });
+    });
+    if (row.initiatorId) {
+      const me = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+      void this.fcm.sendUserNotification({
+        userId: row.initiatorId,
+        title: `${row.relationshipType.name} accepted`,
+        body: `${me?.name ?? 'Your partner'} accepted your ${row.relationshipType.name} request.`,
+        data: { type: 'relationship_accepted', relationship_id: row.id },
+      });
+    }
+    return this.mapRelationship(updated);
+  }
+
+  /** The receiver says no: the request ends and the progress resets. The gifts already sent stay normal gifts. */
+  async decline(userId: bigint, id: string) {
+    const row = await this.prisma.userRelationship.findUnique({ where: { id }, include: { relationshipType: true } });
+    if (!row) {
+      throw new NotFoundException({ success: false, error: { code: 'RELATIONSHIP_NOT_FOUND', message: 'Not found' } });
+    }
+    if (row.status !== 'pending') this.fail('NOT_PENDING', 'Request is not pending');
+    if (row.userLowId !== userId && row.userHighId !== userId) {
+      throw new ForbiddenException({ success: false, error: { code: 'FORBIDDEN' } });
+    }
+    const updated = await this.prisma.userRelationship.update({
+      where: { id },
+      data: { status: 'ended', totalScore: 0, progressCoins: 0, level: null },
+      include: { relationshipType: true },
     });
     return this.mapRelationship(updated);
   }
