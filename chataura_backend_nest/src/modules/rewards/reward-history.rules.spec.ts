@@ -35,6 +35,8 @@ describe('reward history rules', () => {
     expect(ledgerTypesFor('games').sort()).toEqual([
       'GAME_GREEDY_WIN',
       'GAME_LUCKY77_WIN',
+      'GAME_LUCKY_FRUIT_CHEST',
+      'GAME_LUCKY_FRUIT_WIN',
       'GAME_SLOT_WIN',
     ]);
     expect(ledgerTypesFor('rocket')).toEqual([]);

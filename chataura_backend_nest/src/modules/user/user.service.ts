@@ -1,5 +1,6 @@
 import { REFERRAL_REJECTIONS, referrerIsActive, withinReferralWindow, type ReferralCheck } from './referral.rules';
 import { recordVisit } from '../svip/svip-visits';
+import { SVIP_STEALTH_LEVEL, svipLevelFor } from '../svip/svip-gates';
 import { wornMedals } from '../medal/medal.rules';
 import { withUniqueDisplayId } from './display-id';
 import {
@@ -8,7 +9,8 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { createWriteStream, existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, promises as fsp } from 'fs';
+import { toWebp } from '../media/compress-image';
 import { basename, resolve } from 'path';
 import { pipeline } from 'stream/promises';
 import { Prisma } from '@prisma/client';
@@ -375,10 +377,18 @@ export class UserService {
         /[^a-zA-Z0-9._-]/g,
         '_',
       );
-      const safe = `avatar_${Date.now()}_${cleanBase}`;
-      const dest = resolve(dir, safe);
+      let safe = `avatar_${Date.now()}_${cleanBase}`;
+      let dest = resolve(dir, safe);
       if (!dest.startsWith(dir)) return null;
-      await pipeline(stream, createWriteStream(dest));
+      const chunks: Buffer[] = [];
+      for await (const c of stream) chunks.push(c as Buffer);
+      const raw = Buffer.concat(chunks);
+      const webp = await toWebp(raw);
+      if (webp) {
+        safe = `${safe.replace(/\.[^.]*$/, '')}.webp`;
+        dest = resolve(dir, safe);
+      }
+      await fsp.writeFile(dest, webp ?? raw);
       return `${PUBLIC_BASE}/uploads/${safe}`;
     } catch {
       return null;
@@ -680,7 +690,11 @@ export class UserService {
     }
 
     const resolvedTargetId = user.id;
-    if (viewerId && viewerId !== resolvedTargetId) {
+    if (
+      viewerId &&
+      viewerId !== resolvedTargetId &&
+      (await svipLevelFor(this.prisma, viewerId)) < SVIP_STEALTH_LEVEL
+    ) {
       await recordVisit(this.prisma, resolvedTargetId, viewerId).catch(() => undefined);
     }
     const [counts, medals] = await Promise.all([

@@ -33,6 +33,8 @@ export const LEDGER_REWARD_TYPES: Record<
   GAME_GREEDY_WIN: { category: 'games', title: 'Greedy win' },
   GAME_LUCKY77_WIN: { category: 'games', title: 'Lucky 77 win' },
   GAME_SLOT_WIN: { category: 'games', title: 'Lucky Slots win' },
+  GAME_LUCKY_FRUIT_WIN: { category: 'games', title: 'Lucky Fruit win' },
+  GAME_LUCKY_FRUIT_CHEST: { category: 'games', title: 'Lucky Fruit chest' },
   REFERRAL_REFEREE: { category: 'referrals', title: 'Referral join bonus' },
   REFERRAL_REFERRER: { category: 'referrals', title: 'Referral invite bonus' },
   REFERRAL_MILESTONE: { category: 'referrals', title: 'Referral milestone' },

@@ -1,4 +1,4 @@
-export const HISTORY_GAMES = ['greedy', 'lucky77', 'slot', 'lucky_spin'] as const;
+export const HISTORY_GAMES = ['greedy', 'lucky77', 'slot', 'lucky_spin', 'lucky_fruit'] as const;
 export type HistoryGame = (typeof HISTORY_GAMES)[number];
 export type HistoryResult = 'win' | 'loss' | 'even';
 export const HISTORY_RESULTS: readonly HistoryResult[] = ['win', 'loss', 'even'];

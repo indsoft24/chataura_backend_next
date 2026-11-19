@@ -986,6 +986,16 @@ export class RelationshipEngineService {
     return rel;
   }
 
+  private defaultsOnce?: Promise<void>;
+
+  /** Seeds the CP / BCP types once per server start. The seed is ~20 upserts, and the public type list ran it on every request. */
+  ensureDefaultTypesOnce(): Promise<void> {
+    return (this.defaultsOnce ??= this.ensureDefaultTypes().catch((e) => {
+      this.defaultsOnce = undefined;
+      throw e;
+    }));
+  }
+
   /** Seed / ensure CP + BCP types exist. */
   async ensureDefaultTypes(prisma: PrismaService | Tx = this.prisma) {
     const db = prisma as PrismaService;

@@ -772,13 +772,18 @@ export class GameService {
         _sum: { actualPayout: true },
       });
       const winRef = `greedy_win_${current.id}`;
+      const paidIds = new Set(
+        (
+          await tx.coinTransaction.findMany({
+            where: { userId: { in: winners.map((x) => x.userId) }, referenceId: winRef },
+            select: { userId: true },
+          })
+        ).map((x) => x.userId),
+      );
       for (const w of winners) {
         const payout = w._sum.actualPayout ?? 0n;
         if (payout <= 0n) continue;
-        const alreadyPaid = await tx.coinTransaction.findFirst({
-          where: { userId: w.userId, referenceId: winRef },
-        });
-        if (!alreadyPaid) {
+        if (!paidIds.has(w.userId)) {
           await this.ledger.creditCoins(
             tx,
             w.userId,

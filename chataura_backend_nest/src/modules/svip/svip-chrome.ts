@@ -49,6 +49,8 @@ export function svipClientFields(m: SvipChromeRow) {
           bubble: m!.bubbleOn,
           room_card: full && m!.roomCardOn,
           mic_wave: full && m!.micWaveOn,
+          // The level's animated profile background (video lives on GCS, URL in the app); off in grace like the other extra perks.
+          profile_video: full,
         }
       : null,
   };

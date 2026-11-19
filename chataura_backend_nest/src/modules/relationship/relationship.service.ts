@@ -43,7 +43,7 @@ export class RelationshipService {
   ) {}
 
   async listTypes(enabledOnly = true) {
-    await this.engine.ensureDefaultTypes();
+    await this.engine.ensureDefaultTypesOnce();
     const types = await this.prisma.relationshipType.findMany({
       where: enabledOnly ? { enabled: true } : undefined,
       include: { levelThresholds: { orderBy: { level: 'asc' } } },
@@ -252,7 +252,7 @@ export class RelationshipService {
   // ── Admin ──────────────────────────────────────────────────────────
 
   async adminListTypes() {
-    await this.engine.ensureDefaultTypes();
+    await this.engine.ensureDefaultTypesOnce();
     const types = await this.prisma.relationshipType.findMany({
       orderBy: { sortOrder: 'asc' },
     });

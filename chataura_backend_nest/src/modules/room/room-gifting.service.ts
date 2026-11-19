@@ -482,13 +482,18 @@ export class RoomGiftingService {
 
     // Soft-filter: skip receivers who left / are not seated instead of failing the whole All-send.
     const eligibleIds: bigint[] = [];
+    const seatedIds = new Set(
+      (
+        await this.prisma.seat.findMany({
+          where: { roomId: room.id, userId: { in: receiverIds } },
+          select: { userId: true },
+        })
+      ).map((x) => x.userId),
+    );
     for (const rid of receiverIds) {
       if (rid === senderId) continue;
-      const seated = await this.prisma.seat.findFirst({
-        where: { roomId: room.id, userId: rid },
-      });
       if (
-        seated ||
+        seatedIds.has(rid) ||
         room.hostId === rid ||
         room.ownerId === rid
       ) {

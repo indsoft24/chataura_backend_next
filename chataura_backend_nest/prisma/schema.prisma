@@ -125,6 +125,7 @@ model User {
   roomBlocks          RoomBlock[]
   greedyBets          GreedyBet[]
   lucky77Bets         Lucky77Bet[]
+  luckyFruitBets      LuckyFruitBet[]
   gameHistory         GameHistory[]
   conversationParts   ConversationParticipant[]
   messagesSent        Message[]
@@ -2006,6 +2007,57 @@ model BattlePayout {
 
   @@unique([battleId, userId, role])
   @@map("battle_payouts")
+}
+
+/// Lucky Fruit: one shared round for everyone. Bets open at opens_at, close at closes_at; the server draws the winner at close.
+model LuckyFruitRound {
+  id          BigInt         @id @default(autoincrement())
+  phase       GameRoundPhase @default(betting)
+  opensAt     DateTime       @map("opens_at") @db.Timestamptz(6)
+  closesAt    DateTime       @map("closes_at") @db.Timestamptz(6)
+  winningItem String?        @map("winning_item") @db.VarChar(16)
+  /// Fruits lit by Lucky / Super Lucky (empty for a plain fruit win)
+  bonusItems  Json?          @map("bonus_items")
+  settledAt   DateTime?      @map("settled_at") @db.Timestamptz(6)
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  bets LuckyFruitBet[]
+
+  @@index([phase, closesAt])
+  @@map("lucky_fruit_rounds")
+}
+
+/// One row per chip tap. client_uuid makes a retried tap apply exactly once.
+model LuckyFruitBet {
+  id         BigInt        @id @default(autoincrement())
+  roundId    BigInt        @map("round_id")
+  userId     BigInt        @map("user_id")
+  item       String        @db.VarChar(16)
+  amount     BigInt
+  payout     BigInt        @default(0)
+  status     GameBetStatus @default(placed)
+  clientUuid String        @map("client_uuid") @db.VarChar(64)
+  createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  round LuckyFruitRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  user  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientUuid])
+  @@index([roundId, userId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("lucky_fruit_bets")
+}
+
+/// A turnover chest taken for one IST day (day = YYYY-MM-DD).
+model LuckyFruitChestClaim {
+  userId    BigInt   @map("user_id")
+  day       String   @db.VarChar(10)
+  tier      Int
+  reward    BigInt
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([userId, day, tier])
+  @@map("lucky_fruit_chest_claims")
 }
 
 /// Lucky Slots: one row per spin. The id is the client's request id, so a retried spin is never charged twice.

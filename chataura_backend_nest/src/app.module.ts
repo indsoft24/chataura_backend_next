@@ -33,6 +33,7 @@ import { MedalModule } from './modules/medal/medal.module';
 import { DiceModule } from './modules/dice/dice.module';
 import { BattleModule } from './modules/battle/battle.module';
 import { SlotModule } from './modules/slot/slot.module';
+import { LuckyFruitModule } from './modules/lucky-fruit/lucky-fruit.module';
 import { MusicalChairModule } from './modules/musical-chair/musical-chair.module';
 import { GoldMineModule } from './modules/gold-mine/gold-mine.module';
 
@@ -73,6 +74,7 @@ import { GoldMineModule } from './modules/gold-mine/gold-mine.module';
     MusicalChairModule,
     BattleModule,
     SlotModule,
+    LuckyFruitModule,
     GoldMineModule,
   ],
   controllers: [HealthController],

@@ -27,6 +27,7 @@ const MENU_GROUPS = [
       { name: 'Musical Chair', href: '/musical-chair' },
       { name: 'Battle', href: '/battle' },
       { name: 'Lucky Slots', href: '/slot' },
+      { name: 'Lucky Fruit', href: '/lucky-fruit' },
     ]
   },
   {
