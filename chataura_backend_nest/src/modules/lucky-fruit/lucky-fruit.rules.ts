@@ -30,10 +30,10 @@ export const LF_BONUS_COUNT: Record<string, number> = { lucky: 2, super_lucky: 3
 export const LF_CHIPS = [1_000, 5_000, 10_000, 50_000, 100_000] as const;
 export const LF_CHEST_TARGETS = [5_000_000, 50_000_000, 250_000_000, 500_000_000, 2_500_000_000] as const;
 export const LF_BETTING_SECONDS = 15;
-/** Spin (~5 s) + showdown (~3.5 s) on the phone, then the next round opens. */
-export const LF_RESULT_SECONDS = 9;
-/** Bets in the last second before close are refused (clock drift). */
-export const LF_CLOSE_GUARD_MS = 1000;
+/** Spin (~5 s) + showdown (~2.5 s) on the phone, then the next round opens. */
+export const LF_RESULT_SECONDS = 8;
+/** Bets stop 1.5 s before the close; the phone stops them when the timer shows 2, so the last bettable second is 3. */
+export const LF_CLOSE_GUARD_MS = 1500;
 
 export type LuckyFruitSettings = {
   enabled: boolean;
