@@ -48,3 +48,27 @@ export function resolveActingHost(input: AuthorityInput): bigint | null {
     .find((s) => eligible(s.userId));
   return seated?.userId ?? null;
 }
+
+export type BlockInput = {
+  actorId: bigint;
+  targetId: bigint;
+  ownerId: bigint;
+  hostId: bigint | null;
+  actingHostId: bigint | null;
+  coHostId: bigint | null;
+  adminIds: readonly bigint[];
+};
+
+/**
+ * Who may kick or ban whom. The host (and the acting host) may act on anyone but the owner.
+ * The co-host and room admins may act on ordinary members only: never the owner, host, acting
+ * host, co-host, another admin, or themselves.
+ */
+export function canBlockTarget(i: BlockInput): boolean {
+  if (i.targetId === i.ownerId) return false;
+  if (i.actorId === i.hostId || i.actorId === i.actingHostId) return true;
+  const staff = i.actorId === i.coHostId || i.adminIds.includes(i.actorId);
+  if (!staff) return false;
+  const protectedIds = [i.hostId, i.actingHostId, i.coHostId, ...i.adminIds];
+  return !protectedIds.includes(i.targetId) && i.targetId !== i.actorId;
+}

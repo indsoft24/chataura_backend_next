@@ -43,7 +43,7 @@ import {
 import { pickCpSeat } from './cp-seat-placement';
 import { EntryBarRow, entryBarJoinCommand, wornEntryBarFields } from '../gamification/entry-bar.rules';
 import { RealtimeService } from '../../common/fcm/realtime.service';
-import { resolveActingHost } from './room-authority';
+import { canBlockTarget, resolveActingHost } from './room-authority';
 
 const KICK_SECONDS = 600;
 /** Max party-room staff admins (host + up to 5 admins + 1 co-host). */
@@ -1069,11 +1069,26 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     kind = 'block',
   ) {
     const room = await this.findRoom(id);
-    this.assertHostAuthority(room, actorId);
     if (targetId === room.ownerId) {
       throw new ForbiddenException({
         success: false,
         error: { code: 'FORBIDDEN', message: 'Cannot block the owner' },
+      });
+    }
+    // Host and acting host: anyone but the owner. Co-host and room admins: ordinary members only.
+    const allowed = canBlockTarget({
+      actorId,
+      targetId,
+      ownerId: room.ownerId,
+      hostId: room.hostId,
+      actingHostId: room.actingHostId,
+      coHostId: room.coHostId,
+      adminIds: (await this.staffAdminIds(room.id)).map((n) => BigInt(n)),
+    });
+    if (!allowed) {
+      throw new ForbiddenException({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'You cannot kick or ban this member' },
       });
     }
     if (kind === 'kick') await assertKickable(this.prisma, targetId);
