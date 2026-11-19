@@ -8,6 +8,7 @@ jest.mock('../wallet/ledger.service', () => ({ LedgerService: class {} }));
 import { SvipService } from './svip.service';
 
 const DAY = 86_400_000;
+const GRACE = 30; // = SVIP_DEFAULTS.graceDays
 const USER = 7n;
 
 /** Minimal in-memory stand-in for the Prisma + ledger calls SVIP makes. */
@@ -353,7 +354,7 @@ describe('SvipService renewals', () => {
   it('after the grace days the sweep ends it and a new recharge unlocks it again', async () => {
     const w = makeWorld({ wallet: 6_000_000n });
     await w.activate(1);
-    w.setPeriodEnd(new Date(Date.now() - 4 * DAY));
+    w.setPeriodEnd(new Date(Date.now() - (GRACE + 1) * DAY));
     expect(await w.svc.renewOne(USER, new Date(), false)).toBe('expired');
     expect(w.member.status).toBe('expired');
     expect(await w.svc.levelOf(USER)).toBe(0);
@@ -399,7 +400,7 @@ describe('SvipService identity items', () => {
     const u = w.frameUnlock()!;
     expect(u.unlockType).toBe('svip');
     expect(u.expiresAt!.getTime()).toBe(
-      w.member.periodEndsAt.getTime() + 3 * DAY,
+      w.member.periodEndsAt.getTime() + GRACE * DAY,
     );
     expect(w.member).toMatchObject({
       bubbleOn: true,
@@ -414,10 +415,10 @@ describe('SvipService identity items', () => {
     w.setPeriodEnd(new Date(Date.now() - 1000));
     await w.svc.renew(USER);
     expect(w.frameUnlock()!.expiresAt!.getTime()).toBe(
-      w.member.periodEndsAt.getTime() + 3 * DAY,
+      w.member.periodEndsAt.getTime() + GRACE * DAY,
     );
 
-    w.setPeriodEnd(new Date(Date.now() - 4 * DAY));
+    w.setPeriodEnd(new Date(Date.now() - (GRACE + 1) * DAY));
     await w.svc.renewOne(USER, new Date(), false);
     expect(w.frameUnlock()!.expiresAt!.getTime()).toBeLessThanOrEqual(
       Date.now(),
