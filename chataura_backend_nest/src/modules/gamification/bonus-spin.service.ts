@@ -8,6 +8,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { GameHistoryService } from '../game-history/game-history.service';
 import { LedgerService, LockedUser } from '../wallet/ledger.service';
 import { resolveReferralMilestone, resolveReferralRewards } from './bonus-config.resolver';
+import { SPIN_MAX_COST, SPIN_MIN_COST, effectiveSpinCost, pickSpinPrize, prizesForCost } from './spin-prizes';
 
 function isUniqueViolation(error: unknown) {
   return (
@@ -16,52 +17,7 @@ function isUniqueViolation(error: unknown) {
   );
 }
 
-const SPIN_PRIZES = [
-  {
-    label: '100 coins',
-    emoji: '💰',
-    type: 'coins',
-    coins: 100,
-    probability: 0.12,
-    gift_name: null,
-  },
-  {
-    label: '50 coins',
-    emoji: '🪙',
-    type: 'coins',
-    coins: 50,
-    probability: 0.2,
-    gift_name: null,
-  },
-  {
-    label: 'Rose',
-    emoji: '🌹',
-    type: 'gift',
-    coins: 10,
-    probability: 0.08,
-    gift_name: 'Rose',
-  },
-  {
-    label: 'Try again',
-    emoji: '💨',
-    type: 'loss',
-    coins: 0,
-    probability: 0.6,
-    gift_name: null,
-  },
-];
-
-/** Average coins paid per spin by [SPIN_PRIZES]. */
-export const SPIN_EXPECTED_PAYOUT = SPIN_PRIZES.reduce((s, p) => s + p.probability * p.coins, 0);
-/**
- * Cheapest allowed spin: the house keeps at least 10% on average. A lower admin price would
- * make every spin profitable for players, so it is raised to this floor.
- */
-export const SPIN_MIN_COST = Math.ceil(SPIN_EXPECTED_PAYOUT / 0.9);
-
-export function effectiveSpinCost(configured: number): number {
-  return Number.isFinite(configured) ? Math.max(Math.floor(configured), SPIN_MIN_COST) : SPIN_MIN_COST;
-}
+export { SPIN_MIN_COST, SPIN_MAX_COST, effectiveSpinCost };
 
 export const DEFAULT_BONUS_CONFIG = {
   daily_streak: { enabled: true, rewards: [5, 10, 15, 20, 25, 30, 50] },
@@ -126,16 +82,14 @@ export class BonusSpinService {
 
   async prizes() {
     const settings = await this.settings();
-    return {
-      spin_cost: effectiveSpinCost(settings.spinCost),
-      prizes: SPIN_PRIZES,
-    };
+    const cost = effectiveSpinCost(settings.spinCost);
+    return { spin_cost: cost, prizes: prizesForCost(cost) };
   }
 
   async play(userId: bigint) {
     const settings = await this.settings();
     const cost = effectiveSpinCost(settings.spinCost);
-    const prize = this.pickPrize();
+    const prize = pickSpinPrize(prizesForCost(cost));
     const spinRef = `spin_${userId}_${Date.now()}`;
     const result = await this.prisma.$transaction(async (tx) => {
       try {
@@ -576,15 +530,6 @@ export class BonusSpinService {
       }
       throw e;
     }
-  }
-
-  private pickPrize() {
-    let roll = Math.random();
-    for (const p of SPIN_PRIZES) {
-      roll -= p.probability;
-      if (roll <= 0) return p;
-    }
-    return SPIN_PRIZES[SPIN_PRIZES.length - 1];
   }
 
   private normalizeGame(raw: string): 'game_1' | 'game_2' | 'game_3' {

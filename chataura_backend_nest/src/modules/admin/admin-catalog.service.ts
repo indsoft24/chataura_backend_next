@@ -9,7 +9,7 @@ import {
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { LUCKY_MIN_KEY, LUCKY_MIN_MAX, luckyMinCoins, readLuckyMinCoins } from '../../common/utils/lucky-gift-min';
-import { SPIN_EXPECTED_PAYOUT, SPIN_MIN_COST } from '../gamification/bonus-spin.service';
+import { SPIN_MAX_COST, SPIN_MIN_COST } from '../gamification/spin-prizes';
 import { Gift, Prisma } from '@prisma/client';
 import { resolve } from 'path';
 import {
@@ -1148,12 +1148,12 @@ export class AdminCatalogService {
       data.starChatPricePerMin = Number(body.star_chat_price_per_min);
     if (body.spin_cost !== undefined) {
       const cost = Number(body.spin_cost);
-      if (!Number.isFinite(cost) || cost < SPIN_MIN_COST) {
+      if (!Number.isFinite(cost) || cost < SPIN_MIN_COST || cost > SPIN_MAX_COST) {
         throw new BadRequestException({
           success: false,
           error: {
             code: 'VALIDATION_ERROR',
-            message: `Spin cost must be at least ${SPIN_MIN_COST} coins (average payout is ${SPIN_EXPECTED_PAYOUT.toFixed(1)})`,
+            message: `Lucky Spin bet must be ${SPIN_MIN_COST.toLocaleString('en-US')} to ${SPIN_MAX_COST.toLocaleString('en-US')} coins`,
           },
         });
       }

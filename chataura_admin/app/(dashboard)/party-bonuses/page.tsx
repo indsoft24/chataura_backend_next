@@ -18,6 +18,7 @@ export default function PartyBonusesPage() {
   const [saving, setSaving] = useState(false);
   const [spinCost, setSpinCost] = useState('50');
   const [coinToXp, setCoinToXp] = useState('0.1');
+  const bet = Math.floor(Number(spinCost));
 
   useEffect(() => {
     if (!token) return;
@@ -40,6 +41,10 @@ export default function PartyBonusesPage() {
 
   async function save() {
     if (!token) return;
+    if (!(bet >= 10 && bet <= 10000000)) {
+      toast('error', 'Lucky Spin bet must be 10 to 10,000,000 coins');
+      return;
+    }
     setSaving(true);
     try {
       await api('/admin/settings', token, {
@@ -62,7 +67,7 @@ export default function PartyBonusesPage() {
 
   return (
     <main className="cp-page">
-      <PageHeader title="Party Room Bonuses" subtitle="Lucky wheel spin pricing and how fast users earn XP from spending coins." />
+      <PageHeader title="Party Room Bonuses" subtitle="Lucky Spin bet and how fast users earn XP from spending coins." />
 
       {loading ? (
         <div className="cp-skeleton is-card" style={{ maxWidth: 560 }} />
@@ -76,11 +81,20 @@ export default function PartyBonusesPage() {
         >
           <Section title="Lucky spin & XP">
             <div style={{ display: 'grid', gap: 16 }}>
-              <Field label="Lucky wheel spin cost" hint="Coins charged per bonus spin.">
+              <Field
+                label="Lucky Spin bet (coins per spin)"
+                hint="One amount for every player, 10 to 10,000,000. The wheel prizes follow it, so the player always gets the same share back."
+              >
                 <div className="cp-unit">
-                  <input type="number" inputMode="numeric" value={spinCost} onChange={(e) => setSpinCost(e.target.value)} />
+                  <input type="number" inputMode="numeric" min={10} max={10000000} value={spinCost} onChange={(e) => setSpinCost(e.target.value)} />
                   <span>coins</span>
                 </div>
+                {bet >= 10 && bet <= 10000000 ? (
+                  <p style={{ marginTop: 8, fontSize: 13, opacity: 0.8 }}>
+                    On the wheel at this bet: <b>{(bet * 2).toLocaleString()}</b> coins (12%) · <b>{bet.toLocaleString()}</b> coins (20%) ·{' '}
+                    <b>Rose gift worth {Math.round(bet * 0.2).toLocaleString()}</b> (8%) · try again (60%). On average 45.6% of the bet comes back.
+                  </p>
+                ) : null}
               </Field>
               <Field
                 label="XP per coin spent"

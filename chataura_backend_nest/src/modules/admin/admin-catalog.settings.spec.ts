@@ -1,5 +1,5 @@
 jest.mock('@nestjs/config', () => ({ ConfigService: class {} }));
-jest.mock('../gamification/bonus-spin.service', () => ({ SPIN_EXPECTED_PAYOUT: 1, SPIN_MIN_COST: 1 }));
+jest.mock('../gamification/spin-prizes', () => ({ SPIN_MIN_COST: 1, SPIN_MAX_COST: 10_000_000 }));
 jest.mock('../../common/prisma/prisma.service', () => ({ PrismaService: class {} }));
 import { AdminCatalogService } from './admin-catalog.service';
 
