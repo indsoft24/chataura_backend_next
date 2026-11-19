@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { svipBoostedXp } from '../svip/svip-gates';
 import { FcmService } from '../../common/fcm/fcm.service';
 import {
   PERIOD_TYPES,
@@ -638,7 +639,7 @@ export class RelationshipEngineService {
     for (const uid of userIds) {
       await tx.user.update({
         where: { id: uid },
-        data: { xp: { increment: xp } },
+        data: { xp: { increment: await svipBoostedXp(tx, uid, xp) } },
       });
     }
   }

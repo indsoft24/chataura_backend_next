@@ -5,6 +5,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { normalizeGiftCategory } from '../../common/utils/gift-category';
 import { ensureLaravelLevelBands } from '../gamification/level-bands';
 import { addSvipGiftPoints } from '../svip/svip-points';
+import { svipBoostedXp } from '../svip/svip-gates';
 
 export const LUCKY_REBATE_DEFAULT_MIN_PCT = 1;
 export const LUCKY_REBATE_DEFAULT_MAX_PCT = 40;
@@ -229,8 +230,9 @@ export class LedgerService {
     await ensureLaravelLevelBands(this.prisma);
     const settings = await tx.adminSetting.findUnique({ where: { id: 1 } });
     const ratio = Number(settings?.coinToXpRatio ?? 0.1);
-    const xpDelta = Math.floor(Number(coinsSpent) * ratio);
-    if (xpDelta < 1) return locked;
+    const baseXp = Math.floor(Number(coinsSpent) * ratio);
+    if (baseXp < 1) return locked;
+    const xpDelta = await svipBoostedXp(tx, locked.id, baseXp); // SVIP 2+: +20%
     const xpRef = relatedReferenceId ? `xp_${relatedReferenceId}` : undefined;
     const prior = await this.findByReference(tx, locked.id, xpRef);
     if (prior) return locked;
@@ -255,6 +257,7 @@ export class LedgerService {
         source,
         currency: 'xp',
         xp_delta: xpDelta,
+        xp_base: baseXp,
         xp_balance_after: newXp,
         related_reference_id: relatedReferenceId ?? null,
       },

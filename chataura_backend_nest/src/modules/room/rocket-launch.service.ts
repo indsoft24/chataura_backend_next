@@ -8,6 +8,7 @@ import { randomUUID } from 'crypto';
 import { Prisma, RocketEvent } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LedgerService } from '../wallet/ledger.service';
+import { svipBoostedXp } from '../svip/svip-gates';
 import { RoomEvents } from './room.events';
 import {
   activeLadder,
@@ -1172,11 +1173,16 @@ export class RocketLaunchService {
     const luckyPool = luckyShares.reduce((a, b) => a + b, 0);
 
     const xpFor = (coins: number) => Math.max(snap.min_xp, Math.round(coins * snap.xp_rate));
+    // What each winner really earns (SVIP 2+: +20%); the stored reward row shows the same number.
+    const winnerXp: number[] = [];
+    for (let i = 0; i < winners.length; i++) {
+      winnerXp.push(await svipBoostedXp(tx, winners[i].userId, xpFor(coinShares[i] ?? 0)));
+    }
     const expires = new Date(Date.now() + snap.frame_days * 24 * 60 * 60 * 1000);
     for (let i = 0; i < winners.length; i++) {
       const userId = winners[i].userId;
       const coins = coinShares[i] ?? 0;
-      const xp = xpFor(coins);
+      const xp = winnerXp[i];
       if (coins > 0) {
         await this.ledger.creditCoins(
           tx,
@@ -1274,7 +1280,7 @@ export class RocketLaunchService {
               return {
                 userId: w.userId,
                 coins: coinShares[i] ?? 0,
-                xp: xpFor(coinShares[i] ?? 0),
+                xp: winnerXp[i],
                 frameId: frame?.id ?? null,
                 frameName: frame?.name ?? null,
                 frameDays: frame ? snap.frame_days : null,
