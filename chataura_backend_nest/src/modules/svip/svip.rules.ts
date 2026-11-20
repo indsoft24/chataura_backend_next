@@ -93,63 +93,52 @@ export function effectiveLevel(
   return s === 'active' || s === 'grace' ? m!.level : 0;
 }
 
-/** One real-money recharge that may still pay for SVIP: its rupee value, when it happened, how much is used. */
+/** Coins received (Razorpay recharge or from a coin seller) that may still pay for SVIP, and how much is used. */
 export type RechargeLot = {
-  purchaseId: bigint;
+  /** 'p:<purchase id>' (Razorpay) or 't:<coin transaction id>' (seller transfer). */
+  key: string;
   createdAt: Date;
-  amountInr: number;
-  spentInr: number;
+  coins: number;
+  spent: number;
 };
 
-/** Rupee value of a paid coin pack. A non-INR pack counts as its base INR price; with none it counts for nothing. */
-export function rechargeInr(p: {
-  amountMinor: number;
-  currency: string;
-  basePriceInr?: number | null;
-}): number {
-  if (p.basePriceInr != null && p.basePriceInr > 0) return p.basePriceInr;
-  return p.currency === 'INR' ? p.amountMinor / 100 : 0;
-}
-
-const round2 = (n: number) => Math.round(n * 100) / 100;
-
 export function creditOf(lots: RechargeLot[]): number {
-  return round2(lots.reduce((t, l) => t + Math.max(0, l.amountInr - l.spentInr), 0));
+  return lots.reduce((t, l) => t + Math.max(0, l.coins - l.spent), 0);
 }
 
-/** Uses `need` rupees of credit, oldest recharge first. null = not enough credit. */
+/** Uses `need` coins of credit, oldest lot first. null = not enough credit. */
 export function takeCredit(
   lots: RechargeLot[],
   need: number,
-): Array<{ purchaseId: bigint; amountInr: number }> | null {
-  if (creditOf(lots) + 1e-9 < need) return null;
-  const out: Array<{ purchaseId: bigint; amountInr: number }> = [];
-  let left = round2(need);
+): Array<{ key: string; coins: number }> | null {
+  if (creditOf(lots) < need) return null;
+  const out: Array<{ key: string; coins: number }> = [];
+  let left = need;
   for (const l of [...lots].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())) {
     if (left <= 0) break;
-    const free = round2(l.amountInr - l.spentInr);
+    const free = l.coins - l.spent;
     if (free <= 0) continue;
     const take = Math.min(free, left);
-    out.push({ purchaseId: l.purchaseId, amountInr: round2(take) });
-    left = round2(left - take);
+    out.push({ key: l.key, coins: take });
+    left -= take;
   }
   return out;
 }
 
-/** Earliest moment some unused credit runs out (recharge time + window). null = no credit. */
+/** Earliest moment some unused credit runs out (receive time + window). null = no credit. */
 export function creditExpiresAt(lots: RechargeLot[], windowDays: number): Date | null {
-  const live = lots.filter((l) => l.amountInr - l.spentInr > 0);
+  const live = lots.filter((l) => l.coins - l.spent > 0);
   if (live.length === 0) return null;
   const first = Math.min(...live.map((l) => l.createdAt.getTime()));
   return addDays(new Date(first), windowDays);
 }
 
-export type LevelRecharge = { level: number; rechargeInr: number; isActive: boolean };
+export type LevelRecharge = { level: number; rechargeCoins: number; renewCoins: number; isActive: boolean };
 
 export type UnlockPlan = {
   kind: 'buy' | 'upgrade' | 'renew';
   level: number;
-  /** Rupees of credit this step uses. */
+  /** Coins of credit this step uses. */
   cost: number;
 };
 
@@ -174,26 +163,27 @@ export function planUnlock(
   credit: number,
   levels: LevelRecharge[],
 ): UnlockPlan | null {
-  const sellable = levels.filter((l) => l.isActive && l.rechargeInr > 0);
+  const sellable = levels.filter((l) => l.isActive && l.rechargeCoins > 0);
   const cur = levels.find((l) => l.level === currentLevel);
-  const curCost = cur && cur.rechargeInr > 0 ? cur.rechargeInr : 0;
+  const curCost = cur && cur.rechargeCoins > 0 ? cur.rechargeCoins : 0;
   const reach = (cost: (l: LevelRecharge) => number, from: number) =>
     sellable
-      .filter((l) => l.level > from && cost(l) <= credit + 1e-9)
+      .filter((l) => l.level > from && cost(l) <= credit)
       .sort((a, b) => b.level - a.level)[0];
 
   if (status === 'none' || status === 'expired') {
-    const best = reach((l) => l.rechargeInr, 0);
-    return best ? { kind: 'buy', level: best.level, cost: best.rechargeInr } : null;
+    const best = reach((l) => l.rechargeCoins, 0);
+    return best ? { kind: 'buy', level: best.level, cost: best.rechargeCoins } : null;
   }
   if (curCost <= 0) return null;
   if (status === 'active') {
-    const up = reach((l) => l.rechargeInr - curCost, currentLevel);
-    if (up) return { kind: 'upgrade', level: up.level, cost: round2(up.rechargeInr - curCost) };
+    const up = reach((l) => l.rechargeCoins - curCost, currentLevel);
+    if (up) return { kind: 'upgrade', level: up.level, cost: up.rechargeCoins - curCost };
   }
+  const renewCost = cur && cur.renewCoins > 0 ? cur.renewCoins : curCost;
   const canRenew =
     status === 'grace' || (periodEndsAt != null && inRenewWindow(periodEndsAt, now, renewDays));
-  if (canRenew && credit + 1e-9 >= curCost) return { kind: 'renew', level: currentLevel, cost: curCost };
+  if (canRenew && credit >= renewCost) return { kind: 'renew', level: currentLevel, cost: renewCost };
   return null;
 }
 
@@ -204,7 +194,7 @@ export function validateLevelTable(
     name: string;
     purchasePrice: bigint;
     monthlyReward: bigint;
-    rechargeInr?: number;
+    rechargeCoins?: number;
   }>,
 ): string | null {
   const seen = new Set<number>();
@@ -218,8 +208,8 @@ export function validateLevelTable(
       return `level ${r.level}: purchase price must be > 0`;
     if (r.monthlyReward < 0n)
       return `level ${r.level}: monthly reward must be >= 0`;
-    if (r.rechargeInr !== undefined && !(r.rechargeInr >= 0))
-      return `level ${r.level}: recharge amount must be >= 0`;
+    if (r.rechargeCoins !== undefined && !(r.rechargeCoins >= 0))
+      return `level ${r.level}: recharge coins must be >= 0`;
   }
   const sorted = [...rows].sort((a, b) => a.level - b.level);
   for (let i = 1; i < sorted.length; i++) {
@@ -227,9 +217,9 @@ export function validateLevelTable(
       return `level ${sorted[i].level} must cost more than level ${sorted[i - 1].level}`;
     }
   }
-  const unlockable = sorted.filter((r) => (r.rechargeInr ?? 0) > 0);
+  const unlockable = sorted.filter((r) => (r.rechargeCoins ?? 0) > 0);
   for (let i = 1; i < unlockable.length; i++) {
-    if ((unlockable[i].rechargeInr ?? 0) <= (unlockable[i - 1].rechargeInr ?? 0))
+    if ((unlockable[i].rechargeCoins ?? 0) <= (unlockable[i - 1].rechargeCoins ?? 0))
       return `level ${unlockable[i].level} needs a bigger recharge than level ${unlockable[i - 1].level}`;
   }
   return null;
