@@ -13,7 +13,8 @@ type LevelInput = {
   level?: unknown;
   name?: unknown;
   purchase_price?: unknown;
-  recharge_inr?: unknown;
+  recharge_coins?: unknown;
+  renew_coins?: unknown;
   seller_price?: unknown;
   monthly_reward?: unknown;
   is_active?: unknown;
@@ -36,12 +37,11 @@ function str(raw: unknown): string {
     : '';
 }
 
-/** Rupees with up to 2 decimals; -1 = invalid. */
-function toInr(raw: unknown, fallback: number): number {
+/** Whole coins, 0 or more; -1 = invalid. */
+function toCoins(raw: unknown, fallback: bigint): bigint {
   if (raw === undefined || raw === null || raw === '') return fallback;
   const s = str(raw);
-  if (!/^\d{1,9}(\.\d{1,2})?$/.test(s)) return -1;
-  return Number(s);
+  return /^\d{1,12}$/.test(s) ? BigInt(s) : -1n;
 }
 
 function toBig(raw: unknown): bigint {
@@ -74,7 +74,8 @@ export class SvipAdminService {
         level: l.level,
         name: l.name,
         purchase_price: Number(l.purchasePrice),
-        recharge_inr: l.rechargeInr,
+        recharge_coins: Number(l.rechargeCoins),
+        renew_coins: Number(l.renewCoins),
         seller_price: Number(l.sellerPrice),
         monthly_reward: Number(l.monthlyReward),
         is_active: l.isActive,
@@ -100,7 +101,8 @@ export class SvipAdminService {
           level,
           name: str(r.name).slice(0, 64),
           purchasePrice: toBig(r.purchase_price),
-          rechargeInr: toInr(r.recharge_inr, Number(old.get(level)?.rechargeInr ?? 0)),
+          rechargeCoins: toCoins(r.recharge_coins, old.get(level)?.rechargeCoins ?? 0n),
+          renewCoins: toCoins(r.renew_coins, old.get(level)?.renewCoins ?? 0n),
           monthlyReward: toBig(r.monthly_reward),
           sellerPrice:
             r.seller_price === undefined || r.seller_price === ''
@@ -117,9 +119,9 @@ export class SvipAdminService {
           ),
         };
       });
-      const badInr = incoming.find((r) => r.rechargeInr < 0);
-      if (badInr)
-        this.invalid(`level ${badInr.level}: recharge amount must be rupees, up to 2 decimals`);
+      const badCoins = incoming.find((r) => r.rechargeCoins < 0n || r.renewCoins < 0n);
+      if (badCoins)
+        this.invalid(`level ${badCoins.level}: recharge and renew coins must be whole numbers, 0 or more`);
       const badSeller = incoming.find((r) => r.sellerPrice < 0n);
       if (badSeller)
         this.invalid(`level ${badSeller.level}: seller price must be 0 or more coins`);
@@ -133,11 +135,11 @@ export class SvipAdminService {
       const merged = new Map(
         existing.map((l) => [
           l.level,
-          { ...l, rechargeInr: Number(l.rechargeInr) } as (typeof incoming)[number],
+          l as (typeof incoming)[number],
         ]),
       );
       for (const r of incoming) merged.set(r.level, r);
-      const err = validateLevelTable([...merged.values()]);
+      const err = validateLevelTable([...merged.values()].map((r) => ({ ...r, rechargeCoins: Number(r.rechargeCoins) })));
       if (err) this.invalid(err);
       await this.prisma.$transaction(
         incoming.map((r) =>
@@ -147,7 +149,8 @@ export class SvipAdminService {
             update: {
               name: r.name,
               purchasePrice: r.purchasePrice,
-              rechargeInr: r.rechargeInr,
+              rechargeCoins: r.rechargeCoins,
+              renewCoins: r.renewCoins,
               sellerPrice: r.sellerPrice,
               monthlyReward: r.monthlyReward,
               isActive: r.isActive,

@@ -20,7 +20,7 @@ run('SVIP by recharge (real DB)', () => {
         userId: uid,
         amountMinor: amountInr * 100,
         currency: 'INR',
-        coinsCredited: amountInr * 100,
+        coinsCredited: amountInr,
         status: 'success',
         paymentSource: source,
         createdAt: new Date(Date.now() - daysAgo * 86_400_000),
@@ -29,11 +29,11 @@ run('SVIP by recharge (real DB)', () => {
 
   beforeAll(async () => {
     uid = (await prisma.user.create({ data: { password: 'x', displayId: `sv${tag}` } })).id;
-    for (const [level, rechargeInr, purchasePrice] of [[1, 500, 6_000_000n], [2, 1500, 18_000_000n]] as const)
+    for (const [level, rechargeCoins, purchasePrice] of [[1, 500n, 6_000_000n], [2, 1500n, 18_000_000n]] as const)
       await prisma.svipLevelConfig.upsert({
         where: { level },
-        create: { level, name: `SVIP ${level}`, purchasePrice, rechargeInr, monthlyReward: 0n, isActive: true },
-        update: { rechargeInr, purchasePrice, isActive: true },
+        create: { level, name: `SVIP ${level}`, purchasePrice, rechargeCoins, renewCoins: rechargeCoins, monthlyReward: 0n, isActive: true },
+        update: { rechargeCoins, renewCoins: rechargeCoins, purchasePrice, isActive: true },
       });
     await prisma.adminSetting.upsert({
       where: { id: 1 },
@@ -54,15 +54,15 @@ run('SVIP by recharge (real DB)', () => {
     expect(await svc.syncFromRecharges(uid)).toBe(true);
     expect(await svc.levelOf(uid)).toBe(1);
     expect(await svc.syncFromRecharges(uid)).toBe(false);
-    const spent = await prisma.svipRechargeSpend.aggregate({ where: { userId: uid }, _sum: { amountInr: true } });
-    expect(Number(spent._sum.amountInr)).toBe(500);
+    const spent = await prisma.svipCoinSpend.aggregate({ where: { userId: uid }, _sum: { coins: true } });
+    expect(Number(spent._sum.coins)).toBe(500);
   });
 
   it('center shows credit, and the next level needs only the difference', async () => {
     await pay(300);
     const c = await svc.center(uid);
-    expect(c.me).toMatchObject({ level: 1, recharge_credit_inr: 300, can_renew: false, renew_recharge_inr: 500 });
-    expect(c.levels.find((l) => l.level === 2)).toMatchObject({ action: 'upgrade', recharge_inr: 1500, need_inr: 700 });
+    expect(c.me).toMatchObject({ level: 1, recharge_credit_coins: 300, can_renew: false, renew_recharge_coins: 500 });
+    expect(c.levels.find((l) => l.level === 2)).toMatchObject({ action: 'upgrade', recharge_coins: 1500, need_coins: 700 });
     await pay(700);
     expect(await svc.syncFromRecharges(uid)).toBe(true);
     expect(await svc.levelOf(uid)).toBe(2);
@@ -101,9 +101,18 @@ run('SVIP by recharge (real DB)', () => {
   it('the minute sweep finds the user by their new recharge', async () => {
     const u2 = (await prisma.user.create({ data: { password: 'x', displayId: `sw${tag}` } })).id;
     await prisma.coinPurchaseTransaction.create({
-      data: { userId: u2, amountMinor: 50000, currency: 'INR', coinsCredited: 1, status: 'success', paymentSource: 'RAZORPAY' },
+      data: { userId: u2, amountMinor: 50000, currency: 'INR', coinsCredited: 500, status: 'success', paymentSource: 'RAZORPAY' },
     });
     await svc.processRecharges();
     expect(await svc.levelOf(u2)).toBe(1);
+  });
+
+  it('coins a seller sent unlock SVIP too (same tracker), and the sweep finds them', async () => {
+    const u3 = (await prisma.user.create({ data: { password: 'x', displayId: `sl${tag}` } })).id;
+    await prisma.coinTransaction.create({
+      data: { userId: u3, type: 'SELLER_TRANSFER', coinAmount: 500n, status: 'success', referenceId: `from_t_${tag}`, meta: { source: 'wallet', sender_id: 1 } },
+    });
+    await svc.processRecharges();
+    expect(await svc.levelOf(u3)).toBe(1);
   });
 });

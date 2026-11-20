@@ -27,7 +27,8 @@ type ApiLevel = {
   level: number;
   name: string;
   purchase_price: number;
-  recharge_inr: number;
+  recharge_coins: number;
+  renew_coins: number;
   seller_price: number;
   monthly_reward: number;
   is_active: boolean;
@@ -40,7 +41,8 @@ type LevelRow = {
   level: number;
   name: string;
   purchase_price: string;
-  recharge_inr: string;
+  recharge_coins: string;
+  renew_coins: string;
   seller_price: string;
   monthly_reward: string;
   dice_refreshes: string;
@@ -114,7 +116,7 @@ export default function SvipPage() {
       <style dangerouslySetInnerHTML={{ __html: SV_STYLES }} />
       <PageHeader
         title="SVIP"
-        subtitle="Users unlock a level by recharging real money (for example Rs 500 at once, or 5 x Rs 100 within the recharge window). Before the period ends they renew with the maintenance fee in coins or by recharging again; nothing is charged automatically."
+        subtitle="Users unlock a level by receiving coins, from a Razorpay recharge or a coin seller, at once or in parts within the recharge window. Before the period ends they renew by receiving the renew coins again, or with the maintenance fee in coins; nothing is charged automatically."
       />
       <div className="cp-card sv-nav">
         <Tabs
@@ -277,7 +279,7 @@ function OverviewTab({ token, flash, confirm }: { token: string; flash: Flash; c
             <Field label="Grace" hint="Days SVIP stays on after the period ends, so the member can still renew.">
               <div className="cp-unit"><input type="number" min={0} max={30} value={grace} onChange={(e) => setGrace(e.target.value)} /><span>days</span></div>
             </Field>
-            <Field label="Recharge window" hint="A recharge counts towards SVIP for this many days (e.g. 5 x Rs 100 inside 5 days).">
+            <Field label="Recharge window" hint="Received coins count towards SVIP for this many days.">
               <div className="cp-unit"><input type="number" min={1} max={60} value={rechargeDays} onChange={(e) => setRechargeDays(e.target.value)} /><span>days</span></div>
             </Field>
             <Field label="Renew window" hint="Renewing early (coins or recharge) opens in the last this-many days of a period.">
@@ -309,7 +311,8 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
       c.levels.map((l) => ({
         ...l,
         purchase_price: String(l.purchase_price),
-        recharge_inr: String(l.recharge_inr),
+        recharge_coins: String(l.recharge_coins),
+        renew_coins: String(l.renew_coins),
         seller_price: String(l.seller_price),
         monthly_reward: String(l.monthly_reward),
         dice_refreshes: String(l.dice_refreshes),
@@ -343,7 +346,8 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
             level: r.level,
             name: r.name,
             purchase_price: r.purchase_price.trim(),
-            recharge_inr: r.recharge_inr.trim() || '0',
+            recharge_coins: r.recharge_coins.trim() || '0',
+            renew_coins: r.renew_coins.trim() || '0',
             seller_price: r.seller_price.trim() || '0',
             monthly_reward: r.monthly_reward.trim(),
             dice_refreshes: r.dice_refreshes.trim(),
@@ -372,7 +376,7 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
 
   const num = (
     i: number,
-    field: 'purchase_price' | 'seller_price' | 'monthly_reward' | 'dice_refreshes' | 'gold_mine_bonus_draws',
+    field: 'purchase_price' | 'recharge_coins' | 'renew_coins' | 'seller_price' | 'monthly_reward' | 'dice_refreshes' | 'gold_mine_bonus_draws',
     r: LevelRow,
     label: string,
     narrow = false,
@@ -393,7 +397,7 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
       <div className="cp-card-head">
         <div>
           <h2>Levels</h2>
-          <p>Recharge amounts (rupees) must rise level by level; moving up needs the difference. Fee base only sets the coin maintenance fee. Only turn a level on once its assets are live in the app.</p>
+          <p>Buy coins must rise level by level; moving up needs the difference. Coins count when received by Razorpay recharge or from a coin seller. Fee base only sets the coin maintenance fee. Only turn a level on once its assets are live in the app.</p>
         </div>
         <div className="cp-actions">
           <button type="button" className="cp-btn cp-btn-primary" onClick={save} disabled={busy || !dirty}>
@@ -407,7 +411,8 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
             <tr>
               <th className="cp-th">Level</th>
               <th className="cp-th">Name</th>
-              <th className="cp-th" title="Rupees of real-money recharge (inside the recharge window) that unlock this level. 0 = cannot be unlocked.">Recharge (Rs)</th>
+              <th className="cp-th" title="Coins received (Razorpay recharge or from a coin seller, inside the recharge window) that unlock this level. 0 = cannot be unlocked.">Buy (coins received)</th>
+              <th className="cp-th" title="Coins received to renew this level.">Renew (coins received)</th>
               <th className="cp-th" title="Coins. The maintenance fee is a % of this.">Fee base (coins)</th>
               <th className="cp-th" title="Coins a coin seller pays from their balance to give this level for one period. 0 = sellers cannot give it.">Seller price (coins)</th>
               <th className="cp-th">Monthly coins</th>
@@ -420,9 +425,9 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
           </thead>
           <tbody>
             {!rows ? (
-              <SkeletonRows cols={11} rows={9} />
+              <SkeletonRows cols={12} rows={9} />
             ) : rows.length === 0 ? (
-              <EmptyRow cols={11} title="No levels" hint="Levels are created by the SVIP migration." />
+              <EmptyRow cols={12} title="No levels" hint="Levels are created by the SVIP migration." />
             ) : (
               rows.map((r, i) => (
                 <tr key={r.level} className={`cp-row ${r.is_active ? '' : 'is-off'}`}>
@@ -430,15 +435,8 @@ function LevelsTab({ token, flash, confirm }: { token: string; flash: Flash; con
                   <td className="cp-td sv-wide" data-label="Name">
                     <input className="sv-cell" value={r.name} maxLength={64} aria-label={`Level ${r.level} name`} onChange={(e) => update(i, { name: e.target.value })} />
                   </td>
-                  <td className="cp-td sv-wide" data-label="Recharge (Rs)">
-                    <input
-                      className="sv-cell"
-                      value={r.recharge_inr}
-                      inputMode="decimal"
-                      aria-label={`${r.name} recharge amount in rupees`}
-                      onChange={(e) => update(i, { recharge_inr: e.target.value.replace(/[^\d.]/g, '') })}
-                    />
-                  </td>
+                  {num(i, 'recharge_coins', r, 'Buy (coins received)')}
+                  {num(i, 'renew_coins', r, 'Renew (coins received)')}
                   {num(i, 'purchase_price', r, 'Fee base (coins)')}
                   {num(i, 'seller_price', r, 'Seller price (coins)')}
                   {num(i, 'monthly_reward', r, 'Monthly coins')}

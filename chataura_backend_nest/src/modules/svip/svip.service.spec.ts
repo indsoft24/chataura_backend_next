@@ -38,7 +38,8 @@ function makeWorld(opts: { wallet: bigint; enabled?: boolean }) {
     {
       level: 1,
       name: 'SVIP 1',
-      rechargeInr: 500,
+      rechargeCoins: 500,
+      renewCoins: 500,
       purchasePrice: 6_000_000n,
       monthlyReward: 300_000n,
       isActive: true,
@@ -46,7 +47,8 @@ function makeWorld(opts: { wallet: bigint; enabled?: boolean }) {
     {
       level: 2,
       name: 'SVIP 2',
-      rechargeInr: 1500,
+      rechargeCoins: 1500,
+      renewCoins: 1500,
       purchasePrice: 18_000_000n,
       monthlyReward: 1_080_000n,
       isActive: true,
@@ -55,7 +57,8 @@ function makeWorld(opts: { wallet: bigint; enabled?: boolean }) {
 
   // Paid recharges and the rupees of them already used for SVIP.
   const recharges: any[] = [];
-  const spends: Array<{ purchaseId: bigint; amountInr: number; kind: string }> = [];
+  const spends: Array<{ lotKey: string; coins: bigint; kind: string }> = [];
+  const transfers: any[] = [];
   let nextRecharge = 1n;
 
   const prisma: any = {
@@ -70,11 +73,11 @@ function makeWorld(opts: { wallet: bigint; enabled?: boolean }) {
           )
           .map((r) => ({ ...r, package: null })),
     },
-    svipRechargeSpend: {
+    svipCoinSpend: {
       groupBy: async () => {
-        const by = new Map<bigint, number>();
-        for (const x of spends) by.set(x.purchaseId, (by.get(x.purchaseId) ?? 0) + x.amountInr);
-        return [...by].map(([purchaseId, v]) => ({ purchaseId, _sum: { amountInr: v } }));
+        const by = new Map<string, bigint>();
+        for (const x of spends) by.set(x.lotKey, (by.get(x.lotKey) ?? 0n) + x.coins);
+        return [...by].map(([lotKey, v]) => ({ lotKey, _sum: { coins: v } }));
       },
       create: async ({ data }: any) => void spends.push(data),
     },
@@ -141,8 +144,10 @@ function makeWorld(opts: { wallet: bigint; enabled?: boolean }) {
     },
     svipMonthlyPoints: { findUnique: async () => ({ points: 500n }) },
     coinTransaction: {
+      findMany: async ({ where }: any) =>
+        transfers.filter((t) => t.type === where.type && t.createdAt >= where.createdAt.gte && t.coinAmount > 0n),
       findFirst: async ({ where }: any) =>
-        ledger.find((l) => l.ref === where.referenceId) ?? null,
+        ledger.find((l) => (where.referenceId.in ? where.referenceId.in.includes(l.ref) : l.ref === where.referenceId)) ?? null,
     },
     $executeRaw: async () => 1,
     $transaction: async (fn: any) => fn(prisma),
@@ -190,13 +195,25 @@ function makeWorld(opts: { wallet: bigint; enabled?: boolean }) {
       status: 'success',
       paymentSource,
       currency: 'INR',
-      amountMinor: amountInr * 100,
+      coinsCredited: amountInr,
+      createdAt: new Date(Date.now() - daysAgo * DAY),
+    });
+  /** Coins a seller sent (the receiving ledger row). */
+  const sellerCoins = (coins: number, daysAgo = 0, meta: any = { sender_id: '7' }) =>
+    void transfers.push({
+      id: nextRecharge++,
+      userId: USER,
+      type: 'SELLER_TRANSFER',
+      status: 'success',
+      coinAmount: BigInt(coins),
+      meta,
       createdAt: new Date(Date.now() - daysAgo * DAY),
     });
 
   return {
     svc,
     recharge,
+    sellerCoins,
     spends,
     /** Unlocks `level` the way a player does: pays its recharge amount, then the sweep runs. */
     activate: async (level: number) => {
@@ -264,7 +281,18 @@ describe('SvipService recharge unlock', () => {
     const end = w.member.periodEndsAt.getTime();
     expect(await w.svc.syncFromRecharges(USER)).toBe(false);
     expect(w.member.periodEndsAt.getTime()).toBe(end);
-    expect(w.spends).toEqual([{ userId: USER, purchaseId: 1n, amountInr: 500, level: 1, kind: 'buy' }]);
+    expect(w.spends).toEqual([{ userId: USER, lotKey: 'p:1', coins: 500n, level: 1, kind: 'buy' }]);
+  });
+
+  it('coins a seller sent count like a recharge; gifts, own debits and old give-SVIP rows do not', async () => {
+    const w = makeWorld({ wallet: 0n });
+    w.sellerCoins(300, 2);
+    w.sellerCoins(200, 1);
+    w.sellerCoins(5000, 0, null); // no sender: not from a seller
+    w.sellerCoins(5000, 0, { sender_id: '7', source: 'svip' }); // already paid for by the old give-SVIP path
+    expect(await w.svc.syncFromRecharges(USER)).toBe(true);
+    expect(w.member.level).toBe(1);
+    expect(w.spends.map((x) => x.lotKey)).toEqual(['t:1', 't:2']);
   });
 
   it('only real-money recharges count', async () => {
@@ -366,14 +394,14 @@ describe('SvipService renewals', () => {
   });
 });
 
-describe('SvipService monthly claim', () => {
-  it('pays the level reward once per month, active members only', async () => {
+describe('SvipService daily claim', () => {
+  it('pays one equal day (monthly / 30) once per day, active members only', async () => {
     const w = makeWorld({ wallet: 0n });
     expect(await code(w.svc.claimMonthly(USER))).toBe('NOT_ACTIVE');
     await w.activate(1);
     const res = await w.svc.claimMonthly(USER);
-    expect(res.claimed_amount).toBe(300_000);
-    expect(w.wallet).toBe(300_000n);
+    expect(res.claimed_amount).toBe(10_000);
+    expect(w.wallet).toBe(10_000n);
     expect(await code(w.svc.claimMonthly(USER))).toBe('ALREADY_CLAIMED');
     expect(res.me.monthly_reward).toMatchObject({
       claimed: true,

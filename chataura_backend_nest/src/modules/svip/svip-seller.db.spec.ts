@@ -25,11 +25,11 @@ run('SVIP given by coin sellers (real DB)', () => {
   beforeAll(async () => {
     for (const [k, role, wallet] of [['seller', 'seller', 20000n], ['u1', 'user', 0n], ['u2', 'user', 0n], ['plain', 'user', 99999n]] as const)
       ids[k] = (await prisma.user.create({ data: { password: 'x', displayId: `${k}${tag}`, role, walletBalance: wallet } })).id;
-    for (const [level, rechargeInr, purchasePrice, sellerPrice] of [[1, 500, 6_000_000n, 3000n], [2, 1500, 18_000_000n, 9000n]] as const)
+    for (const [level, rechargeCoins, purchasePrice, sellerPrice] of [[1, 500n, 6_000_000n, 3000n], [2, 1500n, 18_000_000n, 9000n]] as const)
       await prisma.svipLevelConfig.upsert({
         where: { level },
-        create: { level, name: `SVIP ${level}`, purchasePrice, rechargeInr, sellerPrice, monthlyReward: 0n, isActive: true },
-        update: { rechargeInr, purchasePrice, sellerPrice, isActive: true },
+        create: { level, name: `SVIP ${level}`, purchasePrice, rechargeCoins, renewCoins: rechargeCoins, sellerPrice, monthlyReward: 0n, isActive: true },
+        update: { rechargeCoins, renewCoins: rechargeCoins, purchasePrice, sellerPrice, isActive: true },
       });
     await prisma.adminSetting.upsert({ where: { id: 1 }, create: { id: 1, extraSettings: { svip_enabled: true } }, update: { extraSettings: { svip_enabled: true } } });
     svip.invalidateConfig();
@@ -100,7 +100,7 @@ run('SVIP given by coin sellers (real DB)', () => {
     const end = new Date(Date.now() + 3 * 86_400_000);
     await prisma.userSvip.update({ where: { userId: u3 }, data: { periodEndsAt: end } });
     await prisma.coinPurchaseTransaction.create({
-      data: { userId: u3, amountMinor: 50000, currency: 'INR', coinsCredited: 50000, status: 'success', paymentSource: 'RAZORPAY' },
+      data: { userId: u3, amountMinor: 50000, currency: 'INR', coinsCredited: 500, status: 'success', paymentSource: 'RAZORPAY' },
     });
     expect(await svip.syncFromRecharges(u3)).toBe(true);
     const r = await prisma.userSvip.findUniqueOrThrow({ where: { userId: u3 } });

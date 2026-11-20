@@ -26,9 +26,10 @@ import {
   maintenanceFee,
   planGift,
   planUnlock,
-  rechargeInr,
   renewsByRechargeOnly,
   svipMonth,
+  svipDay,
+  dailyReward,
   svipStatus,
   takeCredit,
 } from './svip.rules';
@@ -39,8 +40,10 @@ export type SvipLevel = {
   level: number;
   name: string;
   purchasePrice: bigint;
-  /** Rupees of recharge that unlock this level (0 = cannot be unlocked). */
-  rechargeInr: number;
+  /** Coins received (recharge or from a seller) that unlock this level (0 = cannot be unlocked). */
+  rechargeCoins: number;
+  /** Coins received to renew this level. */
+  renewCoins: number;
   /** Coins a coin seller pays to give this level (0 = not for sellers). */
   sellerPrice: bigint;
   monthlyReward: bigint;
@@ -111,7 +114,7 @@ export class SvipService {
       settings: readSvipSettings(
         row?.extraSettings as Record<string, unknown> | null,
       ),
-      levels: levels.map((l) => ({ ...l, rechargeInr: Number(l.rechargeInr) })),
+      levels: levels.map((l) => ({ ...l, rechargeCoins: Number(l.rechargeCoins), renewCoins: Number(l.renewCoins) })),
     };
     return this.cache;
   }
@@ -154,6 +157,7 @@ export class SvipService {
     );
     const now = new Date();
     const month = svipMonth(now);
+    const day = svipDay(now);
     const [{ settings, levels }, m, user, points, claim] = await Promise.all([
       this.config(),
       this.prisma.userSvip.findUnique({ where: { userId } }),
@@ -165,7 +169,8 @@ export class SvipService {
         where: { userId_month: { userId, month } },
       }),
       this.prisma.coinTransaction.findFirst({
-        where: { userId, referenceId: this.monthlyRef(month) },
+        // Legacy monthly claim of this month counts too, so nobody is paid twice for the same days.
+        where: { userId, referenceId: { in: [this.dailyRef(day), this.monthlyRef(month)] } },
         select: { id: true },
       }),
     ]);
@@ -177,7 +182,8 @@ export class SvipService {
       : 0n;
     const lots = await this.rechargeLots(this.prisma, userId, now, settings.rechargeDays);
     const credit = creditOf(lots);
-    const curCost = current && current.rechargeInr > 0 ? current.rechargeInr : 0;
+    const curCost = current && current.rechargeCoins > 0 ? current.rechargeCoins : 0;
+    const renewCost = current && current.renewCoins > 0 ? current.renewCoins : curCost;
     const renewOpen =
       !!m &&
       level > 0 &&
@@ -200,40 +206,43 @@ export class SvipService {
             ? graceEndsAt(m.periodEndsAt, graceFor(m, settings.graceDays)).toISOString()
             : null,
         maintenance_fee: renewsByRechargeOnly(m) ? 0 : Number(fee),
-        // Renewing with coins (the fee above) or with a recharge of this level's amount.
+        // Renewing with coins (the fee above) or by receiving this level's renew coins.
         can_renew: renewOpen,
-        renew_recharge_inr: curCost,
+        renew_recharge_coins: renewCost,
         renew_opens_at:
           m && level > 0 && status === 'active'
             ? new Date(m.periodEndsAt.getTime() - settings.renewDays * 86_400_000).toISOString()
             : null,
-        recharge_credit_inr: credit,
+        recharge_credit_coins: credit,
         recharge_credit_expires_at: creditExpiresAt(lots, settings.rechargeDays)?.toISOString() ?? null,
         points_this_month: Number(points?.points ?? 0n),
         monthly_reward: {
           month,
-          amount: Number(current?.monthlyReward ?? 0n),
+          day,
+          // Today's equal share of the monthly coins.
+          amount: Number(dailyReward(current?.monthlyReward ?? 0n, settings.periodDays)),
           claimed: !!claim,
           can_claim:
             status === 'active' &&
             !claim &&
-            (current?.monthlyReward ?? 0n) > 0n,
+            dailyReward(current?.monthlyReward ?? 0n, settings.periodDays) > 0n,
         },
       },
       levels: levels.map((l) => {
         // What this level still needs: the full amount, or the difference when moving up.
-        const unlockable = l.isActive && l.rechargeInr > 0;
+        const unlockable = l.isActive && l.rechargeCoins > 0;
         const kind =
           l.level === level
             ? 'current'
             : !unlockable || l.level < level
               ? 'unavailable'
               : level === 0 || status === 'expired' ? 'unlock' : status === 'grace' ? 'renew_first' : 'upgrade';
-        const cost = kind === 'unlock' ? l.rechargeInr : kind === 'upgrade' ? Math.max(0, l.rechargeInr - curCost) : 0;
+        const cost = kind === 'unlock' ? l.rechargeCoins : kind === 'upgrade' ? Math.max(0, l.rechargeCoins - curCost) : 0;
         return {
           level: l.level,
           name: l.name,
-          recharge_inr: l.rechargeInr,
+          recharge_coins: l.rechargeCoins,
+          renew_coins: l.renewCoins > 0 ? l.renewCoins : l.rechargeCoins,
           monthly_reward: Number(l.monthlyReward),
           dice_refreshes: l.diceRefreshes,
           gold_mine_bonus_draws: l.goldMineBonusDraws,
@@ -243,37 +252,48 @@ export class SvipService {
           for_sale: l.isActive,
           art: svipArtOf(l.art),
           action: kind,
-          need_inr: kind === 'unlock' || kind === 'upgrade' ? Math.max(0, Math.round((cost - credit) * 100) / 100) : 0,
+          need_coins: kind === 'unlock' || kind === 'upgrade' ? Math.max(0, cost - credit) : 0,
         };
       }),
     };
   }
 
-  /** Paid recharges of the last `days` days with how much of each is already used. Real money only. */
+  /**
+   * Coins received in the last `days` days that may still pay for SVIP, with how much of each is used:
+   * Razorpay coin purchases, and coins a coin seller sent. Gifts, game wins and rewards never count.
+   */
   private async rechargeLots(db: Tx | PrismaService, userId: bigint, now: Date, days: number): Promise<RechargeLot[]> {
     const since = new Date(now.getTime() - days * 86_400_000);
-    const rows = await db.coinPurchaseTransaction.findMany({
-      where: { userId, status: 'success', paymentSource: 'RAZORPAY', createdAt: { gte: since } },
-      select: { id: true, createdAt: true, amountMinor: true, currency: true, package: { select: { basePriceInr: true } } },
-      orderBy: { createdAt: 'asc' },
-    });
-    if (rows.length === 0) return [];
-    const spent = await db.svipRechargeSpend.groupBy({
-      by: ['purchaseId'],
-      where: { purchaseId: { in: rows.map((r) => r.id) } },
-      _sum: { amountInr: true },
-    });
-    const used = new Map(spent.map((x) => [x.purchaseId, Number(x._sum.amountInr ?? 0)]));
-    return rows.map((r) => ({
-      purchaseId: r.id,
-      createdAt: r.createdAt,
-      amountInr: rechargeInr({
-        amountMinor: r.amountMinor,
-        currency: r.currency,
-        basePriceInr: r.package?.basePriceInr != null ? Number(r.package.basePriceInr) : null,
+    const [purchases, transfers] = await Promise.all([
+      db.coinPurchaseTransaction.findMany({
+        where: { userId, status: 'success', paymentSource: 'RAZORPAY', createdAt: { gte: since } },
+        select: { id: true, createdAt: true, coinsCredited: true },
       }),
-      spentInr: used.get(r.id) ?? 0,
-    }));
+      db.coinTransaction.findMany({
+        where: { userId, type: 'SELLER_TRANSFER', status: 'success', coinAmount: { gt: 0 }, createdAt: { gte: since } },
+        select: { id: true, createdAt: true, coinAmount: true, meta: true },
+      }),
+    ]);
+    const lots = [
+      ...purchases.map((r) => ({ key: `p:${r.id}`, createdAt: r.createdAt, coins: Number(r.coinsCredited) })),
+      // Only coins a seller sent (the receiving row carries sender_id), never the seller's own debit row.
+      ...transfers
+        .filter((r) => {
+          const m = r.meta as { sender_id?: unknown; source?: unknown } | null;
+          return m?.sender_id != null && m.source !== 'svip'; // 'svip' = the old give-SVIP path, already paid for
+        })
+        .map((r) => ({ key: `t:${r.id}`, createdAt: r.createdAt, coins: Number(r.coinAmount) })),
+    ];
+    if (lots.length === 0) return [];
+    const spent = await db.svipCoinSpend.groupBy({
+      by: ['lotKey'],
+      where: { lotKey: { in: lots.map((l) => l.key) } },
+      _sum: { coins: true },
+    });
+    const used = new Map(spent.map((x) => [x.lotKey, Number(x._sum.coins ?? 0n)]));
+    return lots
+      .map((l) => ({ ...l, spent: used.get(l.key) ?? 0 }))
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
 
   /**
@@ -326,15 +346,15 @@ export class SvipService {
         await tx.userSvip.upsert({ where: { userId }, create: { userId, ...data }, update: data });
         await this.grantItems(tx, userId, plan.level, graceEndsAt(periodEndsAt, settings.graceDays), plan.kind === 'buy');
         for (const sp of spends)
-          await tx.svipRechargeSpend.create({
-            data: { userId, purchaseId: sp.purchaseId, amountInr: sp.amountInr, level: plan.level, kind: plan.kind },
+          await tx.svipCoinSpend.create({
+            data: { userId, lotKey: sp.key, coins: BigInt(sp.coins), level: plan.level, kind: plan.kind },
           });
         notes.push({
           title: plan.kind === 'buy' ? `SVIP ${plan.level} unlocked` : plan.kind === 'upgrade' ? `Upgraded to SVIP ${plan.level}` : 'SVIP renewed',
           body:
             plan.kind === 'renew'
               ? `Your SVIP ${plan.level} is renewed for ${settings.periodDays} days.`
-              : `Your recharge unlocked SVIP ${plan.level} for ${settings.periodDays} days.`,
+              : `Your coins unlocked SVIP ${plan.level} for ${settings.periodDays} days.`,
         });
         changed = true;
       }
@@ -366,6 +386,7 @@ export class SvipService {
     const { settings, levels } = await this.config();
     const now = new Date();
     const month = svipMonth(now);
+    const day = svipDay(now);
     let amount = 0n;
     await this.prisma.$transaction(async (tx) => {
       await this.lockMember(tx, userId);
@@ -373,26 +394,26 @@ export class SvipService {
       if (svipStatus(m, now, settings.graceDays) !== 'active') {
         svipError(
           'NOT_ACTIVE',
-          'Only active SVIP members can claim monthly coins',
+          'Only active SVIP members can claim daily coins',
         );
       }
-      const ref = this.monthlyRef(month);
+      const ref = this.dailyRef(day);
       const prior = await tx.coinTransaction.findFirst({
-        where: { userId, referenceId: ref },
+        where: { userId, referenceId: { in: [ref, this.monthlyRef(month)] } },
       });
-      if (prior) svipError('ALREADY_CLAIMED', 'You already claimed this month');
-      amount = levels.find((l) => l.level === m!.level)?.monthlyReward ?? 0n;
+      if (prior) svipError('ALREADY_CLAIMED', 'You already claimed today');
+      amount = dailyReward(levels.find((l) => l.level === m!.level)?.monthlyReward ?? 0n, settings.periodDays);
       if (amount <= 0n)
-        svipError('NO_REWARD', 'No monthly coins for this level');
+        svipError('NO_REWARD', 'No daily coins for this level');
       await this.ledger.creditCoins(
         tx,
         userId,
         amount,
         'SVIP_MONTHLY_REWARD',
-        `SVIP ${m!.level} monthly coins`,
+        `SVIP ${m!.level} daily coins`,
         ref,
         undefined,
-        { source: 'svip', currency: 'coins', level: m!.level, month },
+        { source: 'svip', currency: 'coins', level: m!.level, month, day },
       );
     });
     return { ...(await this.center(userId)), claimed_amount: Number(amount) };
@@ -503,7 +524,7 @@ export class SvipService {
   async remindPromoEnding() {
     try {
       const { levels } = await this.config();
-      const inr = levels.find((l) => l.level === 1)?.rechargeInr ?? 0;
+      const coins = levels.find((l) => l.level === 1)?.renewCoins ?? 0;
       const now = Date.now();
       for (const hours of [48, 24]) {
         const due = await this.prisma.userSvip.findMany({
@@ -519,7 +540,7 @@ export class SvipService {
           await this.fcm.sendUserNotification({
             userId: m.userId,
             title: `Your free SVIP ${m.level} ends in ${hours} hours`,
-            body: inr > 0 ? `Recharge Rs ${inr} to keep it for 30 more days.` : 'Recharge to keep it.',
+            body: coins > 0 ? `Get ${coins.toLocaleString('en-US')} coins to keep it for 30 more days.` : 'Recharge to keep it.',
             data: { type: 'svip', outcome: 'promo_ending' },
           });
       }
@@ -535,12 +556,21 @@ export class SvipService {
       const { settings } = await this.config();
       if (!settings.enabled) return;
       const since = new Date(Date.now() - 3 * 60_000);
-      const rows = await this.prisma.coinPurchaseTransaction.findMany({
-        where: { status: 'success', paymentSource: 'RAZORPAY', updatedAt: { gte: since } },
-        select: { userId: true },
-        distinct: ['userId'],
-        take: RENEW_BATCH,
-      });
+      const [bought, sent] = await Promise.all([
+        this.prisma.coinPurchaseTransaction.findMany({
+          where: { status: 'success', paymentSource: 'RAZORPAY', updatedAt: { gte: since } },
+          select: { userId: true },
+          distinct: ['userId'],
+          take: RENEW_BATCH,
+        }),
+        this.prisma.coinTransaction.findMany({
+          where: { type: 'SELLER_TRANSFER', coinAmount: { gt: 0 }, createdAt: { gte: since } },
+          select: { userId: true },
+          distinct: ['userId'],
+          take: RENEW_BATCH,
+        }),
+      ]);
+      const rows = [...new Map([...bought, ...sent].map((r) => [String(r.userId), r])).values()];
       for (const { userId } of rows)
         await this.syncFromRecharges(userId).catch((e) =>
           this.logger.warn(`recharge sync(${userId}) failed: ${String(e)}`),
@@ -1101,6 +1131,10 @@ export class SvipService {
 
   private monthlyRef(month: string) {
     return `svip_monthly_${month}`;
+  }
+
+  private dailyRef(day: string) {
+    return `svip_daily_${day}`;
   }
 
   /** Serialises every SVIP write for one user (purchase, renew, claim, admin, cron). */

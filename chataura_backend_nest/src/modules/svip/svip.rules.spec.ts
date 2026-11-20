@@ -1,4 +1,6 @@
 import {
+  dailyReward,
+  svipDay,
   effectiveLevel,
   RechargeLot,
   creditExpiresAt,
@@ -7,7 +9,6 @@ import {
   planGift,
   planUnlock,
   renewsByRechargeOnly,
-  rechargeInr,
   svipMonth,
   svipStatus,
   takeCredit,
@@ -17,9 +18,9 @@ import {
 const DAY = 86_400_000;
 const now = new Date(Date.UTC(2026, 9, 25, 12, 0, 0));
 const levels = [
-  { level: 1, rechargeInr: 500, isActive: true },
-  { level: 2, rechargeInr: 1500, isActive: true },
-  { level: 3, rechargeInr: 4000, isActive: false },
+  { level: 1, rechargeCoins: 500, renewCoins: 400, isActive: true },
+  { level: 2, rechargeCoins: 1500, renewCoins: 1200, isActive: true },
+  { level: 3, rechargeCoins: 4000, renewCoins: 3000, isActive: false },
 ];
 
 describe('svipMonth', () => {
@@ -68,17 +69,11 @@ describe('svipStatus / effectiveLevel', () => {
 });
 
 describe('recharge credit', () => {
-  const lot = (id: number, amountInr: number, daysAgo: number, spentInr = 0): RechargeLot => ({
-    purchaseId: BigInt(id),
+  const lot = (id: number, coins: number, daysAgo: number, spent = 0): RechargeLot => ({
+    key: `p:${id}`,
     createdAt: new Date(now.getTime() - daysAgo * DAY),
-    amountInr,
-    spentInr,
-  });
-
-  it('values a pack: base INR price first, INR amount otherwise, foreign money with no base counts for nothing', () => {
-    expect(rechargeInr({ amountMinor: 50000, currency: 'INR' })).toBe(500);
-    expect(rechargeInr({ amountMinor: 599, currency: 'USD', basePriceInr: 499 })).toBe(499);
-    expect(rechargeInr({ amountMinor: 599, currency: 'USD' })).toBe(0);
+    coins,
+    spent,
   });
 
   it('five recharges of 100 add up to 500', () => {
@@ -89,8 +84,8 @@ describe('recharge credit', () => {
   it('takes credit oldest first and leaves the rest of a partly used recharge', () => {
     const lots = [lot(1, 300, 4), lot(2, 300, 1)];
     expect(takeCredit(lots, 500)).toEqual([
-      { purchaseId: 1n, amountInr: 300 },
-      { purchaseId: 2n, amountInr: 200 },
+      { key: 'p:1', coins: 300 },
+      { key: 'p:2', coins: 200 },
     ]);
     expect(takeCredit(lots, 700)).toBeNull();
     expect(creditOf([lot(1, 300, 4, 300), lot(2, 300, 1, 200)])).toBe(100);
@@ -117,19 +112,20 @@ describe('planUnlock', () => {
   it('active: upgrades for the difference first, else renews inside the renew window only', () => {
     expect(planUnlock('active', 1, end(20), now, 5, 1000, levels)).toEqual({ kind: 'upgrade', level: 2, cost: 1000 });
     expect(planUnlock('active', 1, end(20), now, 5, 999, levels)).toBeNull();
-    expect(planUnlock('active', 1, end(20), now, 5, 500, levels)).toBeNull(); // too early to renew
-    expect(planUnlock('active', 1, end(4), now, 5, 500, levels)).toEqual({ kind: 'renew', level: 1, cost: 500 });
-    expect(planUnlock('active', 2, end(1), now, 5, 1499, levels)).toBeNull();
+    expect(planUnlock('active', 1, end(20), now, 5, 400, levels)).toBeNull(); // too early to renew
+    expect(planUnlock('active', 1, end(4), now, 5, 400, levels)).toEqual({ kind: 'renew', level: 1, cost: 400 });
+    expect(planUnlock('active', 1, end(4), now, 5, 399, levels)).toBeNull();
+    expect(planUnlock('active', 2, end(1), now, 5, 1199, levels)).toBeNull();
   });
 
   it('grace: renews the current level, never moves up or down', () => {
-    expect(planUnlock('grace', 1, end(-1), now, 5, 500, levels)).toEqual({ kind: 'renew', level: 1, cost: 500 });
-    expect(planUnlock('grace', 1, end(-1), now, 5, 1500, levels)).toEqual({ kind: 'renew', level: 1, cost: 500 });
+    expect(planUnlock('grace', 1, end(-1), now, 5, 400, levels)).toEqual({ kind: 'renew', level: 1, cost: 400 });
+    expect(planUnlock('grace', 1, end(-1), now, 5, 1500, levels)).toEqual({ kind: 'renew', level: 1, cost: 400 });
     expect(planUnlock('grace', 2, end(-1), now, 5, 500, levels)).toBeNull();
   });
 
   it('a level with no recharge amount cannot be renewed by recharge', () => {
-    const lv = [{ level: 1, rechargeInr: 0, isActive: true }];
+    const lv = [{ level: 1, rechargeCoins: 0, renewCoins: 0, isActive: true }];
     expect(planUnlock('grace', 1, end(-1), now, 5, 9999, lv)).toBeNull();
     expect(planUnlock('none', 0, null, now, 5, 9999, lv)).toBeNull();
   });
@@ -141,7 +137,7 @@ describe('validateLevelTable', () => {
     name: `SVIP ${level}`,
     purchasePrice: price,
     monthlyReward: 0n,
-    rechargeInr: Number(price) * 10,
+    rechargeCoins: Number(price) * 10,
   });
 
   it('accepts a rising ladder', () => {
@@ -157,11 +153,11 @@ describe('validateLevelTable', () => {
     expect(validateLevelTable([row(1, 0n)])).toMatch(/> 0/);
     expect(
       validateLevelTable([
-        { ...row(1, 10n), rechargeInr: 500 },
-        { ...row(2, 20n), rechargeInr: 500 },
+        { ...row(1, 10n), rechargeCoins: 500 },
+        { ...row(2, 20n), rechargeCoins: 500 },
       ]),
     ).toMatch(/bigger recharge/);
-    expect(validateLevelTable([{ ...row(1, 10n), rechargeInr: -1 }])).toMatch(/recharge amount/);
+    expect(validateLevelTable([{ ...row(1, 10n), rechargeCoins: -1 }])).toMatch(/recharge coins/);
   });
 });
 
@@ -198,5 +194,17 @@ describe('gifted and promo SVIP', () => {
     expect(planGift({ level: 2, periodEndsAt: end }, true, 1, 30, now, true)).toMatchObject({ kind: 'new' });
     // an ended membership is a fresh start, even for a lower level
     expect(planGift({ level: 3, periodEndsAt: end }, false, 1, 30, now, false)).toMatchObject({ kind: 'new' });
+  });
+});
+
+describe('daily coins', () => {
+  it('spreads the monthly coins equally over the period', () => {
+    expect(dailyReward(1_080_000n, 30)).toBe(36_000n);
+    expect(dailyReward(300_000n, 30)).toBe(10_000n);
+    expect(dailyReward(100n, 0)).toBe(0n);
+  });
+  it('IST day rolls at 18:30 UTC', () => {
+    expect(svipDay(new Date('2026-11-20T18:29:00Z'))).toBe('2026-11-20');
+    expect(svipDay(new Date('2026-11-20T18:31:00Z'))).toBe('2026-11-21');
   });
 });
