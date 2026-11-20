@@ -122,6 +122,12 @@ export class LuckyFruitService {
 
   /** Draw + pay the due round (if any) and open the next one. Safe to call from every instance every second. */
   async settleIfDue(roundId?: bigint): Promise<boolean> {
+    // Cheap read first: most calls find nothing due, so skip opening a transaction (pool is small).
+    const due = await this.prisma.luckyFruitRound.findFirst({
+      where: { phase: 'betting', closesAt: { lte: new Date() }, ...(roundId ? { id: roundId } : {}) },
+      select: { id: true },
+    });
+    if (!due) return false;
     const done = await this.prisma.$transaction(
       async (tx) => {
         const rows = roundId

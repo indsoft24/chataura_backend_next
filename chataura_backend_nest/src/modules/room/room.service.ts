@@ -158,7 +158,30 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
     if (this.cleanupTimer) clearInterval(this.cleanupTimer);
   }
 
+  private readonly listCache = new Map<string, { at: number; value: unknown }>();
+
+  /** Same list for every viewer (no following/friends), so share one result for 3 s. */
   async list(query: {
+    page?: number;
+    limit?: number;
+    sort?: string;
+    country?: string;
+    owner_id?: string;
+    following?: string;
+    friends?: string;
+    viewerId?: bigint;
+  }) {
+    if (query.following === '1' || query.friends === '1') return this.listUncached(query);
+    const key = JSON.stringify([query.page, query.limit, query.sort, query.country, query.owner_id]);
+    const hit = this.listCache.get(key);
+    if (hit && Date.now() - hit.at < 3000) return hit.value as Awaited<ReturnType<RoomService['listUncached']>>;
+    const value = await this.listUncached(query);
+    if (this.listCache.size > 200) this.listCache.clear();
+    this.listCache.set(key, { at: Date.now(), value });
+    return value;
+  }
+
+  private async listUncached(query: {
     page?: number;
     limit?: number;
     sort?: string;
@@ -2355,10 +2378,12 @@ export class RoomService implements OnModuleInit, OnModuleDestroy {
       }
 
       // The room owner is permanently the host; an acting host covers while they are away.
-      await tx.room.update({
-        where: { id: room.id },
-        data: { hostId: row.owner_id },
-      });
+      if (row.host_id !== row.owner_id) {
+        await tx.room.update({
+          where: { id: room.id },
+          data: { hostId: row.owner_id },
+        });
+      }
       return true;
     });
 

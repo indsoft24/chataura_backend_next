@@ -65,6 +65,8 @@ export class RankingsService {
     }
   }
 
+  private readonly spendTopCache = new Map<string, { at: number; rows: Array<{ user_id: bigint; coins: bigint }> }>();
+
   /**
    * Personal ranking. `giver` = coins spent (gifts sent + rocket); `receiver` = gift value received
    * (gross gems: net + commission). App tabs: Charm = giver, Honor = receiver.
@@ -92,7 +94,13 @@ export class RankingsService {
       ${createdAt?.gte ? Prisma.sql`AND created_at >= ${createdAt.gte}` : Prisma.empty}
       ${createdAt?.lt ? Prisma.sql`AND created_at < ${createdAt.lt}` : Prisma.empty}`;
 
-    const rows = await this.prisma.$queryRaw<Array<{ user_id: bigint; coins: bigint }>>`
+    // The top list scans coin_transactions (3 s+); share it for 60 s across all viewers.
+    const cacheKey = `${type}|${limit}|${createdAt?.gte?.toISOString() ?? ''}|${createdAt?.lt?.toISOString() ?? ''}`;
+    const hit = this.spendTopCache.get(cacheKey);
+    const rows =
+      hit && Date.now() - hit.at < 60_000
+        ? hit.rows
+        : await this.prisma.$queryRaw<Array<{ user_id: bigint; coins: bigint }>>`
       SELECT user_id, ${score} AS coins
       FROM coin_transactions
       WHERE ${filter} ${periodSql}
@@ -101,6 +109,7 @@ export class RankingsService {
       ORDER BY coins DESC, user_id ASC
       LIMIT ${limit}
     `;
+    if (!hit || rows !== hit.rows) this.spendTopCache.set(cacheKey, { at: Date.now(), rows });
     const scored = rows.map((r) => ({ userId: r.user_id, coins: Number(r.coins) }));
 
     const users = await this.prisma.user.findMany({
