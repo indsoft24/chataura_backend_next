@@ -26,6 +26,7 @@ import { RelationshipEngineService } from '../relationship/relationship-engine.s
 import { LedgerService } from './ledger.service';
 import { isWholesaleAudience, splitPackagesForViewer } from './coin-seller.rules';
 import { tierOf } from '../../common/admin-tier';
+import { TtlMemo } from '../../common/cache/ttl-memo';
 
 @Injectable()
 export class WalletService {
@@ -1019,7 +1020,14 @@ export class WalletService {
     });
   }
 
-  async listGifts() {
+  private readonly giftMemo = new TtlMemo();
+
+  /** Same catalog for everyone; admin edits show within 30 s. */
+  listGifts() {
+    return this.giftMemo.get('gifts', 30_000, () => this.listGiftsUncached());
+  }
+
+  private async listGiftsUncached() {
     const publicBase = this.config.get<string>(
       'PUBLIC_BASE_URL',
       this.config.get<string>('APP_PUBLIC_URL', 'https://chataura.in'),

@@ -26,6 +26,7 @@ import { RealtimeService } from '../../common/fcm/realtime.service';
 import { buildServerGiftCommand } from './server-gift-event';
 import { BattleService } from '../battle/battle.service';
 import { RoomRewardService } from './room-reward/room-reward.service';
+import { TtlMemo } from '../../common/cache/ttl-memo';
 
 /** Double-tap guard for gift requests that carry no idempotency_key (older apps): a real repeat must go through. */
 const GIFT_REPEAT_GUARD_SECONDS = 2;
@@ -88,7 +89,14 @@ export class RoomGiftingService {
     return ok;
   }
 
-  async giftTypes() {
+  private readonly memo = new TtlMemo();
+
+  /** Same catalog for everyone; admin edits show within 30 s. */
+  giftTypes() {
+    return this.memo.get('types', 30_000, () => this.giftTypesUncached());
+  }
+
+  private async giftTypesUncached() {
     await this.cpAffectionGifts.ensureCatalog();
     let gifts = await this.prisma.gift.findMany({
       where: { isActive: true },
@@ -767,6 +775,12 @@ export class RoomGiftingService {
   async giftStats(userId: bigint, id: string) {
     const room = await this.findRoom(id);
     await this.requireActiveMember(room.id, userId);
+    // Totals are the same for every member; 5 s is fresh enough for a stats panel.
+    return this.memo.get(`stats:${room.id}`, 5_000, () => this.giftStatsUncached(room.id));
+  }
+
+  private async giftStatsUncached(roomId: string) {
+    const room = { id: roomId };
     const rows = await this.prisma.coinTransaction.findMany({
       where: {
         type: 'GIFT',
