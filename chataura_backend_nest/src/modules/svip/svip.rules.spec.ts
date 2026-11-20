@@ -1,4 +1,6 @@
 import {
+  dailyReward,
+  svipDay,
   effectiveLevel,
   RechargeLot,
   creditExpiresAt,
@@ -192,5 +194,17 @@ describe('gifted and promo SVIP', () => {
     expect(planGift({ level: 2, periodEndsAt: end }, true, 1, 30, now, true)).toMatchObject({ kind: 'new' });
     // an ended membership is a fresh start, even for a lower level
     expect(planGift({ level: 3, periodEndsAt: end }, false, 1, 30, now, false)).toMatchObject({ kind: 'new' });
+  });
+});
+
+describe('daily coins', () => {
+  it('spreads the monthly coins equally over the period', () => {
+    expect(dailyReward(1_080_000n, 30)).toBe(36_000n);
+    expect(dailyReward(300_000n, 30)).toBe(10_000n);
+    expect(dailyReward(100n, 0)).toBe(0n);
+  });
+  it('IST day rolls at 18:30 UTC', () => {
+    expect(svipDay(new Date('2026-11-20T18:29:00Z'))).toBe('2026-11-20');
+    expect(svipDay(new Date('2026-11-20T18:31:00Z'))).toBe('2026-11-21');
   });
 });

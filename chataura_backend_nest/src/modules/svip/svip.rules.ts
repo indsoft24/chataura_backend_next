@@ -29,6 +29,16 @@ export function svipMonth(at: Date): string {
   return new Date(at.getTime() + IST_OFFSET_MS).toISOString().slice(0, 7);
 }
 
+/** IST calendar day, "yyyy-mm-dd". The daily coins reset on this boundary. */
+export function svipDay(at: Date): string {
+  return new Date(at.getTime() + IST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** One equal day of a level's monthly coins (the amount is spread over the SVIP period). */
+export function dailyReward(monthly: bigint, periodDays: number): bigint {
+  return periodDays > 0 ? monthly / BigInt(periodDays) : 0n;
+}
+
 export function addDays(at: Date, days: number): Date {
   return new Date(at.getTime() + days * DAY_MS);
 }

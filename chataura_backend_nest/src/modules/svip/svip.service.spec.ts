@@ -147,7 +147,7 @@ function makeWorld(opts: { wallet: bigint; enabled?: boolean }) {
       findMany: async ({ where }: any) =>
         transfers.filter((t) => t.type === where.type && t.createdAt >= where.createdAt.gte && t.coinAmount > 0n),
       findFirst: async ({ where }: any) =>
-        ledger.find((l) => l.ref === where.referenceId) ?? null,
+        ledger.find((l) => (where.referenceId.in ? where.referenceId.in.includes(l.ref) : l.ref === where.referenceId)) ?? null,
     },
     $executeRaw: async () => 1,
     $transaction: async (fn: any) => fn(prisma),
@@ -394,14 +394,14 @@ describe('SvipService renewals', () => {
   });
 });
 
-describe('SvipService monthly claim', () => {
-  it('pays the level reward once per month, active members only', async () => {
+describe('SvipService daily claim', () => {
+  it('pays one equal day (monthly / 30) once per day, active members only', async () => {
     const w = makeWorld({ wallet: 0n });
     expect(await code(w.svc.claimMonthly(USER))).toBe('NOT_ACTIVE');
     await w.activate(1);
     const res = await w.svc.claimMonthly(USER);
-    expect(res.claimed_amount).toBe(300_000);
-    expect(w.wallet).toBe(300_000n);
+    expect(res.claimed_amount).toBe(10_000);
+    expect(w.wallet).toBe(10_000n);
     expect(await code(w.svc.claimMonthly(USER))).toBe('ALREADY_CLAIMED');
     expect(res.me.monthly_reward).toMatchObject({
       claimed: true,

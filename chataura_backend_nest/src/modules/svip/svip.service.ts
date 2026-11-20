@@ -28,6 +28,8 @@ import {
   planUnlock,
   renewsByRechargeOnly,
   svipMonth,
+  svipDay,
+  dailyReward,
   svipStatus,
   takeCredit,
 } from './svip.rules';
@@ -155,6 +157,7 @@ export class SvipService {
     );
     const now = new Date();
     const month = svipMonth(now);
+    const day = svipDay(now);
     const [{ settings, levels }, m, user, points, claim] = await Promise.all([
       this.config(),
       this.prisma.userSvip.findUnique({ where: { userId } }),
@@ -166,7 +169,8 @@ export class SvipService {
         where: { userId_month: { userId, month } },
       }),
       this.prisma.coinTransaction.findFirst({
-        where: { userId, referenceId: this.monthlyRef(month) },
+        // Legacy monthly claim of this month counts too, so nobody is paid twice for the same days.
+        where: { userId, referenceId: { in: [this.dailyRef(day), this.monthlyRef(month)] } },
         select: { id: true },
       }),
     ]);
@@ -214,12 +218,14 @@ export class SvipService {
         points_this_month: Number(points?.points ?? 0n),
         monthly_reward: {
           month,
-          amount: Number(current?.monthlyReward ?? 0n),
+          day,
+          // Today's equal share of the monthly coins.
+          amount: Number(dailyReward(current?.monthlyReward ?? 0n, settings.periodDays)),
           claimed: !!claim,
           can_claim:
             status === 'active' &&
             !claim &&
-            (current?.monthlyReward ?? 0n) > 0n,
+            dailyReward(current?.monthlyReward ?? 0n, settings.periodDays) > 0n,
         },
       },
       levels: levels.map((l) => {
@@ -380,6 +386,7 @@ export class SvipService {
     const { settings, levels } = await this.config();
     const now = new Date();
     const month = svipMonth(now);
+    const day = svipDay(now);
     let amount = 0n;
     await this.prisma.$transaction(async (tx) => {
       await this.lockMember(tx, userId);
@@ -387,26 +394,26 @@ export class SvipService {
       if (svipStatus(m, now, settings.graceDays) !== 'active') {
         svipError(
           'NOT_ACTIVE',
-          'Only active SVIP members can claim monthly coins',
+          'Only active SVIP members can claim daily coins',
         );
       }
-      const ref = this.monthlyRef(month);
+      const ref = this.dailyRef(day);
       const prior = await tx.coinTransaction.findFirst({
-        where: { userId, referenceId: ref },
+        where: { userId, referenceId: { in: [ref, this.monthlyRef(month)] } },
       });
-      if (prior) svipError('ALREADY_CLAIMED', 'You already claimed this month');
-      amount = levels.find((l) => l.level === m!.level)?.monthlyReward ?? 0n;
+      if (prior) svipError('ALREADY_CLAIMED', 'You already claimed today');
+      amount = dailyReward(levels.find((l) => l.level === m!.level)?.monthlyReward ?? 0n, settings.periodDays);
       if (amount <= 0n)
-        svipError('NO_REWARD', 'No monthly coins for this level');
+        svipError('NO_REWARD', 'No daily coins for this level');
       await this.ledger.creditCoins(
         tx,
         userId,
         amount,
         'SVIP_MONTHLY_REWARD',
-        `SVIP ${m!.level} monthly coins`,
+        `SVIP ${m!.level} daily coins`,
         ref,
         undefined,
-        { source: 'svip', currency: 'coins', level: m!.level, month },
+        { source: 'svip', currency: 'coins', level: m!.level, month, day },
       );
     });
     return { ...(await this.center(userId)), claimed_amount: Number(amount) };
@@ -1124,6 +1131,10 @@ export class SvipService {
 
   private monthlyRef(month: string) {
     return `svip_monthly_${month}`;
+  }
+
+  private dailyRef(day: string) {
+    return `svip_daily_${day}`;
   }
 
   /** Serialises every SVIP write for one user (purchase, renew, claim, admin, cron). */
