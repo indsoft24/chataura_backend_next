@@ -88,7 +88,7 @@ export default function LuckyFruitPage() {
     <main className="cp-page">
       <PageHeader
         title="Lucky Fruit"
-        subtitle="A shared 15-second round in the room games list. Players bet chips on fruits, the server draws the winner and pays in coins. Lucky lights 2 random fruits, Super Lucky lights 3."
+        subtitle="A shared 30-second round in the room games list. Players bet chips on fruits, the server draws the winner and pays in coins. Lucky lights 2 random fruits, Super Lucky lights 3."
       />
       {msg && <div className={`cp-alert is-flush ${msg.ok ? 'is-success' : ''}`} style={{ marginBottom: 14 }}>{msg.text}</div>}
       <section className="cp-card">
