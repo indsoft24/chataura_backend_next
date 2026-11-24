@@ -41,6 +41,7 @@ import {
   RejectWithdrawalDto,
   StarDto,
   SuspendDto,
+  BanDeviceDto,
   UpdateEntryBarDto,
   UpdateFrameDto,
   UpdateGiftDto,
@@ -267,6 +268,30 @@ export class AdminController {
     @Body() body?: SuspendDto,
   ) {
     return this.admin.suspend(actor, BigInt(id), body?.reason);
+  }
+
+  @MinTier('superadmin')
+  @Get('banned-devices')
+  bannedDevices() {
+    return this.admin.listBannedDevices();
+  }
+
+  @MinTier('superadmin')
+  @Get('users/:id/devices')
+  userDevices(@Param('id') id: string) {
+    return this.admin.userDevices(BigInt(id));
+  }
+
+  @MinTier('superadmin')
+  @Post('banned-devices')
+  banDevice(@CurrentUser() actor: AuthUser, @Body() body: BanDeviceDto) {
+    return this.admin.banDevice(actor, body.device_id, body.reason);
+  }
+
+  @MinTier('superadmin')
+  @Post('banned-devices/remove')
+  unbanDevice(@Body() body: BanDeviceDto) {
+    return this.admin.unbanDevice(body.device_id);
   }
 
   @Post('users/:id/unsuspend')

@@ -493,6 +493,15 @@ export class UpdateStickerDto {
 // User management actions
 // ──────────────────────────────────────────────
 
+export class BanDeviceDto {
+  @IsString()
+  device_id!: string;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
 export class SuspendDto {
   @IsOptional()
   @IsString()

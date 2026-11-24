@@ -505,6 +505,60 @@ export class AdminService {
     return userForApi(u);
   }
 
+  async listBannedDevices() {
+    const rows = await this.prisma.bannedDevice.findMany({ orderBy: { createdAt: 'desc' } });
+    return {
+      success: true,
+      data: {
+        devices: rows.map((r) => ({
+          device_id: r.deviceId,
+          reason: r.reason,
+          banned_by: r.bannedBy?.toString() ?? null,
+          created_at: r.createdAt,
+        })),
+      },
+    };
+  }
+
+  /** Phones this account signed in on, with how many other accounts use each and whether it is banned. */
+  async userDevices(userId: bigint) {
+    const mine = await this.prisma.authDevice.findMany({ where: { userId }, orderBy: { lastSeenAt: 'desc' } });
+    const ids = mine.map((d) => d.deviceId);
+    const [banned, others] = await Promise.all([
+      this.prisma.bannedDevice.findMany({ where: { deviceId: { in: ids } } }),
+      this.prisma.authDevice.groupBy({ by: ['deviceId'], where: { deviceId: { in: ids } }, _count: { userId: true } }),
+    ]);
+    const bannedSet = new Set(banned.map((b) => b.deviceId));
+    const count = new Map(others.map((o) => [o.deviceId, o._count.userId]));
+    return {
+      success: true,
+      data: {
+        devices: mine.map((d) => ({
+          device_id: d.deviceId,
+          last_seen_at: d.lastSeenAt,
+          accounts_on_device: count.get(d.deviceId) ?? 1,
+          banned: bannedSet.has(d.deviceId),
+        })),
+      },
+    };
+  }
+
+  async banDevice(actor: AuthUser, deviceId: string, reason?: string) {
+    const id = deviceId.trim();
+    if (!id || id.length > 128) throw new BadRequestException('Invalid device id');
+    await this.prisma.bannedDevice.upsert({
+      where: { deviceId: id },
+      create: { deviceId: id, reason: reason ?? null, bannedBy: BigInt(actor.id) },
+      update: { reason: reason ?? null },
+    });
+    return { success: true, data: { device_id: id, banned: true } };
+  }
+
+  async unbanDevice(deviceId: string) {
+    await this.prisma.bannedDevice.deleteMany({ where: { deviceId: deviceId.trim() } });
+    return { success: true, data: { device_id: deviceId.trim(), banned: false } };
+  }
+
   async unsuspend(actor: AuthUser, id: bigint) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) {

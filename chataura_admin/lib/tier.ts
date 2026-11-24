@@ -62,6 +62,7 @@ export const PAGE_MIN_TIER: Record<string, AdminTier> = {
   '/banners': 'manager',
   '/countries': 'manager',
   '/star-accounts': 'manager',
+  '/banned-devices': 'superadmin',
 };
 
 /** True when the actor's tier is at least `min`. */

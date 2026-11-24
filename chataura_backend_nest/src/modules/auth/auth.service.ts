@@ -68,6 +68,7 @@ export class AuthService {
       dto.referral_code ?? dto.invite_code,
     );
 
+    await this.assertDeviceNotBanned(deviceId);
     await this.assertDeviceCanCreateAccount(deviceId);
 
     const displayName = dto.display_name ?? dto.name ?? email.split('@')[0];
@@ -151,6 +152,7 @@ export class AuthService {
       }
       return this.panelPayload(user);
     }
+    await this.assertDeviceNotBanned(deviceId, user);
     await this.assertDeviceAllowsLogin(user, deviceId);
     await this.recordDevice(user.id, deviceId);
     return this.authPayload(user);
@@ -175,6 +177,7 @@ export class AuthService {
 
     if (!user) {
       isNew = true;
+      await this.assertDeviceNotBanned(deviceId);
       await this.assertDeviceCanCreateAccount(deviceId);
       const name = String(payload.name ?? email);
       const passwordHash = await bcrypt.hash(
@@ -221,7 +224,8 @@ export class AuthService {
       }
     } else {
       this.assertAccountActive(user);
-      await this.assertDeviceAllowsLogin(user, deviceId);
+      await this.assertDeviceNotBanned(deviceId, user);
+    await this.assertDeviceAllowsLogin(user, deviceId);
       if (!user.emailVerifiedAt) {
         const verified =
           payload.email_verified === undefined
@@ -494,6 +498,18 @@ export class AuthService {
       success: false,
       error: { code: 'SESSION_REPLACED', message: 'Your account was logged in on another device.' },
     });
+  }
+
+  /** A banned phone cannot sign up or log in. Admin accounts are exempt so staff can never be locked out. */
+  private async assertDeviceNotBanned(deviceId: string | null, user?: User) {
+    if (!deviceId || user?.role === 'admin') return;
+    const banned = await this.prisma.bannedDevice.findUnique({ where: { deviceId } });
+    if (banned) {
+      throw new ForbiddenException({
+        success: false,
+        error: { code: 'ACCOUNT_SUSPENDED', message: 'This device has been banned.' },
+      });
+    }
   }
 
   /** Normal accounts made on this phone so far; staff accounts never count. */

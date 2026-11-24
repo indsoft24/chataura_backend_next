@@ -238,6 +238,16 @@ model AuthDevice {
   @@map("auth_devices")
 }
 
+/// Phones blocked for good: no login or sign-up from these X-Device-Id values (superadmin manages the list).
+model BannedDevice {
+  deviceId  String   @id @map("device_id") @db.VarChar(128)
+  reason    String?  @db.Text
+  bannedBy  BigInt?  @map("banned_by")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("banned_devices")
+}
+
 model UserDevice {
   id        BigInt   @id @default(autoincrement())
   userId    BigInt   @map("user_id")
