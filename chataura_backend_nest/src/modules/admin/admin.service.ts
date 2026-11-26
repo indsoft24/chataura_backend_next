@@ -502,6 +502,8 @@ export class AdminService {
         ...(user.accountStatus === 'deleted' ? {} : { accountStatus: 'suspended' as const }),
       },
     });
+    // A suspended staff member must not skip the emailed code on a remembered browser.
+    await this.prisma.panelTrustedDevice.deleteMany({ where: { userId: id } });
     return userForApi(u);
   }
 
@@ -521,7 +523,12 @@ export class AdminService {
   }
 
   /** Phones this account signed in on, with how many other accounts use each and whether it is banned. */
-  async userDevices(userId: bigint) {
+  async userDevices(ref: string) {
+    // The panel shows the 7-digit display id; internal ids are small numbers. Accept either.
+    const clean = ref.trim();
+    const byDisplay = await this.prisma.user.findUnique({ where: { displayId: clean }, select: { id: true } });
+    const userId = byDisplay?.id ?? (/^\d{1,18}$/.test(clean) ? BigInt(clean) : null);
+    if (userId === null) throw new NotFoundException({ success: false, error: { code: 'NOT_FOUND', message: 'User not found' } });
     const mine = await this.prisma.authDevice.findMany({ where: { userId }, orderBy: { lastSeenAt: 'desc' } });
     const ids = mine.map((d) => d.deviceId);
     const [banned, others] = await Promise.all([

@@ -30,11 +30,13 @@ export async function api<T>(
 
   if (!res.ok) {
     let message = `HTTP ${res.status}`;
+    let code = '';
     try {
       const ct = res.headers.get('content-type') ?? '';
       if (ct.includes('application/json')) {
-        const body = (await res.json()) as { error?: { message?: string }; message?: string };
+        const body = (await res.json()) as { error?: { message?: string; code?: string }; message?: string };
         message = body?.error?.message ?? body?.message ?? message;
+        code = body?.error?.code ?? '';
       } else {
         // HTML error page from Nginx / proxy — don't try to parse JSON
         message = `Server error (${res.status})`;
@@ -42,7 +44,8 @@ export async function api<T>(
     } catch {
       // ignore parse errors
     }
-    if (res.status === 401 && typeof window !== 'undefined') {
+    // A suspended account answers 403 ACCOUNT_SUSPENDED: sign it out like a 401 so the panel never stays open.
+    if ((res.status === 401 || (res.status === 403 && code === 'ACCOUNT_SUSPENDED')) && typeof window !== 'undefined') {
       localStorage.removeItem('ca_admin_token');
       localStorage.removeItem('ca_admin_tier');
       const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '/nextadmin';

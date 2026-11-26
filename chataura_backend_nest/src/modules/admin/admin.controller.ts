@@ -279,7 +279,7 @@ export class AdminController {
   @MinTier('superadmin')
   @Get('users/:id/devices')
   userDevices(@Param('id') id: string) {
-    return this.admin.userDevices(BigInt(id));
+    return this.admin.userDevices(id);
   }
 
   @MinTier('superadmin')
