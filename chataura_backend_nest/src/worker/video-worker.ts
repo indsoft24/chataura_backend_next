@@ -6,14 +6,16 @@
  */
 import Redis from 'ioredis';
 import { spawn } from 'child_process';
-import { copyFileSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync } from 'fs';
+import { closeSync, copyFileSync, openSync, readSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync } from 'fs';
 import { resolve } from 'path';
 import {
   FAILED_KEY,
   MAX_TRIES,
   QUEUE_KEY,
   TRIES_KEY,
+  SAFE_INPUT,
   isCompressible,
+  isMp4Magic,
   needsCompress,
   scaleFilter,
   worthKeeping,
@@ -39,7 +41,7 @@ async function probe(path: string) {
   const out = await run('ffprobe', [
     '-v', 'error', '-select_streams', 'v:0',
     '-show_entries', 'stream=width,height,bit_rate',
-    '-of', 'json', path,
+    '-of', 'json', ...SAFE_INPUT, path,
   ]);
   const s = JSON.parse(out).streams?.[0];
   if (!s) throw new Error('no video stream');
@@ -50,13 +52,17 @@ async function compress(job: { f: string; b?: number }) {
   if (!isCompressible(job.f)) return;
   const src = resolve(UPLOADS, job.f);
   if (!src.startsWith(UPLOADS + '/') || !existsSync(src)) return;
+  const head = Buffer.alloc(12);
+  const fd = openSync(src, 'r');
+  try { readSync(fd, head, 0, 12, 0); } finally { closeSync(fd); }
+  if (!isMp4Magic(head)) { console.warn(`skipped ${job.f}: not an mp4`); return; }
   const before = statSync(src).size;
   if (!needsCompress(await probe(src))) return;
 
   const tmp = resolve(UPLOADS, `.c-${process.pid}-${job.f}`);
   try {
     await run('ffmpeg', [
-      '-nostdin', '-v', 'error', '-y', '-i', src,
+      '-nostdin', '-v', 'error', '-y', ...SAFE_INPUT, '-i', src,
       '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-vf', scaleFilter(), '-r', '30',
       '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', '-threads', '1', '-f', 'mp4', tmp,
     ]);

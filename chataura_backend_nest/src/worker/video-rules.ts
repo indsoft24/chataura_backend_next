@@ -29,3 +29,14 @@ export function scaleFilter(): string {
 export function worthKeeping(oldBytes: number, newBytes: number): boolean {
   return newBytes > 0 && newBytes < oldBytes * 0.8;
 }
+
+/**
+ * Only real MP4/MOV files (an `ftyp` box at byte 4) reach ffmpeg. ffmpeg decides by content, not by name, so a text
+ * file named .mp4 holding an HLS playlist could make it read local files or call other servers.
+ */
+export function isMp4Magic(head: Buffer): boolean {
+  return head.length >= 12 && head.subarray(4, 8).toString('latin1') === 'ftyp';
+}
+
+/** Input options that lock ffmpeg/ffprobe to a plain local file read with the mp4 demuxer. */
+export const SAFE_INPUT = ['-protocol_whitelist', 'file', '-f', 'mov'];
