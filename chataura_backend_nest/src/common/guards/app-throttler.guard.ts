@@ -9,31 +9,20 @@ export class AppThrottlerGuard extends ThrottlerGuard {
       return `usr_${req.user.id}`;
     }
 
-    // 2. Authoritative client IP resolution behind reverse proxy / load balancer
+    // 2. Client IP. Only headers our own nginx sets can be trusted: it overwrites X-Real-IP and appends the
+    // real peer as the LAST X-Forwarded-For entry. cf-connecting-ip and the first XFF entry come straight
+    // from the client, so using them let anyone dodge the limits (login brute force) by rotating a header.
     const headers = req?.headers || {};
-    const cfConnectingIp =
-      typeof headers['cf-connecting-ip'] === 'string'
-        ? headers['cf-connecting-ip']
-        : undefined;
-    const xRealIp =
-      typeof headers['x-real-ip'] === 'string'
-        ? headers['x-real-ip']
-        : undefined;
+    const xRealIp = typeof headers['x-real-ip'] === 'string' ? headers['x-real-ip'] : undefined;
     const xForwardedFor =
-      typeof headers['x-forwarded-for'] === 'string'
-        ? headers['x-forwarded-for']
-        : undefined;
+      typeof headers['x-forwarded-for'] === 'string' ? headers['x-forwarded-for'] : undefined;
 
-    let ip = cfConnectingIp || xRealIp;
+    let ip = xRealIp;
     if (!ip && xForwardedFor) {
-      ip = xForwardedFor.split(',')[0].trim();
+      ip = xForwardedFor.split(',').pop()?.trim();
     }
     if (!ip) {
-      ip =
-        req?.ip ||
-        req?.socket?.remoteAddress ||
-        req?.raw?.socket?.remoteAddress ||
-        '127.0.0.1';
+      ip = req?.socket?.remoteAddress || req?.raw?.socket?.remoteAddress || req?.ip || '127.0.0.1';
     }
 
     return `ip_${String(ip).trim()}`;

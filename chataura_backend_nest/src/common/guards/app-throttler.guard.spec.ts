@@ -31,7 +31,7 @@ describe('AppThrottlerGuard', () => {
     expect(tracker).toBe('usr_42');
   });
 
-  it('prefers cf-connecting-ip for unauthenticated requests', async () => {
+  it('ignores a client-forged cf-connecting-ip and uses nginx x-real-ip', async () => {
     const req = {
       headers: {
         'cf-connecting-ip': '203.0.113.195',
@@ -42,7 +42,7 @@ describe('AppThrottlerGuard', () => {
     };
 
     const tracker = await (guard as any).getTracker(req);
-    expect(tracker).toBe('ip_203.0.113.195');
+    expect(tracker).toBe('ip_198.51.100.1');
   });
 
   it('prefers x-real-ip if cf-connecting-ip is not present', async () => {
@@ -58,12 +58,12 @@ describe('AppThrottlerGuard', () => {
     expect(tracker).toBe('ip_198.51.100.1');
   });
 
-  it('uses first IP from x-forwarded-for if real-ip is not present', async () => {
+  it('uses the LAST x-forwarded-for entry (added by nginx) if real-ip is not present', async () => {
     const req = {
       headers: {
-        'x-forwarded-for': '192.0.2.55, 10.0.0.2',
+        'x-forwarded-for': '6.6.6.6, 192.0.2.55',
       },
-      ip: '10.0.0.2',
+      ip: '6.6.6.6',
     };
 
     const tracker = await (guard as any).getTracker(req);
