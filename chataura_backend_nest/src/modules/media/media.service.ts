@@ -4,11 +4,12 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MediaKind } from '@prisma/client';
-import { createWriteStream, existsSync, mkdirSync } from 'fs';
+import { closeSync, createWriteStream, existsSync, mkdirSync, openSync, readSync, unlinkSync } from 'fs';
 import { basename, join, resolve } from 'path';
 import { pipeline } from 'stream/promises';
 import {
@@ -18,6 +19,12 @@ import {
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RedisService } from '../../common/redis/redis.service';
 import { QUEUE_KEY, isCompressible } from '../../worker/video-rules';
+import { contentMatchesExt, isImageKind } from '../../common/upload/sniff';
+import { scanBuffer, scanFile } from '../../common/av/clam';
+import { toWebp } from './compress-image';
+
+/** Strict (user) uploads: pictures are rebuilt as clean WebP, so this caps what we even try to decode. */
+const MAX_STRICT_IMAGE_BYTES = 25 * 1024 * 1024;
 
 
 /** Pictures users send (room / profile background): 15 MB is far above a compressed photo. */
@@ -25,6 +32,8 @@ const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
 @Injectable()
 export class MediaService {
+  private readonly logger = new Logger(MediaService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
@@ -568,6 +577,40 @@ export class MediaService {
   }
 
   /**
+   * User uploads (posts, reels, generic): only real images / video / audio whose bytes match their extension.
+   * Pictures are rebuilt with sharp (drops anything hidden inside), everything is virus-scanned, and
+   * anything else (svg, html, json, scripts, renamed files) is refused.
+   */
+  private async storeStrict(part: { filename?: string; toBuffer: () => Promise<Buffer>; file: NodeJS.ReadableStream }) {
+    const name = part.filename || 'upload';
+    const ext = (name.split('.').pop() || '').toLowerCase();
+    const base = basename(name).replace(/\.[^.]*$/, '');
+    const reject = (why: string) => {
+      this.logger.warn(`upload refused (${why}): ${name}`);
+      return undefined;
+    };
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) {
+      const buf = await part.toBuffer();
+      if (buf.length > MAX_STRICT_IMAGE_BYTES) return reject('image too big');
+      const kind = contentMatchesExt(ext, buf.subarray(0, 16));
+      if (!kind || !isImageKind(kind)) return reject('not the image it says');
+      if ((await scanBuffer(buf)) === 'infected') return reject('virus');
+      const webp = await toWebp(buf, 1280); // null for animated or no gain: keep the verified original
+      return this.storeLocalFile(`${base}.${webp ? 'webp' : kind}`, Readable.from(webp ?? buf));
+    }
+    // Video / audio: stream to disk, then check the first bytes and scan the saved file.
+    const url = await this.storeLocalFile(name, part.file);
+    const saved = resolve(process.cwd(), 'uploads', url.split('/uploads/')[1]);
+    const head = Buffer.alloc(16);
+    const fd = openSync(saved, 'r');
+    try { readSync(fd, head, 0, 16, 0); } finally { closeSync(fd); }
+    const ok = contentMatchesExt(ext, head);
+    if (!ok) { unlinkSync(saved); return reject('content does not match extension'); }
+    if ((await scanFile(saved)) === 'infected') { unlinkSync(saved); return reject('virus'); }
+    return url;
+  }
+
+  /**
    * Attempt to consume a multipart file from the incoming Fastify request.
    * Returns the persisted file URL if a valid file was found, or `fallback` otherwise.
    * Extracted from MediaController.maybeStore() to keep controllers free of
@@ -576,12 +619,13 @@ export class MediaService {
   async storeFromRequest(
     req: { file?: () => Promise<any> },
     fallback?: string,
-    opts: { imagesOnly?: boolean; maxBytes?: number } = {},
+    opts: { imagesOnly?: boolean; maxBytes?: number; strict?: boolean } = {},
   ): Promise<string | undefined> {
     if (typeof req.file !== 'function') return fallback;
     try {
       const part = await req.file();
       if (!part) return fallback;
+      if (opts.strict) return (await this.storeStrict(part)) ?? fallback;
       const mime = (part.mimetype || '').toLowerCase();
       const ext = (part.filename || '').split('.').pop()?.toLowerCase();
       if (opts.imagesOnly) {

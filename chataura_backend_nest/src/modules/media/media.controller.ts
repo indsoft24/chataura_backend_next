@@ -133,7 +133,7 @@ export class MediaController {
     },
   ) {
     const safe = body ?? {};
-    const fileUrl = await this.media.storeFromRequest(req, safe.file_url);
+    const fileUrl = await this.media.storeFromRequest(req, safe.file_url, { strict: true });
     if (!fileUrl) {
       throw new BadRequestException({
         success: false,
@@ -164,7 +164,7 @@ export class MediaController {
     },
   ) {
     const safe = body ?? {};
-    const fileUrl = await this.media.storeFromRequest(req, safe.file_url);
+    const fileUrl = await this.media.storeFromRequest(req, safe.file_url, { strict: true });
     if (!fileUrl) {
       throw new BadRequestException({
         success: false,
@@ -194,7 +194,7 @@ export class MediaController {
     body?: { filename?: string; content_type?: string; file_url?: string },
   ) {
     const safe = body ?? {};
-    const stored = await this.media.storeFromRequest(req, safe.file_url);
+    const stored = await this.media.storeFromRequest(req, safe.file_url, { strict: true });
     if (stored) return this.uploadPayload(stored);
 
     const contentType = String(req.headers['content-type'] || '').toLowerCase();

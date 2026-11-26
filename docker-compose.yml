@@ -35,6 +35,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - NODE_OPTIONS=--max-old-space-size=1200
+      - CLAMAV_HOST=clamav
     deploy:
       resources:
         limits:
@@ -46,6 +47,26 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - chataura_net
+    profiles:
+      - full
+
+  # Virus scanner for user uploads (the API talks to it on port 3310; if it is down uploads still work, unscanned).
+  clamav:
+    image: clamav/clamav:stable
+    container_name: chataura_clamav
+    restart: unless-stopped
+    environment:
+      - CLAMD_CONF_StreamMaxLength=100M
+      - CLAMD_CONF_MaxFileSize=100M
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2G
+    volumes:
+      - clamav_db:/var/lib/clamav
     networks:
       - chataura_net
     profiles:
@@ -184,6 +205,7 @@ volumes:
   postgres_data:
   redis_data:
   uploads_data:
+  clamav_db:
 
 networks:
   chataura_net:
