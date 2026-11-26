@@ -86,11 +86,18 @@ async function bootstrap() {
   });
 
   const config = app.get(ConfigService);
-  const corsOrigin = config.get<string>('CORS_ORIGIN', '*');
+  const corsOrigin = config.get<string>('CORS_ORIGIN', 'https://chataura.in');
 
   const apiPrefix = config.get<string>('API_PREFIX', 'api/v2').replace(/^\/+|\/+$/g, '');
   app.setGlobalPrefix(apiPrefix, {
     exclude: PUBLIC_WEB_PATHS,
+  });
+  // Plain-header hardening (no extra dependency): this API only returns JSON, so it must never be framed or sniffed.
+  fastify.addHook('onSend', async (_req: unknown, reply: any) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('X-Frame-Options', 'DENY');
+    reply.header('Referrer-Policy', 'no-referrer');
+    reply.header('Strict-Transport-Security', 'max-age=15552000');
   });
   app.enableCors({
     origin: corsOrigin === '*' ? true : corsOrigin.split(','),

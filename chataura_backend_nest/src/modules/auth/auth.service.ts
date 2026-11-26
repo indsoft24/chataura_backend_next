@@ -538,7 +538,14 @@ export class AuthService {
 
   /** A phone already used by `max` other normal accounts cannot open a further one. */
   private async assertDeviceAllowsLogin(user: User, deviceId: string | null) {
-    if (!deviceId || user.role !== 'user') return; // old app: no id to check; staff are never capped
+    if (user.role !== 'user') return; // staff are never capped
+    // No device id = no way to enforce the per-phone cap or ban list, so the account cannot be used.
+    if (!deviceId) {
+      throw new ForbiddenException({
+        success: false,
+        error: { code: 'APP_UPDATE_REQUIRED', message: 'Please update Chat Aura from the Play Store to log in.' },
+      });
+    }
     const max = await this.maxAccountsPerDevice();
     const first = await this.prisma.authDevice.findMany({
       where: { deviceId, user: { role: 'user' } },
