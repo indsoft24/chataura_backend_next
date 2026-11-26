@@ -143,6 +143,7 @@ export class MediaController {
         },
       });
     }
+    await this.media.queueCompress(fileUrl);
     return this.media.create(user.id, 'post', { ...safe, file_url: fileUrl });
   }
 
@@ -173,6 +174,7 @@ export class MediaController {
         },
       });
     }
+    await this.media.queueCompress(fileUrl);
     return this.media.create(user.id, 'reel', {
       ...safe,
       file_url: fileUrl,

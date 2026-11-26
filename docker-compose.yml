@@ -51,6 +51,37 @@ services:
     profiles:
       - full
 
+  # Re-encodes uploaded reel/post videos to 480p in the background. Its own container with a CPU cap,
+  # so a flood of uploads makes the queue longer, never the API slower.
+  video-worker:
+    build:
+      context: ./chataura_backend_nest
+      dockerfile: docker/Dockerfile
+      target: production
+    container_name: chataura_video_worker
+    restart: unless-stopped
+    command: ["node", "dist/worker/video-worker.js"]
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      - UPLOADS_DIR=/app/uploads
+      - BACKUP_DIR=/orig
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 400M
+    volumes:
+      - uploads_data:/app/uploads
+      - /var/backups/uploads_orig:/orig
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - chataura_net
+    profiles:
+      - full
+
   admin-panel:
     build:
       context: ./chataura_admin

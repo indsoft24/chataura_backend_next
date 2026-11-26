@@ -16,6 +16,8 @@ import {
   resolveFlagUrl,
 } from '../../common/countries/country-catalog';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { RedisService } from '../../common/redis/redis.service';
+import { QUEUE_KEY, isCompressible } from '../../worker/video-rules';
 
 
 /** Pictures users send (room / profile background): 15 MB is far above a compressed photo. */
@@ -26,7 +28,19 @@ export class MediaService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly redis: RedisService,
   ) {}
+
+  /** Hands a freshly uploaded video to the separate video-worker (480p re-encode). Never blocks or fails the upload. */
+  async queueCompress(fileUrl?: string) {
+    const f = fileUrl?.split('/uploads/')[1];
+    if (!f || !isCompressible(f)) return;
+    try {
+      await this.redis.getClient().lpush(QUEUE_KEY, JSON.stringify({ f }));
+    } catch {
+      // queue down: the original video stays as uploaded, the backfill picks it up later
+    }
+  }
 
   async feed(
     userId: bigint | undefined,
