@@ -45,8 +45,8 @@ export class AuthController {
   @Public()
   @Throttle({ default: { limit: 5, ttl: seconds(60) } })
   @Post('register')
-  register(@Body() dto: RegisterDto, @Headers('x-device-id') deviceId?: string) {
-    return this.auth.register(dto, normalizeDeviceId(deviceId));
+  register(@Body() dto: RegisterDto, @Headers('x-device-id') deviceId?: string, @Headers('x-real-ip') ip?: string) {
+    return this.auth.register(dto, normalizeDeviceId(deviceId), ip ?? null);
   }
 
   @Public()
@@ -100,8 +100,8 @@ export class AuthController {
   @Public()
   @Throttle({ default: { limit: 10, ttl: seconds(60) } })
   @Post('google')
-  google(@Body() dto: GoogleLoginDto, @Headers('x-device-id') deviceId?: string) {
-    return this.auth.google(dto, normalizeDeviceId(deviceId));
+  google(@Body() dto: GoogleLoginDto, @Headers('x-device-id') deviceId?: string, @Headers('x-real-ip') ip?: string) {
+    return this.auth.google(dto, normalizeDeviceId(deviceId), ip ?? null);
   }
 
   @Public()

@@ -34,6 +34,8 @@ import {
   VerifyEmailOtpDto,
 } from './dto/auth.dto';
 import { User } from '@prisma/client';
+import { RedisService } from '../../common/redis/redis.service';
+import { isDisposableEmail, SIGNUPS_PER_IP_PER_DAY } from './signup-guard';
 import { canCreateAccount, canUseDevice, PANEL_SESSION, readMaxAccountsPerDevice } from './session.rules';
 
 @Injectable()
@@ -48,10 +50,21 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly online: OnlinePresenceService,
     private readonly users: UserService,
+    private readonly redis: RedisService,
   ) {}
 
-  async register(dto: RegisterDto, deviceId: string | null = null) {
+  async register(dto: RegisterDto, deviceId: string | null = null, ip: string | null = null) {
     const email = dto.email.toLowerCase();
+    if (isDisposableEmail(email)) {
+      throw new BadRequestException({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Validation failed',
+          errors: { email: ['Temporary email addresses are not allowed. Please use your real email.'] },
+        },
+      });
+    }
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
       throw new BadRequestException({
@@ -70,6 +83,7 @@ export class AuthService {
 
     await this.assertDeviceNotBanned(deviceId);
     await this.assertDeviceCanCreateAccount(deviceId);
+    await this.assertIpSignupCap(ip);
 
     const displayName = dto.display_name ?? dto.name ?? email.split('@')[0];
     const passwordHash = await bcrypt.hash(dto.password, 10);
@@ -158,7 +172,7 @@ export class AuthService {
     return this.authPayload(user);
   }
 
-  async google(dto: GoogleLoginDto, deviceId: string | null = null) {
+  async google(dto: GoogleLoginDto, deviceId: string | null = null, ip: string | null = null) {
     const payload = await this.verifyGoogleIdToken(dto.id_token);
     if (!payload?.email) {
       throw new UnauthorizedException({
@@ -179,6 +193,7 @@ export class AuthService {
       isNew = true;
       await this.assertDeviceNotBanned(deviceId);
       await this.assertDeviceCanCreateAccount(deviceId);
+      await this.assertIpSignupCap(ip);
       const name = String(payload.name ?? email);
       const passwordHash = await bcrypt.hash(
         randomBytes(24).toString('hex'),
@@ -498,6 +513,26 @@ export class AuthService {
       success: false,
       error: { code: 'SESSION_REPLACED', message: 'Your account was logged in on another device.' },
     });
+  }
+
+  /** One IP may open only a few new accounts a day (counted in Redis; Redis down = no cap, never a blocked signup). */
+  private async assertIpSignupCap(ip: string | null) {
+    if (!ip) return;
+    let n = 0;
+    try {
+      const key = `signup:ip:${new Date().toISOString().slice(0, 10)}:${ip}`;
+      const client = this.redis.getClient();
+      n = await client.incr(key);
+      if (n === 1) await client.expire(key, 86400);
+    } catch {
+      return;
+    }
+    if (n > SIGNUPS_PER_IP_PER_DAY) {
+      throw new ForbiddenException({
+        success: false,
+        error: { code: 'TOO_MANY_SIGNUPS', message: 'Too many new accounts from this network today. Please try again tomorrow.' },
+      });
+    }
   }
 
   /** A banned phone cannot sign up or log in. Admin accounts are exempt so staff can never be locked out. */
