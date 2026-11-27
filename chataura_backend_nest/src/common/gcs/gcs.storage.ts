@@ -1,6 +1,7 @@
 import { existsSync } from 'fs';
 import { basename, resolve } from 'path';
 import { Storage } from '@google-cloud/storage';
+import { assetPublicBase, putR2Object, r2Configured } from './asset-store';
 
 const CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
@@ -60,6 +61,8 @@ export function createGcsStorage(): Storage {
 }
 
 export function publicGcsUrl(bucket: string, objectPath: string): string {
+  const cdn = assetPublicBase();
+  if (cdn) return `${cdn}/${objectPath}`;
   return `https://storage.googleapis.com/${bucket}/${objectPath}`;
 }
 
@@ -69,9 +72,14 @@ export async function uploadPublicFile(opts: {
   contentType?: string;
   bucket?: string;
 }): Promise<{ bucket: string; objectPath: string; url: string }> {
-  const bucketName = opts.bucket ?? getGcsBucketName();
   const contentType =
     opts.contentType ?? contentTypeForPath(opts.localPath);
+  if (r2Configured()) {
+    // Public files live on R2 behind the CDN host; the GCS bucket is private and no longer written.
+    await putR2Object({ localPath: opts.localPath, objectPath: opts.objectPath, contentType, cacheControl: CACHE_CONTROL });
+    return { bucket: process.env.R2_BUCKET!, objectPath: opts.objectPath, url: `${assetPublicBase()}/${opts.objectPath}` };
+  }
+  const bucketName = opts.bucket ?? getGcsBucketName();
   const storage = createGcsStorage();
   const bucket = storage.bucket(bucketName);
 

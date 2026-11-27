@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
+import { assetPublicBase } from '../../common/gcs/asset-store';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { isAllowedMediaUrl } from '../chat/chat-rules';
@@ -215,6 +216,7 @@ export class SvipPrivilegesService {
     return [
       `${base}/uploads`,
       ...(bucket ? [`https://storage.googleapis.com/${bucket}`] : []),
+      ...(assetPublicBase() ? [assetPublicBase()] : []),
     ];
   }
 }

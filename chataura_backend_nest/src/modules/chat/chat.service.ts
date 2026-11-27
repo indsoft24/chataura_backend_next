@@ -1,4 +1,5 @@
 import { assertSvipLevel, SVIP_PRIVILEGE_LEVEL } from '../svip/svip-gates';
+import { assetPublicBase } from '../../common/gcs/asset-store';
 import {
   BadRequestException,
   ForbiddenException,
@@ -126,6 +127,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     return [
       `${base}/uploads`,
       ...(bucket ? [`https://storage.googleapis.com/${bucket}`] : []),
+      ...(assetPublicBase() ? [assetPublicBase()] : []),
     ];
   }
 

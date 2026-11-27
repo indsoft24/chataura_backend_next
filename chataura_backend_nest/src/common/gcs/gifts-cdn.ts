@@ -1,7 +1,11 @@
+import { assetPublicBase } from './asset-store';
+
 /**
  * Gift media CDN base under GCS gifts/v1 (or legacy Nest uploads fallback).
  */
 export function resolveGiftsCdnBase(): string {
+  const cdn = assetPublicBase();
+  if (cdn) return `${cdn}/gifts/v1`;
   const explicit = (process.env.GIFTS_PUBLIC_BASE ?? '').trim().replace(/\/+$/, '');
   if (explicit) return explicit;
 
@@ -47,6 +51,7 @@ export function giftsCdnExtraUrl(uploadsRelativePath: string): string {
 export function isGiftsGcsCdn(): boolean {
   const base = resolveGiftsCdnBase();
   return (
+    Boolean(assetPublicBase()) ||
     base.includes('storage.googleapis.com') ||
     Boolean((process.env.GIFTS_PUBLIC_BASE ?? '').trim())
   );
